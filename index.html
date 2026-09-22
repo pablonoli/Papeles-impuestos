@@ -289,7 +289,7 @@
 <div id="date-picker-root"></div>
 <div id="toast-root"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style/dist/xlsx.bundle.js"></script>
 <script>
 // Datos de ejemplo cargados a partir de las planillas que Pablo compartió
 // (Liquidación IVA 0826 a 1226.xlsx, Liquidacion IB.xlsx, Liquidación IIBB.xlsx).
@@ -879,7 +879,7 @@ async function gistCreate(token) {
     saveSyncConfig({ token, gistId: data.id });
     state.lastSync = new Date();
     showToast("Gist creado y sincronizado");
-    renderSyncModal();
+    document.getElementById("modal-root").innerHTML = "";
     render();
     return true;
   } catch (e) {
@@ -930,16 +930,23 @@ async function syncSaveFromModal() {
     pickDefaultPeriod();
     showToast("Datos traídos de GitHub");
   } else {
-    await gistPush();
+    const pushed = await gistPush();
+    if (!pushed) { renderSyncModal(); return; } // error: dejamos el modal abierto para reintentar
     showToast("Sincronizado con GitHub");
   }
-  renderSyncModal();
+  document.getElementById("modal-root").innerHTML = "";
   render();
 }
 async function syncPullFromModal() {
   const ok = await gistPull();
-  if (ok) { state.currentClientId = state.clients[0] && state.clients[0].id; pickDefaultPeriod(); showToast("Datos actualizados desde GitHub"); }
-  renderSyncModal();
+  if (ok) {
+    state.currentClientId = state.clients[0] && state.clients[0].id;
+    pickDefaultPeriod();
+    showToast("Datos actualizados desde GitHub");
+    document.getElementById("modal-root").innerHTML = "";
+  } else {
+    renderSyncModal(); // error: dejamos el modal abierto para reintentar
+  }
   render();
 }
 
@@ -2546,6 +2553,20 @@ function nowStampAR() {
 // de sección.
 function newSheet(rows, opts) {
   opts = opts || {};
+  // Si una fila tiene una celda fusionada ("merge") pero el array sólo trae
+  // valor en la primera columna de ese rango, completamos las demás con ""
+  // para que existan como celdas reales — si no, el borde y el color de
+  // fondo sólo se verían en la primera celda del título/banner, no en todo
+  // el ancho fusionado.
+  (opts.merges || []).forEach((m) => {
+    if (!m) return;
+    for (let r = m.s.r; r <= m.e.r; r++) {
+      if (!rows[r]) rows[r] = [];
+      for (let c = m.s.c; c <= m.e.c; c++) {
+        if (rows[r][c] === undefined) rows[r][c] = "";
+      }
+    }
+  });
   const ws = XLSX.utils.aoa_to_sheet(rows);
   const ref = ws["!ref"];
   if (ref) {
@@ -2576,6 +2597,47 @@ function newSheet(rows, opts) {
   if (opts.colWidths) ws["!cols"] = opts.colWidths.map((w) => ({ wch: w }));
   if (opts.merges) ws["!merges"] = opts.merges;
   if (opts.freezeHeaderRow != null) ws["!freeze"] = { xSplit: 0, ySplit: opts.freezeHeaderRow };
+
+  // Estilo: título de la hoja (fila 0) en violeta con texto blanco, banners
+  // de sección (filas fusionadas de punta a punta, se detectan solas a
+  // partir de los merges) en violeta claro, encabezados de columna
+  // (opts.headerRows, porque no siempre están fusionados y hay que
+  // indicarlos a mano) en un violeta más suave, y borde fino en toda celda
+  // con datos para delimitar cada cuadro. Va al final para no perder el
+  // estilo cuando el paso de fórmulas de arriba reemplaza la celda.
+  const BORDER = { style: "thin", color: { rgb: "D9D2EE" } };
+  const bannerRows = new Set();
+  (opts.merges || []).forEach((m) => { if (m && m.s.r === m.e.r && m.e.c > m.s.c) bannerRows.add(m.s.r); });
+  const headerRows = new Set(opts.headerRows || []);
+  const finalRef = ws["!ref"];
+  if (finalRef) {
+    const range = XLSX.utils.decode_range(finalRef);
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+        const cell = ws[addr];
+        if (!cell) continue;
+        const style = { border: { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER } };
+        if (R === 0) {
+          style.font = { bold: true, sz: 13, color: { rgb: "FFFFFF" } };
+          style.fill = { patternType: "solid", fgColor: { rgb: "6D28D9" } };
+          style.alignment = { vertical: "center", wrapText: true };
+        } else if (bannerRows.has(R)) {
+          style.font = { bold: true, color: { rgb: "3D2273" } };
+          style.fill = { patternType: "solid", fgColor: { rgb: "EAE1FB" } };
+          style.alignment = { vertical: "center", wrapText: true };
+        } else if (headerRows.has(R)) {
+          style.font = { bold: true, color: { rgb: "3D2273" } };
+          style.fill = { patternType: "solid", fgColor: { rgb: "F5F1FC" } };
+          style.alignment = { wrapText: true, vertical: "bottom" };
+        } else {
+          style.alignment = { wrapText: C === 0, vertical: "top" };
+          if (cell.v === "REVISAR") style.font = { bold: true, color: { rgb: "C0392B" } };
+        }
+        cell.s = style;
+      }
+    }
+  }
   return ws;
 }
 
@@ -2623,7 +2685,7 @@ function exportClientToExcel(client) {
 
   const sections = [];
   if (client.iva.enabled) sections.push({ sheet: "DDJJ IVA / MM-AAAA", desc: "Declaración jurada de IVA por período y detalle de débito/crédito fiscal con origen de cada importe." });
-  if (client.iibbLocal.enabled) sections.push({ sheet: "IIBB Local", desc: "Liquidación mensual de Ingresos Brutos, jurisdicción local." });
+  if (client.iibbLocal.enabled) sections.push({ sheet: "DDJJ IIBB Local", desc: "Liquidación mensual de Ingresos Brutos, jurisdicción local." });
   if (client.iibbCM.enabled) sections.push({ sheet: "Coeficientes / Actividades / Liquidacion CM", desc: "Ingresos Brutos Convenio Multilateral: coeficientes de distribución, montos por actividad y liquidación por jurisdicción." });
   buildIndexSheet(wb, client, sections);
 
@@ -2668,6 +2730,7 @@ function buildIvaSheets(wb, client) {
     rows.push(["DÉBITO FISCAL"]);
     merges.push({ s: { r: 2, c: 0 }, e: { r: 2, c: 5 } });
     rows.push(["Concepto", "Neto según libros", "Débito calculado", "Débito según portal ARCA", "Diferencia (portal - calculado)", "Alerta"]);
+    const debitoHeaderRow = rows.length - 1;
     const pushBracket = (b, factor) => {
       const R = rows.length;
       const f = factor == null ? 1 : factor;
@@ -2688,6 +2751,7 @@ function buildIvaSheets(wb, client) {
     rows.push([client.iva.prorrateoExento ? `CRÉDITO FISCAL (compras con prorrateo ${fmtPctRaw(r.coefProrrateo * 100)}% aplicado)` : "CRÉDITO FISCAL"]);
     merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 5 } });
     rows.push(["Concepto", "Neto según libros", "Crédito calculado", "Crédito según portal ARCA", "Diferencia (portal - calculado)", "Alerta"]);
+    const creditoHeaderRow = rows.length - 1;
     const creditoOnlyStart = rows.length;
     r.creditoBrackets.forEach((b) => pushBracket(b, r.coefProrrateo));
     const creditoOnlyEnd = rows.length - 1;
@@ -2710,11 +2774,12 @@ function buildIvaSheets(wb, client) {
       restCreditoRange: restCreditoEnd >= restCreditoStart ? [restCreditoStart, restCreditoEnd] : null,
     };
     XLSX.utils.book_append_sheet(wb, newSheet(rows, {
-      colWidths: [46, 16, 16, 18, 18, 10],
+      colWidths: [50, 17, 17, 19, 19, 11],
       merges: merges.filter(Boolean),
       skipCols: [0, 5],
       formulas,
       freezeHeaderRow: 4,
+      headerRows: [debitoHeaderRow, creditoHeaderRow],
     }), sheetName);
   });
 
@@ -2816,6 +2881,7 @@ function buildIibbLocalSheet(wb, client) {
     activities.forEach((a) => header.push(`${a.code} — ${a.desc} — Ventas netas`, `${a.code} — Impuesto (${fmtPctRaw(a.alicuota)}%)`));
     header.push("TOTAL Base", "TOTAL Impuesto");
     actRows.push(header);
+    const actHeaderRow = actRows.length - 1;
     periods.forEach((p) => {
       const doc = getDoc(client.id, p);
       const actData = (doc && doc.iibbLocal && doc.iibbLocal.actividades) || {};
@@ -2844,6 +2910,7 @@ function buildIibbLocalSheet(wb, client) {
       merges: actMerges.filter(Boolean),
       skipCols: [0],
       formulas: actFormulas,
+      headerRows: [actHeaderRow],
     }), "IIBB Local Activ.");
   }
 
@@ -2853,9 +2920,10 @@ function buildIibbLocalSheet(wb, client) {
   const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }];
   rows.push([]);
   rows.push(["Período", "Ventas netas (según libros)", "Alícuota efectiva", "Impuesto (calculado)", "Retenciones (sistema)", "Percepciones (sistema)", "Rec. bancarias (sistema)", "Saldo período anterior", "Saldo a pagar / (a favor)"]);
+  const mainHeaderRow = rows.length - 1;
   const formats = new Map();
   const formulas = new Map();
-  const sheetName = "IIBB Local";
+  const sheetName = "DDJJ IIBB Local";
   const actSheetName = "IIBB Local Activ.";
   let prevSaldoCell = null;
   periods.forEach((p) => {
@@ -2880,6 +2948,7 @@ function buildIibbLocalSheet(wb, client) {
     formats,
     formulas,
     freezeHeaderRow: 3,
+    headerRows: [mainHeaderRow],
   }), sheetName);
 }
 
@@ -2895,11 +2964,13 @@ function buildIibbCMSheets(wb, client) {
   const coefRows = [["Coeficientes de distribución por jurisdicción — " + client.name]];
   const coefMerges = [sectionMerge(coefRows, 2)];
   const coefFormats = new Map();
+  const coefHeaderRows = [];
   (client.iibbCM.coeficientes || []).slice().sort((a, b) => a.desde.localeCompare(b.desde)).forEach((v) => {
     coefRows.push([]);
     coefRows.push([`Coeficiente vigente desde ${periodLabel(v.desde)}`]);
     coefMerges.push({ s: { r: coefRows.length - 1, c: 0 }, e: { r: coefRows.length - 1, c: 1 } });
     coefRows.push(["Jurisdicción", "Coeficiente"]);
+    coefHeaderRows.push(coefRows.length - 1);
     jurisdictions.forEach((j) => {
       const R = coefRows.length;
       coefFormats.set(R + ":1", "0.0000%");
@@ -2912,6 +2983,7 @@ function buildIibbCMSheets(wb, client) {
     merges: coefMerges.filter(Boolean),
     skipCols: [0],
     formats: coefFormats,
+    headerRows: coefHeaderRows,
   }), "Coeficientes");
 
   // ---- 2) Actividades: monto imponible nacional (dato cargado), por
@@ -2922,6 +2994,7 @@ function buildIibbCMSheets(wb, client) {
   const actFormulas = new Map();
   actRows.push([]);
   actRows.push(["Período", ...activities.map((a) => `${a.code} — ${a.desc}`), "TOTAL"]);
+  const cmActHeaderRow = actRows.length - 1;
   periods.forEach((p) => {
     const doc = getDoc(client.id, p);
     const acts = (doc && doc.iibbCM && doc.iibbCM.actividades) || {};
@@ -2937,6 +3010,7 @@ function buildIibbCMSheets(wb, client) {
     merges: actMerges.filter(Boolean),
     skipCols: [0],
     formulas: actFormulas,
+    headerRows: [cmActHeaderRow],
   }), "Actividades");
 
   // ---- 3) Detalle: una fila por período x jurisdicción x actividad, con
@@ -2948,6 +3022,7 @@ function buildIibbCMSheets(wb, client) {
   const detFormulas = new Map();
   detRows.push([]);
   detRows.push(["Período", "Jurisdicción", "Actividad", "Ventas nacionales (actividad)", "Coeficiente", "Ajuste", "Base (Ventas x Coef + Ajuste)", "Alícuota", "Impuesto"]);
+  const detHeaderRow = detRows.length - 1;
   const detMeta = {}; // period -> { [jurName]: {start,end} }
   periods.forEach((p) => {
     const doc = getDoc(client.id, p);
@@ -2980,6 +3055,7 @@ function buildIibbCMSheets(wb, client) {
     skipCols: [0, 1, 2],
     formulas: detFormulas,
     freezeHeaderRow: 3,
+    headerRows: [detHeaderRow],
   }), "CM Detalle");
 
   // ---- 4) Liquidación: una fila por jurisdicción y período, con Base e
@@ -2988,6 +3064,7 @@ function buildIibbCMSheets(wb, client) {
   const liqRows = [["Liquidación por jurisdicción y período — " + client.name]];
   const liqMerges = [sectionMerge(liqRows, 9)];
   const liqFormulas = new Map();
+  const liqHeaderRows = [];
   const prevAFavorRow = {}; // jurName -> row
   periods.forEach((p) => {
     const r = calcIibbCMFor(client, p);
@@ -2995,6 +3072,7 @@ function buildIibbCMSheets(wb, client) {
     liqRows.push([periodLabel(p).toUpperCase()]);
     liqMerges.push({ s: { r: liqRows.length - 1, c: 0 }, e: { r: liqRows.length - 1, c: 8 } });
     liqRows.push(["Jurisdicción", "Base imponible (calculada)", "Impuesto anticipo (calculado)", "Retenciones (sistema)", "Percepciones (sistema)", "Rec. bancarias (sistema)", "Saldo período anterior", "A pagar", "A favor"]);
+    liqHeaderRows.push(liqRows.length - 1);
     const periodJurRows = [];
     r.jurRows.forEach((j) => {
       const R = liqRows.length;
@@ -3024,6 +3102,7 @@ function buildIibbCMSheets(wb, client) {
     merges: liqMerges.filter(Boolean),
     skipCols: [0],
     formulas: liqFormulas,
+    headerRows: liqHeaderRows,
   }), "Liquidacion");
 }
 
