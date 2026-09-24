@@ -3171,7 +3171,7 @@ function buildIibbCMSheets(wb, client) {
   // Ajuste, e Impuesto = Base x Alícuota. Acá se ve de dónde sale cada
   // importe que en "Liquidacion" aparece ya sumado. ----
   const detRows = [["Detalle por jurisdicción y actividad — " + client.name]];
-  const detMerges = [sectionMerge(detRows, 7)];
+  const detMerges = [sectionMerge(detRows, 8)];
   const detFormulas = new Map();
   detRows.push([]);
   const detHeaderRows = [];
@@ -3183,7 +3183,7 @@ function buildIibbCMSheets(wb, client) {
     detMeta[p] = {};
     if (pIdx > 0) { detRows.push([]); detRows.push([]); } // doble salto entre un mes y el siguiente
     detRows.push([periodLabel(p).toUpperCase()]);
-    detMerges.push(sectionMerge(detRows, 7));
+    detMerges.push(sectionMerge(detRows, 8));
     detRows.push(["Jurisdicción", "Actividad", "Ventas nacionales (actividad)", "Coeficiente", "Ajuste", "Base (Ventas x Coef + Ajuste)", "Alícuota", "Impuesto"]);
     detHeaderRows.push(detRows.length - 1);
     let firstJurInPeriod = true;
