@@ -2615,7 +2615,7 @@ function newSheet(rows, opts) {
   const bannerRows = new Set();
   (opts.merges || []).forEach((m) => { if (m && m.s.r === m.e.r && m.e.c > m.s.c) bannerRows.add(m.s.r); });
   const headerRows = new Set(opts.headerRows || []);
-  const isTotalLabel = (v) => typeof v === "string" && v.trim().length > 2 && v === v.toUpperCase() && v !== v.toLowerCase();
+  const isTotalLabel = (v) => typeof v === "string" && /(^|[^a-záéíóúñ])TOTAL(ES)?([^a-záéíóúñ]|$)/i.test(v.trim());
 
   // Detectar cada "cuadro": tramo de filas contiguas con datos, separado del
   // resto por al menos una fila en blanco. Sirve tanto para el contorno
@@ -2664,6 +2664,7 @@ function newSheet(rows, opts) {
           style.alignment = { wrapText: C === 0, vertical: "top" };
           if (cell.v === "REVISAR") style.font = { bold: true, color: { rgb: "C0392B" } };
           else if (isTotalLabel(rows[R] && rows[R][0])) style.font = { bold: true };
+          if (opts.highlightRows && opts.highlightRows.has(R)) style.font = { bold: true, color: { rgb: opts.highlightRows.get(R) } };
         }
         cell.s = style;
       }
@@ -2680,6 +2681,16 @@ function newSheet(rows, opts) {
           if (C === b.c0) cell.s.border.left = THICK;
           if (C === b.c1) cell.s.border.right = THICK;
         }
+      }
+    });
+    // Divisores internos (por ejemplo, entre jurisdicciones dentro del mismo
+    // cuadro): una línea algo más marcada arriba de esa fila, sin llegar a
+    // fragmentar el cuadro en varios.
+    (opts.innerDividerRows || []).forEach((R) => {
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+        const cell = ws[addr];
+        if (cell && cell.s && cell.s.border) cell.s.border.top = { style: "medium", color: { rgb: "B7A9E0" } };
       }
     });
   }
@@ -2833,6 +2844,7 @@ function buildIvaSheets(wb, client) {
   const ddjj = [["DDJJ IVA — " + client.name]];
   const ddjjMerges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }];
   const ddjjFormulas = new Map();
+  const ddjjHighlights = new Map();
   ddjj.push([client.cuit ? "CUIT " + client.cuit : ""]);
   ddjj.push([]);
 
@@ -2888,6 +2900,12 @@ function buildIvaSheets(wb, client) {
     ddjjFormulas.set(saldoAPagarRow + ":1",
       `IF(B${saldoTecARCARow + 1}<=0,0,MAX(B${saldoTecARCARow + 1}+B${montoUtilizadoRow + 1}-B${libreDispAnteriorRow + 1}-B${percepcionesRow + 1}-B${retencionesRow + 1},0))`);
     ddjj.push(["SALDO A PAGAR", r.saldoAPagar]);
+    // Se resalta el resultado real de la DDJJ: si queda saldo a pagar, esa
+    // fila en rojo; si no (quedó a favor / de libre disponibilidad), la fila
+    // de "Saldo de libre disponibilidad" en verde — no las dos siempre en
+    // negrita negra, como pasaba antes.
+    if (r.saldoAPagar > 0) ddjjHighlights.set(saldoAPagarRow, "C0392B");
+    else ddjjHighlights.set(saldoLibreDispRow, "16794F");
 
     ddjj.push([]);
     ddjj.push(["Información adicional a presentar (no integra la DDJJ)"]);
@@ -2905,6 +2923,7 @@ function buildIvaSheets(wb, client) {
     merges: ddjjMerges.filter(Boolean),
     skipCols: [],
     formulas: ddjjFormulas,
+    highlightRows: ddjjHighlights,
   }), "DDJJ IVA");
 }
 
@@ -3099,6 +3118,8 @@ function buildIibbCMSheets(wb, client) {
   detRows.push(["Período", "Jurisdicción", "Actividad", "Ventas nacionales (actividad)", "Coeficiente", "Ajuste", "Base (Ventas x Coef + Ajuste)", "Alícuota", "Impuesto"]);
   const detHeaderRow = detRows.length - 1;
   const detMeta = {}; // period -> { [jurName]: {start,end} }
+  const detDividers = []; // filas donde arranca una nueva jurisdicción/período, para separarlas visualmente
+  let detFirstGroup = true;
   periods.forEach((p) => {
     const doc = getDoc(client.id, p);
     const coefVigencia = getCoefVigencia(client, p);
@@ -3106,6 +3127,8 @@ function buildIibbCMSheets(wb, client) {
     jurisdictions.forEach((j) => {
       const jdoc = (doc && doc.iibbCM && doc.iibbCM.jurisdicciones && doc.iibbCM.jurisdicciones[j.name]) || { ajustes: {} };
       const start = detRows.length;
+      if (!detFirstGroup) detDividers.push(start);
+      detFirstGroup = false;
       activities.forEach((a) => {
         const R = detRows.length;
         const montoNacional = num((doc && doc.iibbCM && doc.iibbCM.actividades && doc.iibbCM.actividades[a.code]));
@@ -3131,6 +3154,7 @@ function buildIibbCMSheets(wb, client) {
     formulas: detFormulas,
     freezeHeaderRow: 3,
     headerRows: [detHeaderRow],
+    innerDividerRows: detDividers,
   }), "CM Detalle");
 
   // ---- 4) Liquidación: una fila por jurisdicción y período, con Base e
