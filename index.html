@@ -2707,6 +2707,42 @@ function newSheet(rows, opts) {
         if (cell && cell.s && cell.s.border) cell.s.border.top = { style: "medium", color: { rgb: "B7A9E0" } };
       }
     });
+
+    // Alto de fila automático para las celdas con ajuste de texto: al abrir
+    // un archivo generado por código (a diferencia de uno tipeado a mano en
+    // Excel), el alto de fila NO se agranda solo cuando el texto necesita
+    // más de un renglón — por eso el texto quedaba "desbordado" fuera del
+    // recuadro. Estimamos cuántos renglones va a necesitar cada celda con
+    // wrap (según el ancho de su columna, sumando las columnas fusionadas
+    // si corresponde) y le damos a la fila el alto que haga falta.
+    const colChars = (opts.colWidths || []).map((w) => (typeof w === "number" ? w : 10));
+    const mergeWidthFor = (R, C) => {
+      let found = null;
+      (opts.merges || []).forEach((m) => { if (m && m.s.r === R && m.s.c <= C && C <= m.e.c) found = m; });
+      if (!found) return colChars[C] || 10;
+      let sum = 0;
+      for (let cc = found.s.c; cc <= found.e.c; cc++) sum += colChars[cc] || 10;
+      return sum;
+    };
+    const rowHeights = {};
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      const row = rows[R];
+      if (!row) continue;
+      let maxLines = 1;
+      row.forEach((v, C) => {
+        if (v === undefined || v === "" || v === null) return;
+        const wraps = R === 0 || bannerRows.has(R) || headerRows.has(R) || C === 0;
+        if (!wraps) return;
+        const charsPerLine = Math.max(mergeWidthFor(R, C) - 2, 6);
+        const lines = Math.max(1, Math.ceil(String(v).length / charsPerLine));
+        if (lines > maxLines) maxLines = lines;
+      });
+      if (maxLines > 1) rowHeights[R] = Math.min(maxLines * 14 + 5, 220);
+    }
+    if (Object.keys(rowHeights).length) {
+      ws["!rows"] = ws["!rows"] || [];
+      Object.keys(rowHeights).forEach((R) => { ws["!rows"][R] = { hpt: rowHeights[R] }; });
+    }
   }
   return ws;
 }
@@ -2745,9 +2781,6 @@ function buildIndexSheet(wb, client, sections) {
   rows.push(["Según Portal", "Importe que figura en el portal de ARCA (IVA) o en el portal de la jurisdicción / SIFERE (IIBB)."]);
   rows.push(["Calculado", "Importe que resulta de aplicar la alícuota al monto según libros."]);
   rows.push(["Diferencia", "Según Portal menos Calculado. Si supera $1 en valor absoluto, se marca \"REVISAR\"."]);
-  rows.push([]);
-  rows.push(["Los valores de este archivo son un resultado calculado a partir de los datos cargados en el tablero; no reemplazan la verificación de la información contra libros y portales antes de presentar la DDJJ."]);
-  plainRows.add(rows.length - 1);
   const merges = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
     contenidoMerge,
@@ -2922,7 +2955,7 @@ function buildIvaSheets(wb, client) {
     const saldoAPagarRow = ddjj.length;
     ddjjFormulas.set(saldoAPagarRow + ":1",
       `IF(B${saldoTecARCARow + 1}<=0,0,MAX(B${saldoTecARCARow + 1}+B${montoUtilizadoRow + 1}-B${libreDispAnteriorRow + 1}-B${percepcionesRow + 1}-B${retencionesRow + 1},0))`);
-    ddjj.push(["SALDO A PAGAR", r.saldoAPagar]);
+    ddjj.push(["Saldo a pagar", r.saldoAPagar]);
     // Se resalta el resultado real de la DDJJ: si queda saldo a pagar, esa
     // fila en rojo; si no (quedó a favor / de libre disponibilidad), la fila
     // de "Saldo de libre disponibilidad" en verde — no las dos siempre en
@@ -2939,6 +2972,7 @@ function buildIvaSheets(wb, client) {
     ddjj.push(["N.C. de compra — Exentas/No gravadas", r.exento.ncCompras]);
     ddjj.push(["Operaciones que no generan Crédito Fiscal", r.exento.operacionesNoCredito]);
     ddjj.push([]);
+    ddjj.push([]); // doble salto entre un período y el siguiente, para que el cambio de mes se note de un vistazo
   });
 
   XLSX.utils.book_append_sheet(wb, newSheet(ddjj, {
@@ -3075,7 +3109,7 @@ function buildIibbCMSheets(wb, client) {
     coefHeaderRows.push(coefRows.length - 1);
     jurisdictions.forEach((j) => {
       const R = coefRows.length;
-      coefFormats.set(R + ":1", "0.0000%");
+      coefFormats.set(R + ":1", "0.00%");
       coefCell[v.desde + "|" + j.name] = [R, 1];
       coefRows.push([j.name, num(v.valores[j.name]) / 100]);
     });
@@ -3147,7 +3181,7 @@ function buildIibbCMSheets(wb, client) {
     const doc = getDoc(client.id, p);
     const coefVigencia = getCoefVigencia(client, p);
     detMeta[p] = {};
-    if (pIdx > 0) detRows.push([]); // separa cada mes en su propio cuadro
+    if (pIdx > 0) { detRows.push([]); detRows.push([]); } // doble salto entre un mes y el siguiente
     detRows.push([periodLabel(p).toUpperCase()]);
     detMerges.push(sectionMerge(detRows, 7));
     detRows.push(["Jurisdicción", "Actividad", "Ventas nacionales (actividad)", "Coeficiente", "Ajuste", "Base (Ventas x Coef + Ajuste)", "Alícuota", "Impuesto"]);
@@ -3194,9 +3228,10 @@ function buildIibbCMSheets(wb, client) {
   const liqHeaderRows = [];
   const liqHighlights = new Map();
   const prevAFavorRow = {}; // jurName -> row
-  periods.forEach((p) => {
+  periods.forEach((p, pIdx) => {
     const r = calcIibbCMFor(client, p);
     liqRows.push([]);
+    if (pIdx > 0) liqRows.push([]); // doble salto entre un período y el siguiente
     liqRows.push([periodLabel(p).toUpperCase()]);
     liqMerges.push({ s: { r: liqRows.length - 1, c: 0 }, e: { r: liqRows.length - 1, c: 8 } });
     liqRows.push(["Jurisdicción", "Base imponible (calculada)", "Impuesto anticipo (calculado)", "Retenciones (sistema)", "Percepciones (sistema)", "Rec. bancarias (sistema)", "Saldo período anterior", "A pagar", "A favor"]);
@@ -3228,8 +3263,6 @@ function buildIibbCMSheets(wb, client) {
       });
     }
     liqRows.push(["TOTALES", r.totales.baseTotal, r.totales.impuestoAnticipo, r.totales.ret, r.totales.perc, r.totales.recban, r.totales.saldoAnterior, r.totales.aPagar, r.totales.aFavor]);
-    if (r.totales.aPagar > 0) liqHighlights.set(totalRow + ":7", { bg: "FBE1DE", fg: "C0392B" });
-    else if (r.totales.aFavor > 0) liqHighlights.set(totalRow + ":8", { bg: "DDF2E6", fg: "146C43" });
   });
   XLSX.utils.book_append_sheet(wb, newSheet(liqRows, {
     colWidths: [22, 20, 20, 16, 16, 16, 18, 14, 14],
