@@ -2629,7 +2629,8 @@ function newSheet(rows, opts) {
   };
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r];
-    const cellsWithData = row ? row.map((v, c) => (v !== undefined && v !== "" && v !== null ? c : -1)).filter((c) => c >= 0) : [];
+    const isPlain = opts.plainRows && opts.plainRows.has(r);
+    const cellsWithData = (row && !isPlain) ? row.map((v, c) => (v !== undefined && v !== "" && v !== null ? c : -1)).filter((c) => c >= 0) : [];
     if (cellsWithData.length) {
       if (curStart === null) curStart = r;
       cellsWithData.forEach((c) => { if (c < curMin) curMin = c; if (c > curMax) curMax = c; });
@@ -2647,6 +2648,10 @@ function newSheet(rows, opts) {
         const addr = XLSX.utils.encode_cell({ r: R, c: C });
         const cell = ws[addr];
         if (!cell) continue;
+        if (opts.plainRows && opts.plainRows.has(R)) {
+          cell.s = { font: { italic: true, color: { rgb: "6B6480" } }, alignment: { wrapText: true, vertical: "top" } };
+          continue;
+        }
         const style = { border: { top: THIN, bottom: THIN, left: THIN, right: THIN } };
         if (R === 0) {
           style.font = { bold: true, sz: 13, color: { rgb: "FFFFFF" } };
@@ -2664,7 +2669,16 @@ function newSheet(rows, opts) {
           style.alignment = { wrapText: C === 0, vertical: "top" };
           if (cell.v === "REVISAR") style.font = { bold: true, color: { rgb: "C0392B" } };
           else if (isTotalLabel(rows[R] && rows[R][0])) style.font = { bold: true };
-          if (opts.highlightRows && opts.highlightRows.has(R)) style.font = { bold: true, color: { rgb: opts.highlightRows.get(R) } };
+          if (opts.highlightRows && opts.highlightRows.has(R)) {
+            const h = opts.highlightRows.get(R);
+            style.font = { bold: true, color: { rgb: h.fg } };
+            style.fill = { patternType: "solid", fgColor: { rgb: h.bg } };
+          }
+          if (opts.highlightCells && opts.highlightCells.has(R + ":" + C)) {
+            const h = opts.highlightCells.get(R + ":" + C);
+            style.font = { bold: true, color: { rgb: h.fg } };
+            style.fill = { patternType: "solid", fgColor: { rgb: h.bg } };
+          }
         }
         cell.s = style;
       }
@@ -2709,28 +2723,37 @@ function sectionMerge(rows, ncols) {
 
 function buildIndexSheet(wb, client, sections) {
   const rows = [];
+  const plainRows = new Set();
+  const headerRows = [];
   rows.push([client.name]);
   rows.push([client.cuit ? `CUIT ${client.cuit}` : "CUIT sin cargar"]);
+  rows.push([]);
   rows.push([`Generado el ${nowStampAR()} desde el tablero de Papeles de Trabajo Fiscales`]);
+  plainRows.add(rows.length - 1);
   rows.push([]);
   rows.push(["Contenido de este archivo"]);
+  const contenidoMerge = sectionMerge(rows, 2);
+  rows.push(["Hoja", "Contenido"]);
+  headerRows.push(rows.length - 1);
   sections.forEach((s) => rows.push([s.sheet, s.desc]));
   rows.push([]);
   rows.push(["Cómo leer las columnas"]);
+  const leyendaMerge = sectionMerge(rows, 2);
+  rows.push(["Término", "Significado"]);
+  headerRows.push(rows.length - 1);
   rows.push(["Según Libros", "Importe registrado en la contabilidad del contribuyente."]);
   rows.push(["Según Portal", "Importe que figura en el portal de ARCA (IVA) o en el portal de la jurisdicción / SIFERE (IIBB)."]);
   rows.push(["Calculado", "Importe que resulta de aplicar la alícuota al monto según libros."]);
   rows.push(["Diferencia", "Según Portal menos Calculado. Si supera $1 en valor absoluto, se marca \"REVISAR\"."]);
   rows.push([]);
   rows.push(["Los valores de este archivo son un resultado calculado a partir de los datos cargados en el tablero; no reemplazan la verificación de la información contra libros y portales antes de presentar la DDJJ."]);
+  plainRows.add(rows.length - 1);
   const merges = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
-    { s: { r: 2, c: 0 }, e: { r: 2, c: 1 } },
-    { s: { r: 4, c: 0 }, e: { r: 4, c: 1 } },
-    { s: { r: 5 + sections.length, c: 0 }, e: { r: 5 + sections.length, c: 1 } },
-    { s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 1 } },
+    contenidoMerge,
+    leyendaMerge,
   ];
-  const ws = newSheet(rows, { colWidths: [30, 62], merges });
+  const ws = newSheet(rows, { colWidths: [34, 66], merges: merges.filter(Boolean), headerRows, plainRows });
   XLSX.utils.book_append_sheet(wb, ws, "Índice");
 }
 
@@ -2904,8 +2927,8 @@ function buildIvaSheets(wb, client) {
     // fila en rojo; si no (quedó a favor / de libre disponibilidad), la fila
     // de "Saldo de libre disponibilidad" en verde — no las dos siempre en
     // negrita negra, como pasaba antes.
-    if (r.saldoAPagar > 0) ddjjHighlights.set(saldoAPagarRow, "C0392B");
-    else ddjjHighlights.set(saldoLibreDispRow, "16794F");
+    if (r.saldoAPagar > 0) ddjjHighlights.set(saldoAPagarRow, { bg: "FBE1DE", fg: "C0392B" });
+    else ddjjHighlights.set(saldoLibreDispRow, { bg: "DDF2E6", fg: "146C43" });
 
     ddjj.push([]);
     ddjj.push(["Información adicional a presentar (no integra la DDJJ)"]);
@@ -3107,28 +3130,34 @@ function buildIibbCMSheets(wb, client) {
     headerRows: [cmActHeaderRow],
   }), "Actividades");
 
-  // ---- 3) Detalle: una fila por período x jurisdicción x actividad, con
-  // la fórmula Base = Ventas de la actividad x Coeficiente de la jurisdicción
-  // + Ajuste, e Impuesto = Base x Alícuota. Acá se ve de dónde sale cada
+  // ---- 3) Detalle: una fila por jurisdicción x actividad, agrupadas por
+  // período (con un renglón banner al cambiar de mes, para que se note el
+  // corte en vez de tener que buscarlo en la columna "Período"), con la
+  // fórmula Base = Ventas de la actividad x Coeficiente de la jurisdicción +
+  // Ajuste, e Impuesto = Base x Alícuota. Acá se ve de dónde sale cada
   // importe que en "Liquidacion" aparece ya sumado. ----
   const detRows = [["Detalle por jurisdicción y actividad — " + client.name]];
-  const detMerges = [sectionMerge(detRows, 9)];
+  const detMerges = [sectionMerge(detRows, 7)];
   const detFormulas = new Map();
   detRows.push([]);
-  detRows.push(["Período", "Jurisdicción", "Actividad", "Ventas nacionales (actividad)", "Coeficiente", "Ajuste", "Base (Ventas x Coef + Ajuste)", "Alícuota", "Impuesto"]);
-  const detHeaderRow = detRows.length - 1;
+  const detHeaderRows = [];
+  const detDividers = [];
   const detMeta = {}; // period -> { [jurName]: {start,end} }
-  const detDividers = []; // filas donde arranca una nueva jurisdicción/período, para separarlas visualmente
-  let detFirstGroup = true;
-  periods.forEach((p) => {
+  periods.forEach((p, pIdx) => {
     const doc = getDoc(client.id, p);
     const coefVigencia = getCoefVigencia(client, p);
     detMeta[p] = {};
+    if (pIdx > 0) detRows.push([]); // separa cada mes en su propio cuadro
+    detRows.push([periodLabel(p).toUpperCase()]);
+    detMerges.push(sectionMerge(detRows, 7));
+    detRows.push(["Jurisdicción", "Actividad", "Ventas nacionales (actividad)", "Coeficiente", "Ajuste", "Base (Ventas x Coef + Ajuste)", "Alícuota", "Impuesto"]);
+    detHeaderRows.push(detRows.length - 1);
+    let firstJurInPeriod = true;
     jurisdictions.forEach((j) => {
       const jdoc = (doc && doc.iibbCM && doc.iibbCM.jurisdicciones && doc.iibbCM.jurisdicciones[j.name]) || { ajustes: {} };
       const start = detRows.length;
-      if (!detFirstGroup) detDividers.push(start);
-      detFirstGroup = false;
+      if (!firstJurInPeriod) detDividers.push(start);
+      firstJurInPeriod = false;
       activities.forEach((a) => {
         const R = detRows.length;
         const montoNacional = num((doc && doc.iibbCM && doc.iibbCM.actividades && doc.iibbCM.actividades[a.code]));
@@ -3137,23 +3166,22 @@ function buildIibbCMSheets(wb, client) {
         const alicuota = num(j.alicuotas && j.alicuotas[a.code]) / 100;
         const base = round2(montoNacional * coef + ajuste);
         const impuesto = round2(base * alicuota);
-        if (actCell[p] && actCell[p][a.code]) detFormulas.set(R + ":3", xsheetRef("Actividades", ...actCell[p][a.code]));
-        if (coefVigencia && coefCell[coefVigencia.desde + "|" + j.name]) detFormulas.set(R + ":4", xsheetRef("Coeficientes", ...coefCell[coefVigencia.desde + "|" + j.name]));
-        detFormulas.set(R + ":6", `D${R + 1}*E${R + 1}+F${R + 1}`);
-        detFormulas.set(R + ":8", `G${R + 1}*H${R + 1}`);
-        detRows.push([periodLabel(p), j.name, `${a.code} — ${a.desc}`, montoNacional, coef, ajuste, base, alicuota, impuesto]);
+        if (actCell[p] && actCell[p][a.code]) detFormulas.set(R + ":2", xsheetRef("Actividades", ...actCell[p][a.code]));
+        if (coefVigencia && coefCell[coefVigencia.desde + "|" + j.name]) detFormulas.set(R + ":3", xsheetRef("Coeficientes", ...coefCell[coefVigencia.desde + "|" + j.name]));
+        detFormulas.set(R + ":5", `C${R + 1}*D${R + 1}+E${R + 1}`);
+        detFormulas.set(R + ":7", `F${R + 1}*G${R + 1}`);
+        detRows.push([j.name, `${a.code} — ${a.desc}`, montoNacional, coef, ajuste, base, alicuota, impuesto]);
       });
       const end = detRows.length - 1;
       detMeta[p][j.name] = { start, end };
     });
   });
   XLSX.utils.book_append_sheet(wb, newSheet(detRows, {
-    colWidths: [12, 20, 34, 20, 12, 14, 20, 10, 16],
+    colWidths: [20, 34, 20, 12, 14, 20, 10, 16],
     merges: detMerges.filter(Boolean),
-    skipCols: [0, 1, 2],
+    skipCols: [0, 1],
     formulas: detFormulas,
-    freezeHeaderRow: 3,
-    headerRows: [detHeaderRow],
+    headerRows: detHeaderRows,
     innerDividerRows: detDividers,
   }), "CM Detalle");
 
@@ -3164,6 +3192,7 @@ function buildIibbCMSheets(wb, client) {
   const liqMerges = [sectionMerge(liqRows, 9)];
   const liqFormulas = new Map();
   const liqHeaderRows = [];
+  const liqHighlights = new Map();
   const prevAFavorRow = {}; // jurName -> row
   periods.forEach((p) => {
     const r = calcIibbCMFor(client, p);
@@ -3177,13 +3206,17 @@ function buildIibbCMSheets(wb, client) {
       const R = liqRows.length;
       const meta = detMeta[p] && detMeta[p][j.jurisdiccion];
       if (meta) {
-        liqFormulas.set(R + ":1", `SUM('CM Detalle'!G${meta.start + 1}:G${meta.end + 1})`);
-        liqFormulas.set(R + ":2", `SUM('CM Detalle'!I${meta.start + 1}:I${meta.end + 1})`);
+        liqFormulas.set(R + ":1", `SUM('CM Detalle'!F${meta.start + 1}:F${meta.end + 1})`);
+        liqFormulas.set(R + ":2", `SUM('CM Detalle'!H${meta.start + 1}:H${meta.end + 1})`);
       }
       if (prevAFavorRow[j.jurisdiccion] != null) liqFormulas.set(R + ":6", `I${prevAFavorRow[j.jurisdiccion] + 1}`);
       liqFormulas.set(R + ":7", `MAX(C${R + 1}-D${R + 1}-E${R + 1}-F${R + 1}-G${R + 1},0)`);
       liqFormulas.set(R + ":8", `MAX(-(C${R + 1}-D${R + 1}-E${R + 1}-F${R + 1}-G${R + 1}),0)`);
       liqRows.push([j.jurisdiccion, j.baseTotal, j.impuestoAnticipo, j.ret, j.perc, j.recban, j.saldoAnterior, j.aPagar, j.aFavor]);
+      // "A pagar"/"A favor" con recuadro de color, como un formato
+      // condicional: rojo si esa jurisdicción debe, verde si le queda a favor.
+      if (j.aPagar > 0) liqHighlights.set(R + ":7", { bg: "FBE1DE", fg: "C0392B" });
+      else if (j.aFavor > 0) liqHighlights.set(R + ":8", { bg: "DDF2E6", fg: "146C43" });
       prevAFavorRow[j.jurisdiccion] = R;
       periodJurRows.push(R);
     });
@@ -3195,6 +3228,8 @@ function buildIibbCMSheets(wb, client) {
       });
     }
     liqRows.push(["TOTALES", r.totales.baseTotal, r.totales.impuestoAnticipo, r.totales.ret, r.totales.perc, r.totales.recban, r.totales.saldoAnterior, r.totales.aPagar, r.totales.aFavor]);
+    if (r.totales.aPagar > 0) liqHighlights.set(totalRow + ":7", { bg: "FBE1DE", fg: "C0392B" });
+    else if (r.totales.aFavor > 0) liqHighlights.set(totalRow + ":8", { bg: "DDF2E6", fg: "146C43" });
   });
   XLSX.utils.book_append_sheet(wb, newSheet(liqRows, {
     colWidths: [22, 20, 20, 16, 16, 16, 18, 14, 14],
@@ -3202,6 +3237,7 @@ function buildIibbCMSheets(wb, client) {
     skipCols: [0],
     formulas: liqFormulas,
     headerRows: liqHeaderRows,
+    highlightCells: liqHighlights,
   }), "Liquidacion");
 }
 
