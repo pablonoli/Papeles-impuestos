@@ -2602,13 +2602,43 @@ function newSheet(rows, opts) {
   // de sección (filas fusionadas de punta a punta, se detectan solas a
   // partir de los merges) en violeta claro, encabezados de columna
   // (opts.headerRows, porque no siempre están fusionados y hay que
-  // indicarlos a mano) en un violeta más suave, y borde fino en toda celda
-  // con datos para delimitar cada cuadro. Va al final para no perder el
-  // estilo cuando el paso de fórmulas de arriba reemplaza la celda.
-  const BORDER = { style: "thin", color: { rgb: "D9D2EE" } };
+  // indicarlos a mano) en un violeta más suave — los tres centrados tanto
+  // horizontal como verticalmente —, filas de "TOTAL" en negrita (se
+  // detectan solas: cualquier fila de datos cuya primera celda esté toda en
+  // mayúsculas), borde fino y visible en toda celda con datos, y además un
+  // contorno más grueso alrededor de cada "cuadro" (cada bloque de filas
+  // contiguas separado del resto por una fila en blanco). Va al final para
+  // no perder el estilo cuando el paso de fórmulas de arriba reemplaza la
+  // celda.
+  const THIN = { style: "thin", color: { rgb: "9B8AC4" } };
+  const THICK = { style: "medium", color: { rgb: "5B21B6" } };
   const bannerRows = new Set();
   (opts.merges || []).forEach((m) => { if (m && m.s.r === m.e.r && m.e.c > m.s.c) bannerRows.add(m.s.r); });
   const headerRows = new Set(opts.headerRows || []);
+  const isTotalLabel = (v) => typeof v === "string" && v.trim().length > 2 && v === v.toUpperCase() && v !== v.toLowerCase();
+
+  // Detectar cada "cuadro": tramo de filas contiguas con datos, separado del
+  // resto por al menos una fila en blanco. Sirve tanto para el contorno
+  // grueso como, en general, para saber qué columnas ocupa cada bloque.
+  const blocks = [];
+  let curStart = null, curMin = Infinity, curMax = -1;
+  const closeBlock = (endExclusive) => {
+    if (curStart === null) return;
+    blocks.push({ r0: curStart, r1: endExclusive - 1, c0: curMin, c1: curMax });
+    curStart = null; curMin = Infinity; curMax = -1;
+  };
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    const cellsWithData = row ? row.map((v, c) => (v !== undefined && v !== "" && v !== null ? c : -1)).filter((c) => c >= 0) : [];
+    if (cellsWithData.length) {
+      if (curStart === null) curStart = r;
+      cellsWithData.forEach((c) => { if (c < curMin) curMin = c; if (c > curMax) curMax = c; });
+    } else {
+      closeBlock(r);
+    }
+  }
+  closeBlock(rows.length);
+
   const finalRef = ws["!ref"];
   if (finalRef) {
     const range = XLSX.utils.decode_range(finalRef);
@@ -2617,26 +2647,41 @@ function newSheet(rows, opts) {
         const addr = XLSX.utils.encode_cell({ r: R, c: C });
         const cell = ws[addr];
         if (!cell) continue;
-        const style = { border: { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER } };
+        const style = { border: { top: THIN, bottom: THIN, left: THIN, right: THIN } };
         if (R === 0) {
           style.font = { bold: true, sz: 13, color: { rgb: "FFFFFF" } };
           style.fill = { patternType: "solid", fgColor: { rgb: "6D28D9" } };
-          style.alignment = { vertical: "center", wrapText: true };
+          style.alignment = { vertical: "center", horizontal: "center", wrapText: true };
         } else if (bannerRows.has(R)) {
           style.font = { bold: true, color: { rgb: "3D2273" } };
           style.fill = { patternType: "solid", fgColor: { rgb: "EAE1FB" } };
-          style.alignment = { vertical: "center", wrapText: true };
+          style.alignment = { vertical: "center", horizontal: "center", wrapText: true };
         } else if (headerRows.has(R)) {
           style.font = { bold: true, color: { rgb: "3D2273" } };
           style.fill = { patternType: "solid", fgColor: { rgb: "F5F1FC" } };
-          style.alignment = { wrapText: true, vertical: "bottom" };
+          style.alignment = { wrapText: true, vertical: "center", horizontal: "center" };
         } else {
           style.alignment = { wrapText: C === 0, vertical: "top" };
           if (cell.v === "REVISAR") style.font = { bold: true, color: { rgb: "C0392B" } };
+          else if (isTotalLabel(rows[R] && rows[R][0])) style.font = { bold: true };
         }
         cell.s = style;
       }
     }
+    // Contorno grueso por cuadro, encima del borde fino de cada celda.
+    blocks.forEach((b) => {
+      for (let R = b.r0; R <= b.r1; R++) {
+        for (let C = b.c0; C <= b.c1; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          const cell = ws[addr];
+          if (!cell || !cell.s || !cell.s.border) continue;
+          if (R === b.r0) cell.s.border.top = THICK;
+          if (R === b.r1) cell.s.border.bottom = THICK;
+          if (C === b.c0) cell.s.border.left = THICK;
+          if (C === b.c1) cell.s.border.right = THICK;
+        }
+      }
+    });
   }
   return ws;
 }
@@ -2714,13 +2759,12 @@ function buildIvaSheets(wb, client) {
   const periods = listPeriodsWithTax(client.id, "iva");
   const decreto814Rate = num(client.iva.decreto814Rate) / 100;
 
-  // ---- 1) Una hoja de detalle por período, con fórmulas ----
-  // Cada concepto: Neto (según libros, dato cargado) | Calculado (=Neto x
-  // alícuota) | Según portal ARCA (dato cargado) | Diferencia (=Portal-Calculado).
-  // Así se ve la alícuota aplicada a cada concepto sin necesidad de abrir el
-  // dashboard.
+  // ---- 1) Una hoja de detalle, con fórmulas, para el período que se está
+  // viendo en el dashboard (no todo el historial — si no, se acumula un tab
+  // nuevo por cada mes cargado alguna vez). La DDJJ de más abajo sí muestra
+  // todos los períodos, para mantener el arrastre de saldos. ----
   const sheetMeta = {}; // period -> { sheetName, totalDebitoCell, totalCreditoCell, debitoOnlyRange, restCreditoRange }
-  periods.forEach((p) => {
+  periods.filter((p) => p === state.currentPeriod).forEach((p) => {
     const r = calcIvaFor(client, p);
     const rows = [["IVA — " + periodLabel(p) + " — " + client.name]];
     const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
@@ -2802,11 +2846,11 @@ function buildIvaSheets(wb, client) {
     ddjjMerges.push(sectionMerge(ddjj, 2));
 
     const debitoRow = ddjj.length;
-    ddjjFormulas.set(debitoRow + ":1", xsheetRef(meta.sheetName, ...meta.totalDebitoCell));
+    if (meta) ddjjFormulas.set(debitoRow + ":1", xsheetRef(meta.sheetName, ...meta.totalDebitoCell));
     ddjj.push(["IVA Débito Fiscal", r.debitoFiscal]);
 
     const creditoRow = ddjj.length;
-    ddjjFormulas.set(creditoRow + ":1", xsheetRef(meta.sheetName, ...meta.totalCreditoCell));
+    if (meta) ddjjFormulas.set(creditoRow + ":1", xsheetRef(meta.sheetName, ...meta.totalCreditoCell));
     ddjj.push(["IVA Crédito Fiscal", r.creditoFiscal]);
 
     const saldoTecAnteriorRow = ddjj.length;
@@ -2882,6 +2926,7 @@ function buildIibbLocalSheet(wb, client) {
     header.push("TOTAL Base", "TOTAL Impuesto");
     actRows.push(header);
     const actHeaderRow = actRows.length - 1;
+    const actDataStart = actRows.length;
     periods.forEach((p) => {
       const doc = getDoc(client.id, p);
       const actData = (doc && doc.iibbLocal && doc.iibbLocal.actividades) || {};
@@ -2905,6 +2950,21 @@ function buildIibbLocalSheet(wb, client) {
       actMeta[p] = { totalBaseCell: [R, totalBaseCol], totalImpuestoCell: [R, totalImpCol] };
       actRows.push(row);
     });
+    // Fila de totales acumulados (suma de cada columna a lo largo de todos
+    // los períodos cargados), para ver de un vistazo cuánto lleva cada
+    // actividad en lo que va del ejercicio.
+    if (periods.length) {
+      const actDataEnd = actRows.length - 1;
+      const numDataCols = 2 * activities.length + 2;
+      const totalRow = ["TOTAL"];
+      for (let c = 1; c <= numDataCols; c++) {
+        let sum = 0;
+        for (let R2 = actDataStart; R2 <= actDataEnd; R2++) sum += num(actRows[R2][c]);
+        totalRow.push(round2(sum));
+        actFormulas.set(actRows.length + ":" + c, `SUM(${XLSX.utils.encode_col(c)}${actDataStart + 1}:${XLSX.utils.encode_col(c)}${actDataEnd + 1})`);
+      }
+      actRows.push(totalRow);
+    }
     XLSX.utils.book_append_sheet(wb, newSheet(actRows, {
       colWidths: [14, ...activities.flatMap(() => [20, 20]), 16, 16],
       merges: actMerges.filter(Boolean),
@@ -2995,6 +3055,7 @@ function buildIibbCMSheets(wb, client) {
   actRows.push([]);
   actRows.push(["Período", ...activities.map((a) => `${a.code} — ${a.desc}`), "TOTAL"]);
   const cmActHeaderRow = actRows.length - 1;
+  const cmActDataStart = actRows.length;
   periods.forEach((p) => {
     const doc = getDoc(client.id, p);
     const acts = (doc && doc.iibbCM && doc.iibbCM.actividades) || {};
@@ -3005,6 +3066,20 @@ function buildIibbCMSheets(wb, client) {
     actFormulas.set(R + ":" + totalCol, `SUM(${XLSX.utils.encode_col(1)}${R + 1}:${XLSX.utils.encode_col(totalCol - 1)}${R + 1})`);
     actRows.push([periodLabel(p), ...vals, vals.reduce((s, v) => s + v, 0)]);
   });
+  // Fila de totales acumulados por actividad (y el gran total), sumando
+  // todos los períodos cargados.
+  if (periods.length) {
+    const cmActDataEnd = actRows.length - 1;
+    const numDataCols = activities.length + 1;
+    const totalRow = ["TOTAL"];
+    for (let c = 1; c <= numDataCols; c++) {
+      let sum = 0;
+      for (let R2 = cmActDataStart; R2 <= cmActDataEnd; R2++) sum += num(actRows[R2][c]);
+      totalRow.push(round2(sum));
+      actFormulas.set(actRows.length + ":" + c, `SUM(${XLSX.utils.encode_col(c)}${cmActDataStart + 1}:${XLSX.utils.encode_col(c)}${cmActDataEnd + 1})`);
+    }
+    actRows.push(totalRow);
+  }
   XLSX.utils.book_append_sheet(wb, newSheet(actRows, {
     colWidths: [14, ...activities.map(() => 22), 18],
     merges: actMerges.filter(Boolean),
