@@ -2553,6 +2553,7 @@ function nowStampAR() {
 // de sección.
 function newSheet(rows, opts) {
   opts = opts || {};
+  const wrapCols = opts.wrapCols || [0]; // qué columnas ajustan texto a varios renglones en filas de datos comunes (por defecto sólo la primera)
   // Si una fila tiene una celda fusionada ("merge") pero el array sólo trae
   // valor en la primera columna de ese rango, completamos las demás con ""
   // para que existan como celdas reales — si no, el borde y el color de
@@ -2666,7 +2667,7 @@ function newSheet(rows, opts) {
           style.fill = { patternType: "solid", fgColor: { rgb: "F5F1FC" } };
           style.alignment = { wrapText: true, vertical: "center", horizontal: "center" };
         } else {
-          style.alignment = { wrapText: C === 0, vertical: "top" };
+          style.alignment = { wrapText: wrapCols.includes(C), vertical: "top" };
           if (cell.v === "REVISAR") style.font = { bold: true, color: { rgb: "C0392B" } };
           else if (isTotalLabel(rows[R] && rows[R][0])) style.font = { bold: true };
           if (opts.highlightRows && opts.highlightRows.has(R)) {
@@ -2731,7 +2732,7 @@ function newSheet(rows, opts) {
       let maxLines = 1;
       row.forEach((v, C) => {
         if (v === undefined || v === "" || v === null) return;
-        const wraps = R === 0 || bannerRows.has(R) || headerRows.has(R) || C === 0;
+        const wraps = R === 0 || bannerRows.has(R) || headerRows.has(R) || wrapCols.includes(C);
         if (!wraps) return;
         const charsPerLine = Math.max(mergeWidthFor(R, C) - 2, 6);
         const lines = Math.max(1, Math.ceil(String(v).length / charsPerLine));
@@ -2786,7 +2787,7 @@ function buildIndexSheet(wb, client, sections) {
     contenidoMerge,
     leyendaMerge,
   ];
-  const ws = newSheet(rows, { colWidths: [34, 66], merges: merges.filter(Boolean), headerRows, plainRows });
+  const ws = newSheet(rows, { colWidths: [34, 66], merges: merges.filter(Boolean), headerRows, plainRows, wrapCols: [0, 1] });
   XLSX.utils.book_append_sheet(wb, ws, "Índice");
 }
 
@@ -3211,12 +3212,13 @@ function buildIibbCMSheets(wb, client) {
     });
   });
   XLSX.utils.book_append_sheet(wb, newSheet(detRows, {
-    colWidths: [20, 34, 20, 12, 14, 20, 10, 16],
+    colWidths: [20, 40, 20, 12, 14, 20, 10, 16],
     merges: detMerges.filter(Boolean),
     skipCols: [0, 1],
     formulas: detFormulas,
     headerRows: detHeaderRows,
     innerDividerRows: detDividers,
+    wrapCols: [0, 1],
   }), "CM Detalle");
 
   // ---- 4) Liquidación: una fila por jurisdicción y período, con Base e
