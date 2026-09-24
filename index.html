@@ -111,6 +111,11 @@
 
   .side-section{ display:flex; flex-direction:column; gap:8px; }
   .side-label{ font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted-soft); padding:0 4px; display:flex; justify-content:space-between; align-items:center; }
+  .side-label-row{ display:flex; align-items:center; gap:8px; }
+  .side-label-row .side-label{ flex:1; }
+  .icon-btn-sm{ width:22px; height:22px; min-width:22px; border-radius:6px; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:15px; line-height:1; border:none; cursor:pointer; flex-shrink:0; }
+  .icon-btn-sm:hover{ opacity:.85; }
+  .client-search{ width:100%; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:7px 10px; font-size:12.5px; color:var(--ink); font-family:inherit; }
   .client-list{ display:flex; flex-direction:column; gap:4px; }
   .client-item{
     display:flex; flex-direction:column; gap:4px; text-align:left; background:transparent; border:1px solid transparent;
@@ -699,6 +704,7 @@ const state = {
   currentTab: "resumen",
   selectedCoefDesde: null,   // vigencia de coeficientes CM elegida en Configuración
   activityPickerTarget: null, // "iibbCM" | "iibbLocal" | "iva" — destino del buscador de actividades AFIP
+  clientSearch: "", // filtro de texto de la lista de clientes en la barra lateral
 };
 
 function getClient(id) { return state.clients.find((c) => c.id === id); }
@@ -1208,16 +1214,16 @@ function calcIibbCMFor(client, period) {
 // ---------------------------------------------------------------------
 // Acciones de cliente / configuración
 // ---------------------------------------------------------------------
-function newClientTemplate(name) {
+function newClientTemplate(name, cuit) {
   return {
-    id: uid("cli"), name: name || "Nuevo cliente", cuit: "",
+    id: uid("cli"), name: name || "Nuevo cliente", cuit: cuit || "",
     iva: { enabled: true, decreto814Rate: 3, prorrateoExento: false, activities: [], saldosIniciales: { saldoTecnicoAnterior: 0, saldoLibreDisponibilidadAnterior: 0 } },
     iibbLocal: { enabled: false, jurisdiccion: "", activities: [], saldoInicial: 0 },
     iibbCM: { enabled: false, activities: [], jurisdictions: [], coeficientes: [], saldosIniciales: {} },
   };
 }
-function addClient(name) {
-  const c = newClientTemplate(name);
+function addClient(name, cuit) {
+  const c = newClientTemplate(name, cuit);
   state.clients.push(c);
   state.clients.sort((a, b) => a.name.localeCompare(b.name, "es"));
   persistClient(c);
@@ -1283,6 +1289,17 @@ function getFieldKey(el) {
   }
   return null;
 }
+function renderSidebarPreservingFocus() {
+  const active = document.activeElement;
+  const isSearch = active && active.dataset && active.dataset.action === "search-clients";
+  const selStart = isSearch ? active.selectionStart : null;
+  const selEnd = isSearch ? active.selectionEnd : null;
+  renderSidebar();
+  if (isSearch) {
+    const el = document.querySelector('[data-action="search-clients"]');
+    if (el) { el.focus(); el.setSelectionRange(selStart, selEnd); }
+  }
+}
 function renderPreservingFocus() {
   const active = document.activeElement;
   let key = null, selStart = null, selEnd = null;
@@ -1316,7 +1333,13 @@ function render() {
 function renderSidebar() {
   const el = document.getElementById("sidebar");
   const currentTheme = document.documentElement.getAttribute("data-theme") || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  const items = state.clients.map((c) => {
+  const search = (state.clientSearch || "").trim();
+  const searchNorm = normalizeSearch(search);
+  const visibleClients = state.clients
+    .filter((c) => !searchNorm || normalizeSearch(c.name).includes(searchNorm) || normalizeSearch(c.cuit || "").includes(searchNorm))
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const items = visibleClients.map((c) => {
     const active = c.id === state.currentClientId ? "active" : "";
     return `
       <button class="client-item ${active}" data-action="select-client" data-client="${c.id}">
@@ -1329,16 +1352,22 @@ function renderSidebar() {
         </span>
       </button>`;
   }).join("");
+  const emptyMsg = state.clients.length
+    ? '<p style="color:var(--muted);font-size:12px;padding:6px 4px;">No se encontró ningún cliente con ese nombre/CUIT.</p>'
+    : '<p style="color:var(--muted);font-size:12px;padding:6px 4px;">Todavía no cargaste clientes.</p>';
 
   el.innerHTML = `
     <div class="brand">
       <div class="mark">📒 Papeles de Trabajo</div>
-      <div class="tag">IVA · IIBB · Convenio Multilateral</div>
+      <div class="tag">IVA · Ingresos Brutos</div>
     </div>
     <div class="side-section">
-      <div class="side-label">Clientes<span>${state.clients.length}</span></div>
-      <div class="client-list">${items || '<p style="color:var(--muted);font-size:12px;padding:6px 4px;">Todavía no cargaste clientes.</p>'}</div>
-      <button class="btn btn-block" data-action="open-add-client">+ Agregar cliente</button>
+      <div class="side-label-row">
+        <div class="side-label">Clientes<span>${state.clients.length}</span></div>
+        <button class="icon-btn-sm" data-action="open-add-client" title="Agregar cliente">+</button>
+      </div>
+      <input type="text" class="client-search" placeholder="🔍 Buscar cliente…" value="${escapeHtml(search)}" data-action="search-clients">
+      <div class="client-list">${items || emptyMsg}</div>
     </div>
     <div class="side-section" style="margin-top:auto;">
       <button class="btn btn-block" data-action="toggle-theme">${currentTheme === "dark" ? "☀️ Modo claro" : "🌙 Modo nocturno"}</button>
@@ -1967,7 +1996,10 @@ const MODAL_REFRESHERS = {
 // ---------------------------------------------------------------------
 document.addEventListener("input", (e) => {
   const t = e.target;
-  if (t.dataset.action === "field") {
+  if (t.dataset.action === "search-clients") {
+    state.clientSearch = t.value;
+    renderSidebarPreservingFocus();
+  } else if (t.dataset.action === "field") {
     const { clientid, period, path } = t.dataset;
     touchDoc(clientid, period, (doc) => setDeep(doc, path, t.value));
     const refresher = MODAL_REFRESHERS[t.dataset.reopen];
@@ -2137,10 +2169,11 @@ function openAddClientModal() {
   const root = document.getElementById("modal-root");
   root.innerHTML = `
     <div class="modal-backdrop">
-      <div class="modal">
+      <div class="modal" style="max-width:300px;">
         <div class="modal-head"><h3>Nuevo cliente</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
         <div class="modal-body">
           <div class="field"><label>Nombre / razón social</label><input type="text" id="new-client-name" placeholder="Ej: Del Comahue Sabores"></div>
+          <div class="field"><label>CUIT</label><input type="text" id="new-client-cuit" placeholder="Ej: 30-71234567-9"></div>
         </div>
         <div class="modal-foot">
           <button class="btn" data-action="close-modal">Cancelar</button>
@@ -2295,17 +2328,22 @@ document.getElementById("modal-root").addEventListener("click", (e) => {
   if (btn.dataset.action === "close-modal") document.getElementById("modal-root").innerHTML = "";
   else if (btn.dataset.action === "confirm-add-client") {
     const name = document.getElementById("new-client-name").value.trim();
+    const cuit = document.getElementById("new-client-cuit").value.trim();
     document.getElementById("modal-root").innerHTML = "";
-    addClient(name || "Nuevo cliente");
+    addClient(name || "Nuevo cliente", cuit);
   }
   else if (btn.dataset.action === "pick-activity") {
     const code = btn.dataset.code, desc = btn.dataset.desc;
-    const target = state.activityPickerTarget;
     mutateClient(currentClient().id, (c) => {
-      const arr = target === "iibbLocal" ? c.iibbLocal.activities : target === "iva" ? c.iva.activities : c.iibbCM.activities;
-      if (!arr.some((a) => a.code === code)) {
-        arr.push(target === "iibbLocal" ? { code, desc, alicuota: 0 } : { code, desc });
-      }
+      // Se carga la actividad en TODOS los regímenes que el cliente tenga
+      // habilitados (no sólo en el que abrió el buscador) — si ya la usás
+      // en IVA, tiene sentido que esté también en IIBB (local y/o Convenio
+      // Multilateral), sin tener que cargarla dos o tres veces a mano.
+      // Sacarla si no corresponde en alguno se sigue haciendo manual, con
+      // "Quitar" — eso sí queda independiente por régimen.
+      if (c.iva.enabled && !c.iva.activities.some((a) => a.code === code)) c.iva.activities.push({ code, desc });
+      if (c.iibbLocal.enabled && !c.iibbLocal.activities.some((a) => a.code === code)) c.iibbLocal.activities.push({ code, desc, alicuota: 0 });
+      if (c.iibbCM.enabled && !c.iibbCM.activities.some((a) => a.code === code)) c.iibbCM.activities.push({ code, desc });
     });
     document.getElementById("modal-root").innerHTML = "";
     render();
