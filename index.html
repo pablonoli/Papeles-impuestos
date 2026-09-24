@@ -1124,14 +1124,15 @@ function computeIibbLocalPeriod(client, doc, carryIn) {
   return { result, carryOut };
 }
 
-// Coeficientes de distribución CM: se guardan como una lista de vigencias
-// ordenadas, cada una con el período desde el que empezó a regir. Para un
-// período dado, se usa la última vigencia cuyo "desde" sea <= ese período
-// (y se mantiene para los siguientes hasta que aparece una vigencia más
-// nueva). Así el contador carga la fecha real en que empezó a aplicar cada
-// actualización de coeficiente, sin depender de una regla automática.
+// Coeficientes de distribución CM: se guardan como una lista de vigencias,
+// cada una con el período desde el que empezó a regir y, opcionalmente,
+// hasta qué período rigió (si no tiene "hasta", se considera vigente hasta
+// que aparezca una vigencia más nueva). Para un período dado, se busca la
+// vigencia cuyo rango [desde, hasta] lo contenga — si no hay ninguna, no
+// se aplica ningún coeficiente (para que se note el hueco en vez de
+// arrastrar silenciosamente uno viejo que ya no corresponde).
 function getCoefVigencia(client, period) {
-  const vigencias = (client.iibbCM.coeficientes || []).filter((v) => v.desde && v.desde <= period);
+  const vigencias = (client.iibbCM.coeficientes || []).filter((v) => v.desde && v.desde <= period && (!v.hasta || period <= v.hasta));
   if (!vigencias.length) return null;
   return vigencias.reduce((latest, v) => (v.desde > latest.desde ? v : latest));
 }
@@ -1996,15 +1997,13 @@ function renderConfigTab(client) {
               <div class="field"><label>Vigencia</label>
                 <div style="display:flex;gap:6px;align-items:center;">
                   ${coefVigList.length ? `<select data-action="select-coef-vigencia" style="flex:1;">
-                    ${coefVigList.map((v) => `<option value="${v.desde}" ${v.desde === selectedDesde ? "selected" : ""}>${periodYear(v.desde)}</option>`).join("")}
+                    ${coefVigList.map((v) => `<option value="${v.desde}" ${v.desde === selectedDesde ? "selected" : ""}>${periodLabel(v.desde)} — ${v.hasta ? periodLabel(v.hasta) : "sigue vigente"}</option>`).join("")}
                   </select>` : `<span class="hint-sm" style="flex:1;">Todavía no cargaste ninguna.</span>`}
+                  ${selectedVig ? `<button type="button" class="btn btn-sm" data-action="edit-coef-vigencia" data-desde="${selectedDesde}">Editar</button>` : ""}
                   <button type="button" class="btn btn-sm" data-action="add-coef-vigencia">+ Nueva vigencia…</button>
                 </div>
-                ${selectedVig ? `<span class="hint-sm">${selectedDesde === defaultDesde ? `Es la que aplica en ${periodLabel(state.currentPeriod)}` : `Elegida a mano — la que aplica en ${periodLabel(state.currentPeriod)} es otra`}</span>` : ""}
+                ${selectedVig ? `<span class="hint-sm">${selectedDesde === defaultDesde ? `Es la que aplica en ${periodLabel(state.currentPeriod)}` : `Elegida a mano — la que aplica en ${periodLabel(state.currentPeriod)} es otra`}</span>` : (!vigenciaDelPeriodo && coefVigList.length ? `<span class="hint-sm" style="color:var(--pagar);">Ninguna vigencia cubre ${periodLabel(state.currentPeriod)} — el coeficiente se toma como 0% hasta que cargues una.</span>` : "")}
               </div>
-              ${selectedVig ? `<div class="field"><label>Vigencia desde — mes</label><select data-action="edit-coef-desde-month" data-current="${selectedDesde || ""}">
-                ${MESES.map((m, i) => `<option value="${String(i + 1).padStart(2, "0")}" ${periodMonth(selectedDesde) === i + 1 ? "selected" : ""}>${m}</option>`).join("")}
-              </select><span class="hint-sm">Rige desde ${periodLabel(selectedDesde)} hasta que cargues uno más nuevo</span></div>` : ""}
             </div>
             ${selectedVig ? `
             <p style="text-align:right;font-size:10.5px;color:var(--muted-soft);margin:0 0 6px;">Suma actual: ${fmtPctRaw(coefSum)}%</p>
@@ -2136,17 +2135,8 @@ document.addEventListener("click", (e) => {
   else if (action === "open-iva-actividades-modal") { ivaActividadesActiveCode = null; renderIvaActividadesModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "select-iva-actividad") { ivaActividadesActiveCode = btn.dataset.code; renderIvaActividadesModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "toggle-theme") { toggleTheme(); }
-  else if (action === "add-coef-vigencia") {
-    const p = prompt('¿Desde qué período rige este coeficiente? (formato AAAA-MM, ej: "' + todayPeriod() + '")');
-    if (p && /^\d{4}-(0[1-9]|1[0-2])$/.test(p)) {
-      mutateClient(currentClient().id, (c) => {
-        c.iibbCM.coeficientes = c.iibbCM.coeficientes || [];
-        if (!c.iibbCM.coeficientes.some((v) => v.desde === p)) c.iibbCM.coeficientes.push({ desde: p, valores: {} });
-      });
-      state.selectedCoefDesde = p;
-      render();
-    }
-  }
+  else if (action === "add-coef-vigencia") { renderCoefVigenciaModal(currentClient().id, null); }
+  else if (action === "edit-coef-vigencia") { renderCoefVigenciaModal(currentClient().id, btn.dataset.desde); }
   else if (action === "remove-jurisdiction") { const idx = Number(btn.dataset.idx); mutateClient(currentClient().id, (c) => c.iibbCM.jurisdictions.splice(idx, 1)); render(); }
   else if (action === "add-all-jurisdictions") {
     mutateClient(currentClient().id, (c) => {
@@ -2169,19 +2159,6 @@ document.addEventListener("change", (e) => {
   } else if (t.dataset.action === "add-jurisdiction-select") {
     const name = t.value;
     if (name) mutateClient(currentClient().id, (c) => { if (!c.iibbCM.jurisdictions.some((x) => x.name === name)) c.iibbCM.jurisdictions.push({ name, alicuotas: {} }); });
-    render();
-  } else if (t.dataset.action === "edit-coef-desde-month") {
-    const oldDesde = t.dataset.current;
-    const newDesde = `${periodYear(oldDesde)}-${t.value}`;
-    if (newDesde === oldDesde) return;
-    let ok = true;
-    mutateClient(currentClient().id, (c) => {
-      if ((c.iibbCM.coeficientes || []).some((x) => x.desde === newDesde && x.desde !== oldDesde)) { ok = false; return; }
-      const v = (c.iibbCM.coeficientes || []).find((x) => x.desde === oldDesde);
-      if (v) v.desde = newDesde;
-    });
-    if (!ok) { showToast("Ya existe un período cargado con esa fecha"); render(); return; }
-    state.selectedCoefDesde = newDesde;
     render();
   }
 });
@@ -2227,6 +2204,35 @@ function handleConfigInput(t) {
 // ---------------------------------------------------------------------
 // Modal: agregar cliente
 // ---------------------------------------------------------------------
+function renderCoefVigenciaModal(clientId, editDesde) {
+  const client = getClient(clientId);
+  if (!client) return;
+  const existing = editDesde ? (client.iibbCM.coeficientes || []).find((v) => v.desde === editDesde) : null;
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal" style="max-width:360px;">
+        <div class="modal-head"><h3>${existing ? "Editar vigencia" : "Nueva vigencia de coeficientes"}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+        <div class="modal-body">
+          <p style="font-size:11.5px;color:var(--muted);margin:0;">Definí desde y hasta qué período rige este coeficiente. Fuera de ese rango, la herramienta no lo va a aplicar — así te avisa si te quedó un hueco sin cargar, en vez de arrastrar uno viejo que ya no corresponde.</p>
+          <div class="field"><label>Desde (AAAA-MM)</label><input type="text" id="coef-vig-desde" placeholder="Ej: 2025-05" value="${escapeHtml(existing ? existing.desde : "")}"></div>
+          <div class="field"><label><input type="checkbox" id="coef-vig-sigue" ${!existing || !existing.hasta ? "checked" : ""}> Sigue vigente (sin fecha de fin todavía)</label></div>
+          <div class="field" id="coef-vig-hasta-field" style="${(!existing || !existing.hasta) ? "display:none;" : ""}">
+            <label>Hasta (AAAA-MM, incluido)</label><input type="text" id="coef-vig-hasta" placeholder="Ej: 2026-04" value="${escapeHtml(existing && existing.hasta ? existing.hasta : "")}">
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" data-action="close-modal">Cancelar</button>
+          <button class="btn btn-accent" data-action="confirm-coef-vigencia" data-editing="${existing ? existing.desde : ""}">${existing ? "Guardar" : "Crear"}</button>
+        </div>
+      </div>
+    </div>`;
+  wireModalBackdropClose();
+  document.getElementById("coef-vig-sigue").addEventListener("change", (e) => {
+    document.getElementById("coef-vig-hasta-field").style.display = e.target.checked ? "none" : "";
+  });
+}
+
 function openAddClientModal() {
   const root = document.getElementById("modal-root");
   root.innerHTML = `
@@ -2393,6 +2399,32 @@ document.getElementById("modal-root").addEventListener("click", (e) => {
     const cuit = document.getElementById("new-client-cuit").value.trim();
     document.getElementById("modal-root").innerHTML = "";
     addClient(name || "Nuevo cliente", cuit);
+  }
+  else if (btn.dataset.action === "confirm-coef-vigencia") {
+    const re = /^\d{4}-(0[1-9]|1[0-2])$/;
+    const desde = document.getElementById("coef-vig-desde").value.trim();
+    const sigueVigente = document.getElementById("coef-vig-sigue").checked;
+    const hasta = sigueVigente ? null : document.getElementById("coef-vig-hasta").value.trim();
+    if (!re.test(desde)) { showToast("El período 'Desde' tiene que tener formato AAAA-MM"); return; }
+    if (hasta && !re.test(hasta)) { showToast("El período 'Hasta' tiene que tener formato AAAA-MM"); return; }
+    if (hasta && hasta < desde) { showToast("'Hasta' no puede ser anterior a 'Desde'"); return; }
+    const editingDesde = btn.dataset.editing;
+    let ok = true;
+    mutateClient(currentClient().id, (c) => {
+      c.iibbCM.coeficientes = c.iibbCM.coeficientes || [];
+      if (editingDesde) {
+        if (desde !== editingDesde && c.iibbCM.coeficientes.some((v) => v.desde === desde)) { ok = false; return; }
+        const v = c.iibbCM.coeficientes.find((x) => x.desde === editingDesde);
+        if (v) { v.desde = desde; v.hasta = hasta || null; }
+      } else {
+        if (c.iibbCM.coeficientes.some((v) => v.desde === desde)) { ok = false; return; }
+        c.iibbCM.coeficientes.push({ desde, hasta: hasta || null, valores: {} });
+      }
+    });
+    if (!ok) { showToast("Ya existe una vigencia cargada con esa fecha de inicio"); return; }
+    state.selectedCoefDesde = desde;
+    document.getElementById("modal-root").innerHTML = "";
+    render();
   }
   else if (btn.dataset.action === "pick-activity") {
     const code = btn.dataset.code, desc = btn.dataset.desc;
