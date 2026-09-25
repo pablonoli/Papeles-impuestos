@@ -1081,6 +1081,7 @@ function computeIvaPeriod(client, doc, carryIn) {
     restCredito: Object.assign(emptyIvaDoc().restCredito, (doc && doc.restCredito) || {}),
     porActividad: Object.assign({}, (doc && doc.porActividad) || {}),
     decreto814: Object.assign({ remuneraciones: 0, f931Pagado: false, f931Fecha: "" }, (doc && doc.decreto814) || {}),
+    turIva: Object.assign({ credito: 0 }, (doc && doc.turIva) || {}),
     exento: Object.assign({ ventas: 0, ncVentas: 0, compras: 0, ncCompras: 0, operacionesNoCredito: 0 }, (doc && doc.exento) || {}),
   });
 
@@ -1119,6 +1120,12 @@ function computeIvaPeriod(client, doc, carryIn) {
   // El crédito del Decreto 814/01 sólo se puede computar una vez pagadas
   // las contribuciones (F.931); si no está marcado como pagado, no se toma.
   const creditoDecreto814 = f931Pagado ? round2(remuneraciones * decreto814Rate) : 0;
+  // Régimen TurIVA: sociedades con ventas a turistas extranjeros que generan
+  // crédito fiscal especial por esas operaciones. El crédito se carga a
+  // mano (no hay forma de calcularlo a partir de otros datos del período) y
+  // se suma al resto del crédito fiscal computable.
+  const turIvaEnabled = !!client.iva.turIva;
+  const creditoTurIva = turIvaEnabled ? num(doc.turIva.credito) : 0;
 
   const ventasNetasGravadas = round2(debitoBrackets.reduce((s, b) => s + b.neto, 0) - restCreditoBrackets.reduce((s, b) => s + b.neto, 0));
 
@@ -1140,7 +1147,7 @@ function computeIvaPeriod(client, doc, carryIn) {
 
   const sumPortal = (arr) => arr.reduce((s, b) => s + b.portal, 0);
   const debitoFiscal = round2(sumPortal(debitoBrackets) + sumPortal(restDebitoBrackets));
-  const creditoFiscal = round2(sumPortal(creditoBrackets) + sumPortal(restCreditoBrackets) + creditoDecreto814);
+  const creditoFiscal = round2(sumPortal(creditoBrackets) + sumPortal(restCreditoBrackets) + creditoDecreto814 + creditoTurIva);
 
   const comprasNetasGravadas = round2(creditoBrackets.reduce((s, b) => s + b.neto, 0) - restDebitoBrackets.reduce((s, b) => s + b.neto, 0));
 
@@ -1171,7 +1178,7 @@ function computeIvaPeriod(client, doc, carryIn) {
 
   const result = {
     doc, debitoBrackets, restDebitoBrackets, creditoBrackets, restCreditoBrackets,
-    decreto814Rate, remuneraciones, creditoDecreto814, f931Pagado,
+    decreto814Rate, remuneraciones, creditoDecreto814, f931Pagado, turIvaEnabled, creditoTurIva,
     debitoFiscal, creditoFiscal, coefProrrateo, ventasNetasGravadas, ventasExentasNetas, comprasNetasGravadas,
     saldoTecnicoAnterior, saldoTecnico, saldoTecnicoFavorARCA, saldoTecnicoFavorContribuyente,
     libreDispAnterior, montoUtilizado, percepciones, retenciones,
@@ -1313,7 +1320,7 @@ function calcIibbCMFor(client, period) {
 function newClientTemplate(name, cuit) {
   return {
     id: uid("cli"), name: name || "Nuevo cliente", cuit: cuit || "",
-    iva: { enabled: true, decreto814Rate: 3, prorrateoExento: false, activities: [], saldosIniciales: { saldoTecnicoAnterior: 0, saldoLibreDisponibilidadAnterior: 0 } },
+    iva: { enabled: true, decreto814Rate: 3, prorrateoExento: false, turIva: false, activities: [], saldosIniciales: { saldoTecnicoAnterior: 0, saldoLibreDisponibilidadAnterior: 0 } },
     iibbLocal: { enabled: false, jurisdiccion: "", activities: [], saldoInicial: 0 },
     iibbCM: { enabled: false, activities: [], jurisdictions: [], coeficientes: [], saldosIniciales: {} },
   };
@@ -1702,6 +1709,14 @@ function renderIvaTab(client) {
               <td class="num readonly">Crédito: ${fmtMoney(r.creditoDecreto814)}${r.remuneraciones > 0 && !r.f931Pagado ? ` <span style="color:var(--pagar);font-weight:600;">(F.931 sin pagar)</span>` : ""}</td>
               <td></td>
             </tr>
+            ${r.turIvaEnabled ? `
+            <tr class="section-row"><td colspan="5">TurIVA</td></tr>
+            <tr>
+              <td>Crédito fiscal por TurIVA</td>
+              <td colspan="2"><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(doc && doc.iva && doc.iva.turIva && doc.iva.turIva.credito, "money")}" data-path="iva.turIva.credito" data-action="field" data-clientid="${client.id}" data-period="${period}"></td>
+              <td class="num readonly">Crédito: ${fmtMoney(r.creditoTurIva)}</td>
+              <td></td>
+            </tr>` : ""}
             <tr class="total-row"><td>Total Crédito Fiscal (s/Portal)</td><td></td><td></td><td class="num">${fmtMoney(r.creditoFiscal)}</td><td></td></tr>
           </table></div>
         </div>
@@ -2011,6 +2026,10 @@ function renderConfigTab(client) {
               <div class="st"><b>Prorrateo crédito fiscal</b><span>Coeficiente = ventas gravadas / (ventas gravadas + ventas exentas); se aplica sobre el crédito fiscal de compras de cada período</span></div>
               <label class="switch"><input type="checkbox" ${client.iva.prorrateoExento ? "checked" : ""} data-cfg="toggle-prorrateo-exento"><span class="slider"></span></label>
             </div>
+            <div class="switch-row">
+              <div class="st"><b>Incluido en el régimen TurIVA</b><span>Ventas a turistas extranjeros que generan crédito fiscal especial — habilita cargarlo a mano en el papel de trabajo del Crédito Fiscal</span></div>
+              <label class="switch"><input type="checkbox" ${client.iva.turIva ? "checked" : ""} data-cfg="toggle-turiva"><span class="slider"></span></label>
+            </div>
           </div>
           <div class="subsection">
             <h4 class="subhead">Actividades <span style="text-transform:none;letter-spacing:0;">— ventas por actividad (portal ARCA)</span></h4>
@@ -2280,6 +2299,7 @@ function handleConfigInput(t) {
   else if (cfg === "cuit") mutateClient(c.id, (cl) => (cl.cuit = t.value));
   else if (cfg === "toggle-iva") mutateClient(c.id, (cl) => (cl.iva.enabled = t.checked));
   else if (cfg === "toggle-prorrateo-exento") mutateClient(c.id, (cl) => (cl.iva.prorrateoExento = t.checked));
+  else if (cfg === "toggle-turiva") mutateClient(c.id, (cl) => (cl.iva.turIva = t.checked));
   else if (cfg === "toggle-iibblocal") mutateClient(c.id, (cl) => (cl.iibbLocal.enabled = t.checked));
   else if (cfg === "toggle-iibbcm") mutateClient(c.id, (cl) => (cl.iibbCM.enabled = t.checked));
   else if (cfg === "decreto814rate") mutateClient(c.id, (cl) => (cl.iva.decreto814Rate = t.value));
@@ -3213,8 +3233,13 @@ function buildIvaSheets(wb, client) {
     const decreto814Row = rows.length;
     formulas.set(decreto814Row + ":2", r.f931Pagado ? `B${decreto814Row + 1}*${decreto814Rate}` : "0");
     rows.push(["Créd. Fiscal Decreto 814/01 (remuneraciones x tasa" + (r.f931Pagado ? "" : " — F.931 sin pagar, no se toma") + ")", r.remuneraciones, r.creditoDecreto814, "", "", ""]);
+    let turIvaRow = null;
+    if (r.turIvaEnabled) {
+      turIvaRow = rows.length;
+      rows.push(["Crédito Fiscal por TurIVA (cargado a mano)", "", r.creditoTurIva, "", "", ""]);
+    }
     const totalCreditoRow = rows.length;
-    formulas.set(totalCreditoRow + ":3", `SUM(D${creditoOnlyStart + 1}:D${restCreditoEnd + 1})+C${decreto814Row + 1}`);
+    formulas.set(totalCreditoRow + ":3", `SUM(D${creditoOnlyStart + 1}:D${restCreditoEnd + 1})+C${decreto814Row + 1}${turIvaRow != null ? `+C${turIvaRow + 1}` : ""}`);
     rows.push(["TOTAL CRÉDITO FISCAL (según portal)", "", "", r.creditoFiscal, "", ""]);
 
     const sheetName = ("IVA " + p.slice(5, 7) + "-" + p.slice(0, 4)).slice(0, 31);
