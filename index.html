@@ -1690,7 +1690,7 @@ function renderIvaTab(client) {
       <div class="card">
         <div class="card-head">
           <h3>Crédito Fiscal — Papel de trabajo</h3>
-          <span class="hint">Compras y restitución de débito fiscal (N.C. emitidas)${client.iva.prorrateoExento ? ` · <span class="pill" style="background:var(--accent-soft);color:var(--accent);" title="Ventas netas gravadas: ${fmtMoney(r.ventasNetasGravadas)}&#10;Ventas exentas o no gravadas (netas de N.C.): ${fmtMoney(r.ventasExentasNetas)}">⚡ Prorrateo ${fmtPctRaw(r.coefProrrateo * 100)}%</span>` : ""}</span>
+          <span class="hint">Compras y restitución de débito fiscal (N.C. emitidas)${client.iva.prorrateoExento ? ` · <span class="pill" style="background:var(--accent-soft);color:var(--accent);" title="Ventas netas gravadas: ${fmtMoney(r.ventasNetasGravadas)}&#10;Ventas exentas o no gravadas (netas de N.C.): ${fmtMoney(r.ventasExentasNetas)}&#10;(el cálculo usa el coeficiente completo, sin redondear)">⚡ Prorrateo ${(r.coefProrrateo * 100).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>` : ""}</span>
         </div>
         <div class="card-body">
           <div class="table-scroll"><table>
@@ -2836,15 +2836,15 @@ function renderFormulario2083Modal(clientId, period) {
 
   const sumNeto = (arr) => round2(arr.reduce((s, b) => s + b.neto, 0));
   const sumCalc = (arr) => round2(arr.reduce((s, b) => s + b.calculado, 0));
-  // Para Compras usamos el crédito fiscal "s/Portal IVA" (declarado) en vez
-  // del recalculado, porque pueden existir diferencias entre ambos.
+  // Para Ventas y Compras usamos el importe "s/Portal IVA" (declarado) en
+  // vez del recalculado, porque pueden existir diferencias entre ambos.
   const sumPortal = (arr) => round2(arr.reduce((s, b) => s + (b.portal ? b.portal : b.calculado), 0));
 
   // Ventas: "Operaciones de Venta" = Débito Fiscal (bruto); "Notas de Crédito
   // de Venta" = N.C. emitidas (restitución de crédito fiscal) — el F.2083
   // los declara sin netear, cada uno con su propia columna de Débito Fiscal.
-  const ventasNeto = sumNeto(r.debitoBrackets), ventasDebito = sumCalc(r.debitoBrackets);
-  const ncVentasNeto = sumNeto(r.restCreditoBrackets), ncVentasDebito = sumCalc(r.restCreditoBrackets);
+  const ventasNeto = sumNeto(r.debitoBrackets), ventasDebito = sumPortal(r.debitoBrackets);
+  const ncVentasNeto = sumNeto(r.restCreditoBrackets), ncVentasDebito = sumPortal(r.restCreditoBrackets);
   const ventasExento = num(r.exento.ventas), ncVentasExento = num(r.exento.ncVentas);
 
   // Compras: "Operaciones de Compra" = Crédito Fiscal; "Notas de Crédito de
