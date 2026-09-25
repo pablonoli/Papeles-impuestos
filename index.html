@@ -2140,6 +2140,9 @@ document.addEventListener("click", (e) => {
   else if (action === "open-iva-actividades-modal") { ivaActividadesActiveCode = null; renderIvaActividadesModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "select-iva-actividad") { ivaActividadesActiveCode = btn.dataset.code; renderIvaActividadesModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "toggle-theme") { toggleTheme(); }
+  else if (action === "open-sync-modal") { renderSyncModal(); }
+  else if (action === "sync-save") { syncSaveFromModal(); }
+  else if (action === "sync-pull-now") { syncPullFromModal(); }
   else if (action === "add-coef-vigencia") { renderCoefVigenciaModal(currentClient().id, null); }
   else if (action === "edit-coef-vigencia") { renderCoefVigenciaModal(currentClient().id, btn.dataset.desde); }
   else if (action === "remove-jurisdiction") { const idx = Number(btn.dataset.idx); mutateClient(currentClient().id, (c) => c.iibbCM.jurisdictions.splice(idx, 1)); render(); }
