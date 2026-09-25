@@ -572,6 +572,11 @@ function periodLabel(period) {
   const [y, m] = period.split("-").map(Number);
   return `${MESES[m - 1]} ${y}`;
 }
+function regimenLabel(a) {
+  if (a.regimen === "especial") return "Especial (Art. 6 a 13)";
+  if (a.regimen === "art14") return a.art14Jur ? `Inicio de actividades — ${a.art14Jur}` : "Inicio de actividades (Art. 14)";
+  return "General (Art. 2)";
+}
 function periodYear(period) { return Number(period.split("-")[0]); }
 function periodMonth(period) { return Number(period.split("-")[1]); }
 function todayPeriod() {
@@ -1218,6 +1223,17 @@ function getCoef(client, jurName, period) {
   const v = getCoefVigencia(client, period);
   return v ? num(v.valores[jurName]) / 100 : 0;
 }
+// Qué fracción de la base nacional de una actividad le corresponde a una
+// jurisdicción. Las actividades bajo Art. 2 (régimen general, el default)
+// usan el coeficiente de distribución único del cliente; las de régimen
+// "especial" (Art. 6 a 13) usan su propio reparto fijo por actividad; las
+// de "art14" (inicio de actividades) le asignan el 100% a una sola
+// jurisdicción — la que se eligió como donde arrancó la actividad.
+function getActivityAttribution(a, jurName, coefGeneral) {
+  if (a.regimen === "especial") return num(a.distribEspecial && a.distribEspecial[jurName]) / 100;
+  if (a.regimen === "art14") return a.art14Jur === jurName ? 1 : 0;
+  return coefGeneral;
+}
 
 function computeIibbCMPeriod(client, doc, carryIn) {
   doc = Object.assign(emptyIibbCMDoc(client), doc || {}, {
@@ -1235,11 +1251,12 @@ function computeIibbCMPeriod(client, doc, carryIn) {
     const actividadDetalle = activities.map((a) => {
       const montoNacional = num(doc.actividades[a.code]);
       const ajuste = num(jdoc.ajustes && jdoc.ajustes[a.code]);
-      const baseImponible = round2(montoNacional * coef);
+      const attrib = getActivityAttribution(a, j.name, coef);
+      const baseImponible = round2(montoNacional * attrib);
       const base = round2(baseImponible + ajuste);
       const alicuota = num(j.alicuotas && j.alicuotas[a.code]) / 100;
       const impuesto = round2(base * alicuota);
-      return { code: a.code, desc: a.desc, montoNacional, ajuste, baseImponible, base, alicuota, impuesto };
+      return { code: a.code, desc: a.desc, montoNacional, ajuste, attrib, regimen: a.regimen || "general", baseImponible, base, alicuota, impuesto };
     });
     const baseTotal = round2(actividadDetalle.reduce((s, a) => s + a.base, 0));
     const impuestoAnticipo = round2(actividadDetalle.reduce((s, a) => s + a.impuesto, 0));
@@ -1817,7 +1834,7 @@ function renderIibbCMTab(client) {
     const jdoc = (doc && doc.iibbCM && doc.iibbCM.jurisdicciones && doc.iibbCM.jurisdicciones[j.jurisdiccion]) || {};
     const actDetail = j.actividadDetalle.map((a) => `
       <tr>
-        <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:4px;" title="${escapeHtml(a.desc)}">${escapeHtml(a.code)}</td>
+        <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:4px;" title="${escapeHtml(a.desc)} — ${a.regimen === "especial" ? `Especial: ${fmtPct(a.attrib)} propio de esta actividad` : a.regimen === "art14" ? "Inicio de actividades (Art. 14)" : `General (Art. 2): ${fmtPct(a.attrib)}`}">${escapeHtml(a.code)}${a.regimen && a.regimen !== "general" ? ` <span class="hint-sm" style="color:var(--accent-strong);">·${a.regimen === "art14" ? "Art.14" : "esp."}</span>` : ""}</td>
         <td class="num readonly" style="text-align:center;">${fmtMoney(a.baseImponible)}</td>
         <td style="text-align:center;">
           <input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(jdoc.ajustes && jdoc.ajustes[a.code], "money")}" placeholder="ajuste" data-path="iibbCM.jurisdicciones.${j.jurisdiccion}.ajustes.${a.code}" data-action="field" data-clientid="${client.id}" data-period="${period}" style="text-align:center;">
@@ -1851,7 +1868,7 @@ function renderIibbCMTab(client) {
   return `
     <div style="display:flex;flex-direction:column;gap:16px;">
       <div class="card">
-        <div class="card-head"><h3>Actividades — Ventas netas (según libro IVA Ventas)</h3><span class="hint">Se distribuye por jurisdicción según el coeficiente ${coefLabel}</span></div>
+        <div class="card-head"><h3>Actividades — Ventas netas (según libro IVA Ventas)</h3><span class="hint">Art. 2 (general) se distribuye según el coeficiente ${coefLabel}; las actividades con régimen especial o Art. 14 usan su propio reparto (Configuración)</span></div>
         <div class="card-body">
           <div class="table-scroll"><table>
             <tr><th>Actividad</th><th>Ventas netas</th></tr>
@@ -1880,9 +1897,13 @@ function renderConfigTab(client) {
   const activityRows = (client.iibbCM.activities || []).map((a, i) => `
     <tr>
       <td style="text-align:left;padding-right:2px;"><input type="text" value="${escapeHtml(a.code)}" title="${escapeHtml(a.code)}" data-cfg="activity-code" data-idx="${i}" style="width:88px;"></td>
-      <td style="text-align:left;padding-left:2px;"><input type="text" value="${escapeHtml(a.desc)}" title="${escapeHtml(a.desc)}" data-cfg="activity-desc" data-idx="${i}" style="width:100%;min-width:360px;"></td>
+      <td style="text-align:left;padding-left:2px;"><input type="text" value="${escapeHtml(a.desc)}" title="${escapeHtml(a.desc)}" data-cfg="activity-desc" data-idx="${i}" style="width:100%;min-width:280px;"></td>
+      <td style="text-align:left;white-space:nowrap;">
+        <span class="hint-sm">${regimenLabel(a)}</span>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="open-activity-regimen-modal" data-code="${escapeHtml(a.code)}">Editar</button>
+      </td>
       <td><button class="btn btn-ghost btn-danger btn-sm" data-action="remove-activity" data-idx="${i}">Quitar</button></td>
-    </tr>`).join("") || `<tr><td colspan="3" style="text-align:center;color:var(--muted)">Sin actividades cargadas.</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="4" style="text-align:center;color:var(--muted)">Sin actividades cargadas.</td></tr>`;
 
   const jurRows = (client.iibbCM.jurisdictions || [])
     .map((j, i) => ({ j, i }))
@@ -2049,7 +2070,7 @@ function renderConfigTab(client) {
           <div class="subsection">
             <h4 class="subhead">Actividades</h4>
             <div class="table-scroll"><table>
-              <tr><th style="text-align:left;width:88px;padding-right:2px;">Código</th><th style="text-align:left;padding-left:2px;">Descripción</th><th></th></tr>
+              <tr><th style="text-align:left;width:88px;padding-right:2px;">Código</th><th style="text-align:left;padding-left:2px;">Descripción</th><th style="text-align:left;">Régimen CM</th><th></th></tr>
               ${activityRows}
             </table></div>
             <button class="btn btn-sm" data-action="open-activity-picker-cm">+ Agregar actividad</button>
@@ -2224,6 +2245,7 @@ document.addEventListener("click", (e) => {
   else if (action === "sync-pull-now") { syncPullFromModal(); }
   else if (action === "add-coef-vigencia") { renderCoefVigenciaModal(currentClient().id, null); }
   else if (action === "edit-coef-vigencia") { renderCoefVigenciaModal(currentClient().id, btn.dataset.desde); }
+  else if (action === "open-activity-regimen-modal") { renderActivityRegimenModal(currentClient().id, btn.dataset.code); }
   else if (action === "remove-jurisdiction") { const idx = Number(btn.dataset.idx); mutateClient(currentClient().id, (c) => c.iibbCM.jurisdictions.splice(idx, 1)); render(); }
   else if (action === "add-all-jurisdictions") {
     mutateClient(currentClient().id, (c) => {
@@ -2320,6 +2342,66 @@ function renderCoefVigenciaModal(clientId, editDesde) {
   wireModalBackdropClose();
   document.getElementById("coef-vig-sigue").addEventListener("change", (e) => {
     document.getElementById("coef-vig-hasta-field").style.display = e.target.checked ? "none" : "";
+  });
+}
+
+// ---------------------------------------------------------------------
+// Modal: régimen de Convenio Multilateral por actividad (Art. 2 general,
+// Art. 6 a 13 especiales, o Art. 14 inicio de actividades). El Art. 2 usa
+// el coeficiente de distribución único del cliente (sin cambios); los
+// otros dos reemplazan ese coeficiente por un reparto propio de la
+// actividad, fijo (sin vigencias por fecha — se edita a mano si cambia).
+// ---------------------------------------------------------------------
+function renderActivityRegimenModal(clientId, code) {
+  const client = getClient(clientId);
+  if (!client) return;
+  const a = (client.iibbCM.activities || []).find((x) => x.code === code);
+  if (!a) return;
+  const jurs = sortedJurisdictions(client.iibbCM.jurisdictions);
+  const regimen = a.regimen || "general";
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal" style="max-width:440px;">
+        <div class="modal-head"><h3>Régimen CM — ${escapeHtml(a.code)}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+        <div class="modal-body">
+          <p style="font-size:11.5px;color:var(--muted);margin:0;">${escapeHtml(a.desc)}</p>
+          <div class="field">
+            <label>Régimen</label>
+            <select id="regimen-select">
+              <option value="general" ${regimen === "general" ? "selected" : ""}>General (Art. 2) — usa el coeficiente de distribución</option>
+              <option value="especial" ${regimen === "especial" ? "selected" : ""}>Especial (Art. 6 a 13) — reparto propio de esta actividad</option>
+              <option value="art14" ${regimen === "art14" ? "selected" : ""}>Inicio de actividades (Art. 14) — 100% en una jurisdicción</option>
+            </select>
+          </div>
+          <div id="regimen-especial-block" style="display:${regimen === "especial" ? "flex" : "none"};flex-direction:column;gap:8px;">
+            <p style="font-size:11.5px;color:var(--muted);margin:0;">Repartí el 100% de esta actividad entre las jurisdicciones que ya cargaste. Queda fijo — si en algún momento cambia (otra obra, otro contrato), lo volvés a editar acá.</p>
+            ${jurs.length ? jurs.map((j) => `
+              <div class="field" style="flex-direction:row;align-items:center;justify-content:space-between;gap:8px;">
+                <label style="margin:0;">${escapeHtml(j.name)}</label>
+                <span class="pct-field"><input type="text" inputmode="decimal" data-kind="percent" data-jur="${escapeHtml(j.name)}" value="${rawOrBlank(a.distribEspecial && a.distribEspecial[j.name], "percent")}" placeholder="—" style="width:80px;"><span class="pct-suffix">%</span></span>
+              </div>`).join("") : `<p style="color:var(--muted);font-size:12px;">Cargá jurisdicciones primero, en la sección de arriba.</p>`}
+          </div>
+          <div id="regimen-art14-block" style="display:${regimen === "art14" ? "block" : "none"};">
+            <div class="field">
+              <label>Jurisdicción donde arrancó la actividad</label>
+              <select id="regimen-art14-jur">
+                <option value="">Elegir…</option>
+                ${jurs.map((j) => `<option value="${escapeHtml(j.name)}" ${a.art14Jur === j.name ? "selected" : ""}>${escapeHtml(j.name)}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" data-action="close-modal">Cancelar</button>
+          <button class="btn btn-accent" data-action="confirm-activity-regimen" data-code="${escapeHtml(a.code)}">Guardar</button>
+        </div>
+      </div>
+    </div>`;
+  wireModalBackdropClose();
+  document.getElementById("regimen-select").addEventListener("change", (e) => {
+    document.getElementById("regimen-especial-block").style.display = e.target.value === "especial" ? "flex" : "none";
+    document.getElementById("regimen-art14-block").style.display = e.target.value === "art14" ? "block" : "none";
   });
 }
 
@@ -2523,6 +2605,32 @@ document.getElementById("modal-root").addEventListener("click", (e) => {
       c.iibbCM.coeficientes = (c.iibbCM.coeficientes || []).filter((v) => v.desde !== desde);
     });
     if (state.selectedCoefDesde === desde) state.selectedCoefDesde = null;
+    document.getElementById("modal-root").innerHTML = "";
+    render();
+  }
+  else if (btn.dataset.action === "confirm-activity-regimen") {
+    const code = btn.dataset.code;
+    const regimen = document.getElementById("regimen-select").value;
+    let art14Jur = "";
+    let distribEspecial = null;
+    if (regimen === "especial") {
+      distribEspecial = {};
+      document.querySelectorAll("#regimen-especial-block input[data-jur]").forEach((inp) => {
+        const v = num(inp.value);
+        if (v) distribEspecial[inp.dataset.jur] = v;
+      });
+    } else if (regimen === "art14") {
+      const sel = document.getElementById("regimen-art14-jur");
+      art14Jur = sel ? sel.value : "";
+      if (!art14Jur) { showToast("Elegí en qué jurisdicción arrancó la actividad"); return; }
+    }
+    mutateClient(currentClient().id, (c) => {
+      const a = (c.iibbCM.activities || []).find((x) => x.code === code);
+      if (!a) return;
+      a.regimen = regimen === "general" ? undefined : regimen;
+      a.distribEspecial = regimen === "especial" ? distribEspecial : undefined;
+      a.art14Jur = regimen === "art14" ? art14Jur : undefined;
+    });
     document.getElementById("modal-root").innerHTML = "";
     render();
   }
@@ -3429,15 +3537,20 @@ function buildIibbCMSheets(wb, client) {
         const R = detRows.length;
         const montoNacional = num((doc && doc.iibbCM && doc.iibbCM.actividades && doc.iibbCM.actividades[a.code]));
         const ajuste = num(jdoc.ajustes && jdoc.ajustes[a.code]);
-        const coef = coefVigencia ? num(coefVigencia.valores[j.name]) / 100 : 0;
+        const coefGeneral = coefVigencia ? num(coefVigencia.valores[j.name]) / 100 : 0;
+        const attrib = getActivityAttribution(a, j.name, coefGeneral);
         const alicuota = num(j.alicuotas && j.alicuotas[a.code]) / 100;
-        const base = round2(montoNacional * coef + ajuste);
+        const base = round2(montoNacional * attrib + ajuste);
         const impuesto = round2(base * alicuota);
         if (actCell[p] && actCell[p][a.code]) detFormulas.set(R + ":2", xsheetRef("Actividades", ...actCell[p][a.code]));
-        if (coefVigencia && coefCell[coefVigencia.desde + "|" + j.name]) detFormulas.set(R + ":3", xsheetRef("Coeficientes", ...coefCell[coefVigencia.desde + "|" + j.name]));
+        // El link a la hoja "Coeficientes" sólo aplica a Art. 2 (general) —
+        // las actividades con reparto propio (especial/Art. 14) llevan acá
+        // directamente su % fijo, sin depender de esa hoja.
+        if (!a.regimen && coefVigencia && coefCell[coefVigencia.desde + "|" + j.name]) detFormulas.set(R + ":3", xsheetRef("Coeficientes", ...coefCell[coefVigencia.desde + "|" + j.name]));
         detFormulas.set(R + ":5", `C${R + 1}*D${R + 1}+E${R + 1}`);
         detFormulas.set(R + ":7", `F${R + 1}*G${R + 1}`);
-        detRows.push([j.name, `${a.code} — ${a.desc}`, montoNacional, coef, ajuste, base, alicuota, impuesto]);
+        const regimenTag = a.regimen === "especial" ? " [Especial]" : a.regimen === "art14" ? " [Art.14]" : "";
+        detRows.push([j.name, `${a.code} — ${a.desc}${regimenTag}`, montoNacional, attrib, ajuste, base, alicuota, impuesto]);
       });
       const end = detRows.length - 1;
       detMeta[p][j.name] = { start, end };
