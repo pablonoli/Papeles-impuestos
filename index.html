@@ -220,6 +220,8 @@
   td .pct-field input{ width:68px; text-align:right; padding:4px 20px 4px 6px; }
 
   .form-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px 16px; align-items:start; }
+  .cards-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; align-items:start; }
+  .cards-row > .card{ margin:0; }
   .field{ display:flex; flex-direction:column; gap:4px; }
   .field input, .field select{ padding:7px 9px; }
   .field input[type="text"]{ max-width:260px; }
@@ -1347,9 +1349,10 @@ function renderSidebar() {
         <span class="name">${escapeHtml(c.name)}</span>
         <span class="cuit">${escapeHtml(c.cuit || "CUIT sin cargar")}</span>
         <span class="tax-chips">
-          <span class="chip ${c.iva.enabled ? "on" : ""}">IVA</span>
-          <span class="chip ${c.iibbLocal.enabled ? "on" : ""}">IIBB local</span>
-          <span class="chip ${c.iibbCM.enabled ? "on" : ""}">IIBB CM</span>
+          ${c.iva.enabled ? '<span class="chip on">IVA</span>' : ""}
+          ${c.iibbLocal.enabled ? '<span class="chip on">IIBB local</span>' : ""}
+          ${c.iibbCM.enabled ? '<span class="chip on">IIBB CM</span>' : ""}
+          ${!c.iva.enabled && !c.iibbLocal.enabled && !c.iibbCM.enabled ? '<span class="chip">Sin impuestos</span>' : ""}
         </span>
       </button>`;
   }).join("");
@@ -1800,7 +1803,7 @@ function renderConfigTab(client) {
 
   const activityRows = (client.iibbCM.activities || []).map((a, i) => `
     <tr>
-      <td style="text-align:left;padding-right:2px;"><input type="text" value="${escapeHtml(a.code)}" title="${escapeHtml(a.code)}" data-cfg="activity-code" data-idx="${i}" style="width:64px;"></td>
+      <td style="text-align:left;padding-right:2px;"><input type="text" value="${escapeHtml(a.code)}" title="${escapeHtml(a.code)}" data-cfg="activity-code" data-idx="${i}" style="width:88px;"></td>
       <td style="text-align:left;padding-left:2px;"><input type="text" value="${escapeHtml(a.desc)}" title="${escapeHtml(a.desc)}" data-cfg="activity-desc" data-idx="${i}" style="width:100%;min-width:360px;"></td>
       <td><button class="btn btn-ghost btn-danger btn-sm" data-action="remove-activity" data-idx="${i}">Quitar</button></td>
     </tr>`).join("") || `<tr><td colspan="3" style="text-align:center;color:var(--muted)">Sin actividades cargadas.</td></tr>`;
@@ -1856,7 +1859,8 @@ function renderConfigTab(client) {
   }).join("") || "";
 
   return `
-    <div style="display:flex;flex-direction:column;gap:16px;max-width:880px;">
+    <div style="display:flex;flex-direction:column;gap:16px;max-width:1180px;">
+      <div class="cards-row">
       <div class="card">
         <div class="card-head"><h3>Datos del cliente</h3></div>
         <div class="card-body">
@@ -1886,6 +1890,7 @@ function renderConfigTab(client) {
         </div>
         <p class="foot-note">IVA se presenta siempre junto con IIBB (Local o Convenio Multilateral) para una misma sociedad: activá IVA y el régimen de IIBB que corresponda en este mismo cliente, no como clientes separados.</p>
       </div>
+      </div>
 
       ${client.iva.enabled ? `
       <div class="card">
@@ -1910,10 +1915,10 @@ function renderConfigTab(client) {
           <div class="subsection">
             <h4 class="subhead">Actividades <span style="text-transform:none;letter-spacing:0;">— ventas por actividad (portal ARCA)</span></h4>
             <div class="table-scroll"><table>
-              <tr><th style="text-align:left;width:64px;padding-right:2px;">Código</th><th style="text-align:left;padding-left:2px;">Descripción</th><th></th></tr>
+              <tr><th style="text-align:left;width:88px;padding-right:2px;">Código</th><th style="text-align:left;padding-left:2px;">Descripción</th><th></th></tr>
               ${(client.iva.activities || []).map((a, i) => `
               <tr>
-                <td style="text-align:left;padding-right:2px;"><input type="text" value="${escapeHtml(a.code)}" title="${escapeHtml(a.code)}" data-cfg="iva-activity-code" data-idx="${i}" style="width:64px;"></td>
+                <td style="text-align:left;padding-right:2px;"><input type="text" value="${escapeHtml(a.code)}" title="${escapeHtml(a.code)}" data-cfg="iva-activity-code" data-idx="${i}" style="width:88px;"></td>
                 <td style="text-align:left;padding-left:2px;"><input type="text" value="${escapeHtml(a.desc)}" title="${escapeHtml(a.desc)}" data-cfg="iva-activity-desc" data-idx="${i}" style="width:100%;min-width:300px;"></td>
                 <td><button class="btn btn-ghost btn-danger btn-sm" data-action="remove-activity-iva" data-idx="${i}">Quitar</button></td>
               </tr>`).join("") || `<tr><td colspan="3" style="text-align:center;color:var(--muted)">Sin actividades cargadas.</td></tr>`}
@@ -1944,10 +1949,10 @@ function renderConfigTab(client) {
           <div class="subsection">
             <h4 class="subhead">Actividades</h4>
             <div class="table-scroll"><table>
-              <tr><th style="text-align:left;width:64px;padding-right:2px;">Código</th><th style="text-align:left;padding-left:2px;">Descripción</th><th>Alícuota</th><th></th></tr>
+              <tr><th style="text-align:left;width:88px;padding-right:2px;">Código</th><th style="text-align:left;padding-left:2px;">Descripción</th><th>Alícuota</th><th></th></tr>
               ${(client.iibbLocal.activities || []).map((a, i) => `
               <tr>
-                <td style="text-align:left;padding-right:2px;"><input type="text" value="${escapeHtml(a.code)}" title="${escapeHtml(a.code)}" data-cfg="iibblocal-activity-code" data-idx="${i}" style="width:64px;"></td>
+                <td style="text-align:left;padding-right:2px;"><input type="text" value="${escapeHtml(a.code)}" title="${escapeHtml(a.code)}" data-cfg="iibblocal-activity-code" data-idx="${i}" style="width:88px;"></td>
                 <td style="text-align:left;padding-left:2px;"><input type="text" value="${escapeHtml(a.desc)}" title="${escapeHtml(a.desc)}" data-cfg="iibblocal-activity-desc" data-idx="${i}" style="width:100%;min-width:280px;"></td>
                 <td><span class="pct-field"><input type="text" inputmode="decimal" data-kind="percent" value="${typeof a.alicuota === "number" ? fmtPctRaw(a.alicuota) : a.alicuota}" placeholder="—" data-cfg="iibblocal-activity-alicuota" data-idx="${i}"><span class="pct-suffix">%</span></span></td>
                 <td><button class="btn btn-ghost btn-danger btn-sm" data-action="remove-activity-local" data-idx="${i}">Quitar</button></td>
@@ -1965,7 +1970,7 @@ function renderConfigTab(client) {
           <div class="subsection">
             <h4 class="subhead">Actividades</h4>
             <div class="table-scroll"><table>
-              <tr><th style="text-align:left;width:64px;padding-right:2px;">Código</th><th style="text-align:left;padding-left:2px;">Descripción</th><th></th></tr>
+              <tr><th style="text-align:left;width:88px;padding-right:2px;">Código</th><th style="text-align:left;padding-left:2px;">Descripción</th><th></th></tr>
               ${activityRows}
             </table></div>
             <button class="btn btn-sm" data-action="open-activity-picker-cm">+ Agregar actividad</button>
@@ -2221,9 +2226,12 @@ function renderCoefVigenciaModal(clientId, editDesde) {
             <label>Hasta (AAAA-MM, incluido)</label><input type="text" id="coef-vig-hasta" placeholder="Ej: 2026-04" value="${escapeHtml(existing && existing.hasta ? existing.hasta : "")}">
           </div>
         </div>
-        <div class="modal-foot">
-          <button class="btn" data-action="close-modal">Cancelar</button>
-          <button class="btn btn-accent" data-action="confirm-coef-vigencia" data-editing="${existing ? existing.desde : ""}">${existing ? "Guardar" : "Crear"}</button>
+        <div class="modal-foot" style="${existing ? "justify-content:space-between;" : ""}">
+          ${existing ? `<button class="btn btn-danger" data-action="delete-coef-vigencia" data-desde="${escapeHtml(existing.desde)}">Eliminar</button>` : ""}
+          <div style="display:flex;gap:8px;${existing ? "" : "margin-left:auto;"}">
+            <button class="btn" data-action="close-modal">Cancelar</button>
+            <button class="btn btn-accent" data-action="confirm-coef-vigencia" data-editing="${existing ? existing.desde : ""}">${existing ? "Guardar" : "Crear"}</button>
+          </div>
         </div>
       </div>
     </div>`;
@@ -2423,6 +2431,16 @@ document.getElementById("modal-root").addEventListener("click", (e) => {
     });
     if (!ok) { showToast("Ya existe una vigencia cargada con esa fecha de inicio"); return; }
     state.selectedCoefDesde = desde;
+    document.getElementById("modal-root").innerHTML = "";
+    render();
+  }
+  else if (btn.dataset.action === "delete-coef-vigencia") {
+    const desde = btn.dataset.desde;
+    if (!confirm(`¿Eliminar la vigencia de coeficientes desde ${periodLabel(desde)}? Esta acción no se puede deshacer.`)) return;
+    mutateClient(currentClient().id, (c) => {
+      c.iibbCM.coeficientes = (c.iibbCM.coeficientes || []).filter((v) => v.desde !== desde);
+    });
+    if (state.selectedCoefDesde === desde) state.selectedCoefDesde = null;
     document.getElementById("modal-root").innerHTML = "";
     render();
   }
