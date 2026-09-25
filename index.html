@@ -824,14 +824,79 @@ function persistDeleteClient(clientId) {
   saveLocalStore();
   scheduleGistPush();
 }
+// Push automático en segundo plano, después de cada cambio. A diferencia del
+// botón manual del modal de Sincronización, éste NO se rinde ni molesta al
+// usuario si falla por algo transitorio (se cortó un instante el wifi, o
+// GitHub devolvió "demasiadas solicitudes" por varios cambios seguidos):
+// reintenta solo, con espera cada vez más larga, hasta que el guardado
+// efectivamente se complete. El dato siempre está a salvo en este navegador
+// mientras tanto (saveLocalStore ya se hizo antes de llegar acá), así que
+// no hay ningún riesgo en dejar que reintente en silencio.
+let gistRetryTimer = null;
+let gistRetryDelay = 4000; // arranca en 4s y se va duplicando hasta un tope de 60s
+let gistPushInFlight = false;
+let gistPushDirty = false; // hubo un cambio nuevo mientras se estaba sincronizando
+let gistFatalErrorShown = false; // token/Gist inválidos: avisar una sola vez, no en cada reintento
 function scheduleGistPush() {
   if (!state.syncConfig.token || !state.syncConfig.gistId) return;
+  gistPushDirty = true;
   clearTimeout(gistPushTimer);
-  gistPushTimer = setTimeout(() => gistPush(), 2500);
+  gistPushTimer = setTimeout(() => attemptAutoGistPush(), 3000);
 }
+async function attemptAutoGistPush() {
+  if (!state.syncConfig.token || !state.syncConfig.gistId) return;
+  if (gistPushInFlight) { gistPushDirty = true; return; }
+  gistPushInFlight = true;
+  gistPushDirty = false;
+  clearTimeout(gistRetryTimer);
+  const cfg = state.syncConfig;
+  state.syncStatus = "syncing"; renderSidebar();
+  try {
+    const res = await fetch(`https://api.github.com/gists/${cfg.gistId}`, {
+      method: "PATCH",
+      headers: { "Authorization": `Bearer ${cfg.token}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
+      body: JSON.stringify({ files: { [GIST_FILENAME]: { content: JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() }) } } }),
+    });
+    gistPushInFlight = false;
+    if (!res.ok) {
+      // 401/404 no se arreglan reintentando (token vencido o Gist borrado):
+      // ahí sí hace falta que el usuario cargue un token/Gist ID válido.
+      if (res.status === 401 || res.status === 404) {
+        state.syncStatus = "error";
+        renderSidebar();
+        if (!gistFatalErrorShown) {
+          gistFatalErrorShown = true;
+          showToast(res.status === 401 ? "El token de GitHub venció o no es válido — cargá uno nuevo en Sincronización" : "No se encontró el Gist configurado — revisá el Gist ID en Sincronización");
+        }
+        return;
+      }
+      throw new Error(String(res.status));
+    }
+    gistFatalErrorShown = false;
+    gistRetryDelay = 4000;
+    state.lastSync = new Date();
+    state.syncStatus = "idle";
+    renderSidebar();
+    if (gistPushDirty) { gistPushDirty = false; scheduleGistPush(); }
+  } catch (e) {
+    // Falla transitoria (red, rate limit, etc.) — no se le muestra nada al
+    // usuario, sigue apareciendo "Sincronizando…" mientras reintenta solo.
+    gistPushInFlight = false;
+    state.syncStatus = "syncing";
+    renderSidebar();
+    gistRetryDelay = Math.min(Math.round(gistRetryDelay * 1.8), 60000);
+    gistRetryTimer = setTimeout(() => attemptAutoGistPush(), gistRetryDelay);
+  }
+}
+// Push inmediato para las acciones manuales del modal de Sincronización
+// ("Guardar y sincronizar"): un solo intento con feedback directo, porque
+// acá el usuario está mirando y esperando el resultado.
 async function gistPush() {
   const cfg = state.syncConfig;
   if (!cfg.token || !cfg.gistId) return false;
+  clearTimeout(gistPushTimer);
+  clearTimeout(gistRetryTimer);
+  gistPushInFlight = true;
   state.syncStatus = "syncing"; renderSidebar();
   const payload = JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() }, null, 0);
   try {
@@ -840,12 +905,16 @@ async function gistPush() {
       headers: { "Authorization": `Bearer ${cfg.token}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
       body: JSON.stringify({ files: { [GIST_FILENAME]: { content: payload } } }),
     });
+    gistPushInFlight = false;
     if (!res.ok) throw new Error(String(res.status));
+    gistFatalErrorShown = false;
+    gistRetryDelay = 4000;
     state.lastSync = new Date();
     state.syncStatus = "idle";
     renderSidebar();
     return true;
   } catch (e) {
+    gistPushInFlight = false;
     state.syncStatus = "error";
     renderSidebar();
     showToast("No se pudo sincronizar con GitHub — se guardó local, reintentá más tarde");
