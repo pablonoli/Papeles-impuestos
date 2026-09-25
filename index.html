@@ -717,6 +717,7 @@ const state = {
   currentPeriod: todayPeriod(),
   currentTab: "resumen",
   selectedCoefDesde: null,   // vigencia de coeficientes CM elegida en Configuración
+  editingBaseImponible: null, // "jurName|code" de la celda de Base Imponible (CM) en edición manual, o null
   activityPickerTarget: null, // "iibbCM" | "iibbLocal" | "iva" — destino del buscador de actividades AFIP
   clientSearch: "", // filtro de texto de la lista de clientes en la barra lateral
 };
@@ -1253,17 +1254,19 @@ function computeIibbCMPeriod(client, doc, carryIn) {
   const coefVigencia = getCoefVigencia(client, period);
 
   const jurRows = jurisdictions.map((j) => {
-    const jdoc = doc.jurisdicciones[j.name] || { ajustes: {}, ret: 0, perc: 0, recban: 0 };
+    const jdoc = doc.jurisdicciones[j.name] || { ajustes: {}, baseOverrides: {}, ret: 0, perc: 0, recban: 0 };
     const coef = getCoef(client, j.name, period);
     const actividadDetalle = activities.map((a) => {
       const montoNacional = num(doc.actividades[a.code]);
       const ajuste = num(jdoc.ajustes && jdoc.ajustes[a.code]);
       const attrib = getActivityAttribution(a, j.name, coef);
-      const baseImponible = round2(montoNacional * attrib);
+      const overrideRaw = jdoc.baseOverrides && jdoc.baseOverrides[a.code];
+      const hasOverride = overrideRaw !== undefined && overrideRaw !== null && overrideRaw !== "";
+      const baseImponible = hasOverride ? num(overrideRaw) : round2(montoNacional * attrib);
       const base = round2(baseImponible + ajuste);
       const alicuota = num(j.alicuotas && j.alicuotas[a.code]) / 100;
       const impuesto = round2(base * alicuota);
-      return { code: a.code, desc: a.desc, montoNacional, ajuste, attrib, regimen: a.regimen || "general", baseImponible, base, alicuota, impuesto };
+      return { code: a.code, desc: a.desc, montoNacional, ajuste, attrib, regimen: a.regimen || "general", baseImponible, base, alicuota, impuesto, baseOverridden: hasOverride };
     });
     const baseTotal = round2(actividadDetalle.reduce((s, a) => s + a.base, 0));
     const impuestoAnticipo = round2(actividadDetalle.reduce((s, a) => s + a.impuesto, 0));
@@ -1849,8 +1852,15 @@ function renderIibbCMTab(client) {
     const jdoc = (doc && doc.iibbCM && doc.iibbCM.jurisdicciones && doc.iibbCM.jurisdicciones[j.jurisdiccion]) || {};
     const actDetail = j.actividadDetalle.map((a) => `
       <tr>
-        <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:4px;" title="${escapeHtml(a.desc)} — ${a.regimen === "especial" ? `Especial: ${fmtPct(a.attrib)} propio de esta actividad` : a.regimen === "art14" ? "Inicio de actividades (Art. 14)" : `General (Art. 2): ${fmtPct(a.attrib)}`}">${escapeHtml(a.code)}${a.regimen && a.regimen !== "general" ? ` <span class="hint-sm" style="color:var(--accent-strong);">·${a.regimen === "art14" ? "Art.14" : "esp."}</span>` : ""}</td>
-        <td class="num readonly" style="text-align:center;">${fmtMoney(a.baseImponible)}</td>
+        <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:4px;" title="${escapeHtml(a.desc)} — ${a.regimen === "especial" ? `Especial: ${fmtPct(a.attrib)} propio de esta actividad` : a.regimen === "art14" ? "Inicio de actividades (Art. 14)" : `General (Art. 2): ${fmtPct(a.attrib)}`}">${escapeHtml(a.code)}${a.regimen && a.regimen !== "general" ? `<sup style="color:var(--accent-strong);font-size:9px;">${a.regimen === "art14" ? "¹⁴" : "E"}</sup>` : ""}</td>
+        <td class="num readonly" style="text-align:center;">${(() => {
+          const beKey = j.jurisdiccion + "|" + a.code;
+          const isEditingBase = state.editingBaseImponible === beKey;
+          if (isEditingBase) {
+            return `<span style="display:flex;align-items:center;gap:2px;justify-content:center;"><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(jdoc.baseOverrides && jdoc.baseOverrides[a.code], "money")}" placeholder="auto" data-path="iibbCM.jurisdicciones.${j.jurisdiccion}.baseOverrides.${a.code}" data-action="field" data-clientid="${client.id}" data-period="${period}" style="width:64px;text-align:center;font-size:12px;"><button type="button" data-action="toggle-base-edit" data-jur="${escapeHtml(j.jurisdiccion)}" data-code="${escapeHtml(a.code)}" title="Cerrar edición" style="border:none;background:none;cursor:pointer;color:var(--muted);font-size:10px;padding:0;">✕</button></span>`;
+          }
+          return `${fmtMoney(a.baseImponible)}${a.baseOverridden ? `<sup title="Base imponible editada manualmente" style="color:var(--accent-strong);font-size:8px;">✎</sup>` : ""}<button type="button" data-action="toggle-base-edit" data-jur="${escapeHtml(j.jurisdiccion)}" data-code="${escapeHtml(a.code)}" title="Editar base imponible manualmente" style="border:none;background:none;cursor:pointer;color:var(--muted);opacity:.4;font-size:10px;padding:0 0 0 3px;vertical-align:middle;">✎</button>`;
+        })()}</td>
         <td style="text-align:center;">
           <input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(jdoc.ajustes && jdoc.ajustes[a.code], "money")}" placeholder="ajuste" data-path="iibbCM.jurisdicciones.${j.jurisdiccion}.ajustes.${a.code}" data-action="field" data-clientid="${client.id}" data-period="${period}" style="text-align:center;">
         </td>
@@ -2265,6 +2275,11 @@ document.addEventListener("click", (e) => {
   else if (action === "add-coef-vigencia") { renderCoefVigenciaModal(currentClient().id, null); }
   else if (action === "edit-coef-vigencia") { renderCoefVigenciaModal(currentClient().id, btn.dataset.desde); }
   else if (action === "open-activity-regimen-modal") { renderActivityRegimenModal(currentClient().id, btn.dataset.code); }
+  else if (action === "toggle-base-edit") {
+    const key = btn.dataset.jur + "|" + btn.dataset.code;
+    state.editingBaseImponible = state.editingBaseImponible === key ? null : key;
+    render();
+  }
   else if (action === "remove-jurisdiction") { const idx = Number(btn.dataset.idx); mutateClient(currentClient().id, (c) => c.iibbCM.jurisdictions.splice(idx, 1)); render(); }
   else if (action === "add-all-jurisdictions") {
     mutateClient(currentClient().id, (c) => {
@@ -2810,6 +2825,9 @@ function renderFormulario2083Modal(clientId, period) {
 
   const sumNeto = (arr) => round2(arr.reduce((s, b) => s + b.neto, 0));
   const sumCalc = (arr) => round2(arr.reduce((s, b) => s + b.calculado, 0));
+  // Para Compras usamos el crédito fiscal "s/Portal IVA" (declarado) en vez
+  // del recalculado, porque pueden existir diferencias entre ambos.
+  const sumPortal = (arr) => round2(arr.reduce((s, b) => s + (b.portal ? b.portal : b.calculado), 0));
 
   // Ventas: "Operaciones de Venta" = Débito Fiscal (bruto); "Notas de Crédito
   // de Venta" = N.C. emitidas (restitución de crédito fiscal) — el F.2083
@@ -2820,8 +2838,8 @@ function renderFormulario2083Modal(clientId, period) {
 
   // Compras: "Operaciones de Compra" = Crédito Fiscal; "Notas de Crédito de
   // Compra" = N.C. recibidas (restitución de débito fiscal).
-  const comprasNeto = sumNeto(r.creditoBrackets), comprasCredito = sumCalc(r.creditoBrackets);
-  const ncComprasNeto = sumNeto(r.restDebitoBrackets), ncComprasCredito = sumCalc(r.restDebitoBrackets);
+  const comprasNeto = sumNeto(r.creditoBrackets), comprasCredito = sumPortal(r.creditoBrackets);
+  const ncComprasNeto = sumNeto(r.restDebitoBrackets), ncComprasCredito = sumPortal(r.restDebitoBrackets);
   const comprasExento = num(r.exento.compras), ncComprasExento = num(r.exento.ncCompras);
 
   const operacionesNoCredito = num(r.exento.operacionesNoCredito);
