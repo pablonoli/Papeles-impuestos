@@ -1852,7 +1852,7 @@ function renderIibbCMTab(client) {
     const jdoc = (doc && doc.iibbCM && doc.iibbCM.jurisdicciones && doc.iibbCM.jurisdicciones[j.jurisdiccion]) || {};
     const actDetail = j.actividadDetalle.map((a) => `
       <tr>
-        <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:4px;" title="${escapeHtml(a.desc)} — ${a.regimen === "especial" ? `Especial: ${fmtPct(a.attrib)} propio de esta actividad` : a.regimen === "art14" ? "Inicio de actividades (Art. 14)" : `General (Art. 2): ${fmtPct(a.attrib)}`}">${escapeHtml(a.code)}${a.regimen && a.regimen !== "general" ? `<sup style="color:var(--accent-strong);font-size:9px;">${a.regimen === "art14" ? "¹⁴" : "E"}</sup>` : ""}</td>
+        <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:4px;" title="${escapeHtml(a.desc)} — ${a.regimen === "especial" ? `Especial: ${fmtPct(a.attrib)} propio de esta actividad` : a.regimen === "art14" ? "Inicio de actividades (Art. 14)" : `General (Art. 2): ${fmtPct(a.attrib)}`}">${escapeHtml(a.code)}</td>
         <td class="num readonly" style="text-align:center;">${(() => {
           const beKey = j.jurisdiccion + "|" + a.code;
           const isEditingBase = state.editingBaseImponible === beKey;
@@ -2228,14 +2228,25 @@ document.addEventListener(
     const kind = t.dataset.kind;
     if (kind !== "money" && kind !== "percent") return;
     const refresher = MODAL_REFRESHERS[t.dataset.reopen];
+    // El campo de edición manual de Base Imponible (Convenio Multilateral) se
+    // cierra solo al perder el foco, volviendo al formato de solo lectura +
+    // lápiz — en vez de quedar trabado como input.
+    const isBaseOverride = t.dataset.path && t.dataset.path.indexOf(".baseOverrides.") !== -1;
     const raw = String(t.value || "").trim();
-    if (raw === "") { if (refresher) refresher(t.dataset.clientid, t.dataset.period); return; }
+    if (raw === "") {
+      if (isBaseOverride) { state.editingBaseImponible = null; render(); return; }
+      if (refresher) refresher(t.dataset.clientid, t.dataset.period); return;
+    }
     const formatted = kind === "money" ? fmtMoneyRaw(num(raw)) : fmtPctRaw(num(raw));
-    if (formatted === raw) { if (refresher) refresher(t.dataset.clientid, t.dataset.period); return; }
+    if (formatted === raw) {
+      if (isBaseOverride) { state.editingBaseImponible = null; render(); return; }
+      if (refresher) refresher(t.dataset.clientid, t.dataset.period); return;
+    }
     t.value = formatted;
     if (t.dataset.action === "field") {
       const { clientid, period, path } = t.dataset;
       touchDoc(clientid, period, (doc) => setDeep(doc, path, formatted));
+      if (isBaseOverride) { state.editingBaseImponible = null; render(); return; }
       if (refresher) { refresher(clientid, period); return; }
     } else if (t.dataset.cfg) {
       handleConfigInput(t);
