@@ -4,10 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Papeles de Trabajo Fiscales</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#150f28">
-<link rel="apple-touch-icon" href="icon.png">
-<link rel="icon" href="icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -199,6 +195,11 @@
   tr:last-child td{ border-bottom:none; }
   tr.total-row td{ font-weight:700; border-top:1.5px solid var(--ink); border-bottom:none; }
   tr.section-row td{ background:var(--surface-2); font-weight:600; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding-top:15px; }
+  /* Fila del período actual en tablas de historial: hay que pisar el
+     background:var(--surface) de td:first-child (columna fija/sticky),
+     si no la marca del período elegido no cubre esa primera celda. */
+  tr.row-current td{ background:var(--accent-soft); }
+  tr.row-current td:first-child{ background:var(--accent-soft); }
   td input[type=number], td input[data-kind="money"]{ width:128px; text-align:right; padding:4px 6px; }
   table.rate-table{ min-width:0; }
   table.rate-table th:first-child, table.rate-table td:first-child{ width:52px; min-width:52px; }
@@ -708,9 +709,9 @@ function emptyIibbCMDoc(client) {
 // Estado
 // ---------------------------------------------------------------------
 const state = {
-  syncConfig: { token: "", gistId: "" },
-  lastSync: null,
-  syncStatus: "idle", // idle | syncing | error
+  db: null,
+  downloads: null,
+  dbAvailable: null, // null = desconocido todavía, true/false una vez resuelto
   clients: [],               // [{id,name,cuit,iva,iibbLocal,iibbCM}]
   periods: {},                // clientId -> { period: doc }
   currentClientId: null,
@@ -720,6 +721,7 @@ const state = {
   editingBaseImponible: null, // "jurName|code" de la celda de Base Imponible (CM) en edición manual, o null
   activityPickerTarget: null, // "iibbCM" | "iibbLocal" | "iva" — destino del buscador de actividades AFIP
   clientSearch: "", // filtro de texto de la lista de clientes en la barra lateral
+  unsubs: [],
 };
 
 function getClient(id) { return state.clients.find((c) => c.id === id); }
@@ -733,60 +735,38 @@ function listPeriodsWithTax(clientId, taxKey) {
 }
 
 // ---------------------------------------------------------------------
-// Persistencia standalone: localStorage (fuente local, siempre disponible,
-// sin red) + sincronización opcional contra un GitHub Gist privado (para
-// tener los mismos datos en más de un dispositivo/navegador). El token y
-// el ID del Gist quedan guardados sólo en el localStorage de este navegador
-// — nunca se mandan a ningún lado que no sea api.github.com.
+// Persistencia (capability db) con arranque a partir de datos de ejemplo
 // ---------------------------------------------------------------------
-const LOCAL_STORE_KEY = "papeles_fiscales_store_v1";
-const SYNC_CONFIG_KEY = "papeles_fiscales_sync_v1";
-const GIST_FILENAME = "papeles-fiscales-datos.json";
-
-function loadLocalStore() {
-  try {
-    const raw = localStorage.getItem(LOCAL_STORE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) { /* localStorage no disponible o dato corrupto */ }
-  return null;
-}
-function saveLocalStore() {
-  try {
-    localStorage.setItem(LOCAL_STORE_KEY, JSON.stringify({ clients: state.clients, periods: state.periods }));
-  } catch (e) { showToast("No se pudo guardar localmente (¿memoria del navegador llena?)"); }
-}
-function loadSyncConfig() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(SYNC_CONFIG_KEY) || "null");
-    if (raw && typeof raw === "object") return { token: raw.token || "", gistId: raw.gistId || "" };
-  } catch (e) { /* nada guardado todavía */ }
-  return { token: "", gistId: "" };
-}
-function saveSyncConfig(cfg) {
-  state.syncConfig = cfg;
-  try { localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(cfg)); } catch (e) {}
-}
-
 async function initApp() {
-  const local = loadLocalStore();
-  if (local) {
-    state.clients = local.clients || [];
-    state.periods = local.periods || {};
-  } else {
-    loadSeedIntoMemory();
-    saveLocalStore();
-  }
-  state.syncConfig = loadSyncConfig();
-  state.currentClientId = state.clients[0] && state.clients[0].id;
-  pickDefaultPeriod();
-  render();
+  let db = null, downloads = null;
+  try { db = window.claude ? await window.claude.use("db") : null; } catch (e) { db = null; }
+  try { downloads = window.claude ? await window.claude.use("downloads") : null; } catch (e) { downloads = null; }
+  state.db = db;
+  state.downloads = downloads;
+  state.dbAvailable = !!db;
 
-  // Si hay sincronización configurada, traer lo último apenas arranca (sin
-  // bloquear el primer render, que ya se hizo con lo que había en local).
-  if (state.syncConfig.token && state.syncConfig.gistId) {
-    const changed = await gistPull();
-    if (changed) { state.currentClientId = state.clients[0] && state.clients[0].id; pickDefaultPeriod(); render(); }
+  if (db) {
+    try {
+      const snap = await db.collection("clients").get();
+      if (snap.empty) {
+        await seedDatabase(db);
+      }
+    } catch (e) { /* seguimos con lo que haya */ }
+    subscribeToStore(db);
+  } else {
+    // Sin capability de persistencia: trabajamos en memoria con los datos de ejemplo.
+    loadSeedIntoMemory();
+    state.currentClientId = state.clients[0] && state.clients[0].id;
+    pickDefaultPeriod();
+    render();
   }
+}
+
+async function seedDatabase(db) {
+  const writes = [];
+  SEED_CLIENTS.forEach((c) => writes.push(db.collection("clients").doc(c.id).set(c)));
+  buildSeedPeriodDocs().forEach((d) => writes.push(db.collection("periods").doc(d.id).set(d)));
+  await Promise.allSettled(writes);
 }
 
 function loadSeedIntoMemory() {
@@ -796,6 +776,35 @@ function loadSeedIntoMemory() {
     ensureLocalPeriodBucket(d.clientId);
     state.periods[d.clientId][d.period] = d;
   });
+}
+
+function subscribeToStore(db) {
+  const unsubClients = db.collection("clients").onSnapshot(
+    (snap) => {
+      state.clients = snap.docs.map((d) => d.data());
+      state.clients.sort((a, b) => a.name.localeCompare(b.name, "es"));
+      if (!state.currentClientId && state.clients.length) {
+        state.currentClientId = state.clients[0].id;
+        pickDefaultPeriod();
+      }
+      renderPreservingFocus();
+    },
+    () => {}
+  );
+  const unsubPeriods = db.collection("periods").onSnapshot(
+    (snap) => {
+      snap.docChanges().forEach((ch) => {
+        const d = ch.doc.data();
+        if (!d) return;
+        ensureLocalPeriodBucket(d.clientId);
+        if (ch.type === "removed") delete state.periods[d.clientId][d.period];
+        else state.periods[d.clientId][d.period] = d;
+      });
+      renderPreservingFocus();
+    },
+    () => {}
+  );
+  state.unsubs.push(unsubClients, unsubPeriods);
 }
 
 function pickDefaultPeriod() {
@@ -810,236 +819,28 @@ function pickDefaultPeriod() {
   if (state.currentPeriod < MIN_PERIOD) state.currentPeriod = MIN_PERIOD;
 }
 
-// Guardado local: inmediato y sin red, así que no hace falta debounce (a
-// diferencia del push al Gist, que si se hiciera en cada tecla saturaría
-// la API de GitHub — ese sí se demora unos segundos, ver scheduleGistPush).
-let gistPushTimer = null;
+let saveTimers = {};
+let isRerendering = false;
 function scheduleSave(clientId, period) {
-  saveLocalStore();
-  scheduleGistPush();
+  const key = clientId + "__" + period;
+  clearTimeout(saveTimers[key]);
+  saveTimers[key] = setTimeout(() => persistDoc(clientId, period), 500);
 }
 function persistDoc(clientId, period) {
-  saveLocalStore();
-  scheduleGistPush();
+  const doc = getDoc(clientId, period);
+  if (!doc || !state.db) return;
+  state.db.collection("periods").doc(clientId + "__" + period).set(doc).catch(() => showToast("No se pudo guardar (reintentá en unos segundos)"));
 }
 function persistClient(client) {
-  saveLocalStore();
-  scheduleGistPush();
+  if (state.db) {
+    state.db.collection("clients").doc(client.id).set(client).catch(() => showToast("No se pudo guardar el cliente"));
+  }
 }
 function persistDeleteClient(clientId) {
-  saveLocalStore();
-  scheduleGistPush();
-}
-// Push automático en segundo plano, después de cada cambio. A diferencia del
-// botón manual del modal de Sincronización, éste NO se rinde ni molesta al
-// usuario si falla por algo transitorio (se cortó un instante el wifi, o
-// GitHub devolvió "demasiadas solicitudes" por varios cambios seguidos):
-// reintenta solo, con espera cada vez más larga, hasta que el guardado
-// efectivamente se complete. El dato siempre está a salvo en este navegador
-// mientras tanto (saveLocalStore ya se hizo antes de llegar acá), así que
-// no hay ningún riesgo en dejar que reintente en silencio.
-let gistRetryTimer = null;
-let gistRetryDelay = 4000; // arranca en 4s y se va duplicando hasta un tope de 60s
-let gistPushInFlight = false;
-let gistPushDirty = false; // hubo un cambio nuevo mientras se estaba sincronizando
-let gistFatalErrorShown = false; // token/Gist inválidos: avisar una sola vez, no en cada reintento
-function scheduleGistPush() {
-  if (!state.syncConfig.token || !state.syncConfig.gistId) return;
-  gistPushDirty = true;
-  clearTimeout(gistPushTimer);
-  gistPushTimer = setTimeout(() => attemptAutoGistPush(), 3000);
-}
-async function attemptAutoGistPush() {
-  if (!state.syncConfig.token || !state.syncConfig.gistId) return;
-  if (gistPushInFlight) { gistPushDirty = true; return; }
-  gistPushInFlight = true;
-  gistPushDirty = false;
-  clearTimeout(gistRetryTimer);
-  const cfg = state.syncConfig;
-  state.syncStatus = "syncing"; renderSidebar();
-  try {
-    const res = await fetch(`https://api.github.com/gists/${cfg.gistId}`, {
-      method: "PATCH",
-      headers: { "Authorization": `Bearer ${cfg.token}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
-      body: JSON.stringify({ files: { [GIST_FILENAME]: { content: JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() }) } } }),
-    });
-    gistPushInFlight = false;
-    if (!res.ok) {
-      // 401/404 no se arreglan reintentando (token vencido o Gist borrado):
-      // ahí sí hace falta que el usuario cargue un token/Gist ID válido.
-      if (res.status === 401 || res.status === 404) {
-        state.syncStatus = "error";
-        renderSidebar();
-        if (!gistFatalErrorShown) {
-          gistFatalErrorShown = true;
-          showToast(res.status === 401 ? "El token de GitHub venció o no es válido — cargá uno nuevo en Sincronización" : "No se encontró el Gist configurado — revisá el Gist ID en Sincronización");
-        }
-        return;
-      }
-      throw new Error(String(res.status));
-    }
-    gistFatalErrorShown = false;
-    gistRetryDelay = 4000;
-    state.lastSync = new Date();
-    state.syncStatus = "idle";
-    renderSidebar();
-    if (gistPushDirty) { gistPushDirty = false; scheduleGistPush(); }
-  } catch (e) {
-    // Falla transitoria (red, rate limit, etc.) — no se le muestra nada al
-    // usuario, sigue apareciendo "Sincronizando…" mientras reintenta solo.
-    gistPushInFlight = false;
-    state.syncStatus = "syncing";
-    renderSidebar();
-    gistRetryDelay = Math.min(Math.round(gistRetryDelay * 1.8), 60000);
-    gistRetryTimer = setTimeout(() => attemptAutoGistPush(), gistRetryDelay);
+  if (state.db) {
+    state.db.collection("clients").doc(clientId).delete().catch(() => {});
   }
 }
-// Push inmediato para las acciones manuales del modal de Sincronización
-// ("Guardar y sincronizar"): un solo intento con feedback directo, porque
-// acá el usuario está mirando y esperando el resultado.
-async function gistPush() {
-  const cfg = state.syncConfig;
-  if (!cfg.token || !cfg.gistId) return false;
-  clearTimeout(gistPushTimer);
-  clearTimeout(gistRetryTimer);
-  gistPushInFlight = true;
-  state.syncStatus = "syncing"; renderSidebar();
-  const payload = JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() }, null, 0);
-  try {
-    const res = await fetch(`https://api.github.com/gists/${cfg.gistId}`, {
-      method: "PATCH",
-      headers: { "Authorization": `Bearer ${cfg.token}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
-      body: JSON.stringify({ files: { [GIST_FILENAME]: { content: payload } } }),
-    });
-    gistPushInFlight = false;
-    if (!res.ok) throw new Error(String(res.status));
-    gistFatalErrorShown = false;
-    gistRetryDelay = 4000;
-    state.lastSync = new Date();
-    state.syncStatus = "idle";
-    renderSidebar();
-    return true;
-  } catch (e) {
-    gistPushInFlight = false;
-    state.syncStatus = "error";
-    renderSidebar();
-    showToast("No se pudo sincronizar con GitHub — se guardó local, reintentá más tarde");
-    return false;
-  }
-}
-async function gistPull() {
-  const cfg = state.syncConfig;
-  if (!cfg.token || !cfg.gistId) return false;
-  state.syncStatus = "syncing"; renderSidebar();
-  try {
-    const res = await fetch(`https://api.github.com/gists/${cfg.gistId}`, {
-      headers: { "Authorization": `Bearer ${cfg.token}`, "Accept": "application/vnd.github+json" },
-    });
-    if (!res.ok) throw new Error(String(res.status));
-    const data = await res.json();
-    const file = data.files && data.files[GIST_FILENAME];
-    if (!file || !file.content) { state.syncStatus = "idle"; return false; }
-    const parsed = JSON.parse(file.content);
-    if (parsed && Array.isArray(parsed.clients)) {
-      state.clients = parsed.clients;
-      state.periods = parsed.periods || {};
-      saveLocalStore();
-    }
-    state.lastSync = new Date();
-    state.syncStatus = "idle";
-    return true;
-  } catch (e) {
-    state.syncStatus = "error";
-    showToast("No se pudo traer los datos de GitHub — revisá el token/Gist ID");
-    return false;
-  }
-}
-// Crea un Gist privado nuevo con el estado actual (para cuando todavía no
-// hay uno configurado) y guarda su ID.
-async function gistCreate(token) {
-  const payload = JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() });
-  try {
-    const res = await fetch("https://api.github.com/gists", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${token}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
-      body: JSON.stringify({ description: "Papeles de Trabajo Fiscales — datos (privado)", public: false, files: { [GIST_FILENAME]: { content: payload } } }),
-    });
-    if (!res.ok) throw new Error(String(res.status));
-    const data = await res.json();
-    saveSyncConfig({ token, gistId: data.id });
-    state.lastSync = new Date();
-    showToast("Gist creado y sincronizado");
-    document.getElementById("modal-root").innerHTML = "";
-    render();
-    return true;
-  } catch (e) {
-    showToast("No se pudo crear el Gist — revisá el token (necesita permiso 'gist')");
-    return false;
-  }
-}
-
-function renderSyncModal() {
-  const root = document.getElementById("modal-root");
-  if (!root) return;
-  const cfg = state.syncConfig;
-  root.innerHTML = `
-    <div class="modal-backdrop">
-      <div class="modal" style="max-width:480px;">
-        <div class="modal-head"><h3>Sincronización entre dispositivos</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
-        <div class="modal-body">
-          <p style="font-size:12px;color:var(--muted);margin:0;">Los datos siempre quedan guardados en este navegador. Para tenerlos también en otro dispositivo, o como respaldo, podés sincronizarlos con un Gist privado de tu cuenta de GitHub.</p>
-          <div class="field">
-            <label>Token de GitHub (Personal Access Token, con permiso "gist")</label>
-            <input type="password" id="sync-token-input" placeholder="ghp_..." value="${escapeHtml(cfg.token || "")}">
-          </div>
-          <div class="field">
-            <label>Gist ID</label>
-            <input type="text" id="sync-gistid-input" placeholder="dejalo vacío para crear uno nuevo" value="${escapeHtml(cfg.gistId || "")}">
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn btn-accent" data-action="sync-save">Guardar y sincronizar</button>
-            ${cfg.token && cfg.gistId ? `<button class="btn" data-action="sync-pull-now">Traer lo último</button>` : ""}
-          </div>
-          <p style="font-size:11px;color:var(--muted-soft);margin:0;">${syncStatusLabel()} El token queda guardado sólo en este navegador y se usa para hablar directo con la API de GitHub — nunca pasa por ningún otro servidor.</p>
-        </div>
-        <div class="modal-foot"><button class="btn" data-action="close-modal">Cerrar</button></div>
-      </div>
-    </div>`;
-  wireModalBackdropClose();
-}
-async function syncSaveFromModal() {
-  const tokenEl = document.getElementById("sync-token-input"), gistEl = document.getElementById("sync-gistid-input");
-  const token = tokenEl ? tokenEl.value.trim() : "";
-  const gistId = gistEl ? gistEl.value.trim() : "";
-  if (!token) { showToast("Falta el token de GitHub"); return; }
-  if (!gistId) { await gistCreate(token); return; }
-  saveSyncConfig({ token, gistId });
-  const pulled = await gistPull();
-  if (pulled) {
-    state.currentClientId = state.clients[0] && state.clients[0].id;
-    pickDefaultPeriod();
-    showToast("Datos traídos de GitHub");
-  } else {
-    const pushed = await gistPush();
-    if (!pushed) { renderSyncModal(); return; } // error: dejamos el modal abierto para reintentar
-    showToast("Sincronizado con GitHub");
-  }
-  document.getElementById("modal-root").innerHTML = "";
-  render();
-}
-async function syncPullFromModal() {
-  const ok = await gistPull();
-  if (ok) {
-    state.currentClientId = state.clients[0] && state.clients[0].id;
-    pickDefaultPeriod();
-    showToast("Datos actualizados desde GitHub");
-    document.getElementById("modal-root").innerHTML = "";
-  } else {
-    renderSyncModal(); // error: dejamos el modal abierto para reintentar
-  }
-  render();
-}
-
 
 function touchDoc(clientId, period, mutator) {
   ensureLocalPeriodBucket(clientId);
@@ -1386,7 +1187,6 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&a
 // siguiente: los campos de período usan data-path; los de configuración
 // usan data-cfg combinado con los data-* que los distinguen (fila, año,
 // jurisdicción, código de actividad).
-let isRerendering = false;
 function getFieldKey(el) {
   if (!el || !el.dataset) return null;
   if (el.dataset.path) return "path:" + el.dataset.path;
@@ -1478,19 +1278,13 @@ function renderSidebar() {
     </div>
     <div class="side-section" style="margin-top:auto;">
       <button class="btn btn-block" data-action="toggle-theme">${currentTheme === "dark" ? "☀️ Modo claro" : "🌙 Modo nocturno"}</button>
-      <button class="btn btn-block" data-action="open-sync-modal" style="margin-top:6px;">🔄 Sincronización</button>
     </div>
     <div class="side-section">
       <div class="side-label">Estado</div>
       <p style="font-size:11.5px;color:var(--muted);padding:0 4px;">
-        Los cambios se guardan en este navegador automáticamente.${state.syncConfig.token && state.syncConfig.gistId ? `<br>${syncStatusLabel()}` : `<br>Sincronización con GitHub: sin configurar.`}
+        ${state.dbAvailable ? "Los cambios se guardan automáticamente." : "Vista de demostración: los cambios no se guardan de forma permanente en este entorno."}
       </p>
     </div>`;
-}
-function syncStatusLabel() {
-  if (state.syncStatus === "syncing") return "Sincronizando…";
-  if (state.syncStatus === "error") return `<span style="color:var(--pagar);">Error al sincronizar — reintentá.</span>`;
-  return state.lastSync ? `Sincronizado ${state.lastSync.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}.` : "Sincronización configurada.";
 }
 
 function taxTabsFor(client) {
@@ -1778,7 +1572,7 @@ function renderIibbLocalTab(client) {
   const history = historyPeriods.map((p) => {
     const rr = calcIibbLocalFor(client, p);
     const retPercRecban = rr.retenciones + rr.percepciones + rr.recaudacionesBancarias;
-    return `<tr ${p === period ? 'style="background:var(--accent-soft)"' : ""}><td>${periodLabel(p)}</td><td class="num">${fmtMoney(rr.baseImponible)}</td><td class="num">${fmtMoney(rr.impuesto)}</td><td class="num">${fmtMoney(retPercRecban)}</td><td class="num ${rr.saldoAPagar > 0 ? "cell-pagar" : ""}">${rr.saldoAPagar > 0 ? fmtMoney(rr.saldoAPagar) : "—"}</td><td class="num ${rr.saldoAFavor > 0 ? "cell-favor" : ""}">${rr.saldoAFavor > 0 ? fmtMoney(rr.saldoAFavor) : "—"}</td></tr>`;
+    return `<tr class="${p === period ? "row-current" : ""}"><td>${periodLabel(p)}</td><td class="num">${fmtMoney(rr.baseImponible)}</td><td class="num">${fmtMoney(rr.impuesto)}</td><td class="num">${fmtMoney(retPercRecban)}</td><td class="num ${rr.saldoAPagar > 0 ? "cell-pagar" : ""}">${rr.saldoAPagar > 0 ? fmtMoney(rr.saldoAPagar) : "—"}</td><td class="num ${rr.saldoAFavor > 0 ? "cell-favor" : ""}">${rr.saldoAFavor > 0 ? fmtMoney(rr.saldoAFavor) : "—"}</td></tr>`;
   }).join("");
   const historyTotals = historyPeriods.reduce((acc, p) => {
     const rr = calcIibbLocalFor(client, p);
@@ -2280,9 +2074,6 @@ document.addEventListener("click", (e) => {
   else if (action === "open-iva-actividades-modal") { ivaActividadesActiveCode = null; renderIvaActividadesModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "select-iva-actividad") { ivaActividadesActiveCode = btn.dataset.code; renderIvaActividadesModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "toggle-theme") { toggleTheme(); }
-  else if (action === "open-sync-modal") { renderSyncModal(); }
-  else if (action === "sync-save") { syncSaveFromModal(); }
-  else if (action === "sync-pull-now") { syncPullFromModal(); }
   else if (action === "add-coef-vigencia") { renderCoefVigenciaModal(currentClient().id, null); }
   else if (action === "edit-coef-vigencia") { renderCoefVigenciaModal(currentClient().id, btn.dataset.desde); }
   else if (action === "open-activity-regimen-modal") { renderActivityRegimenModal(currentClient().id, btn.dataset.code); }
