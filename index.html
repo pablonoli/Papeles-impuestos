@@ -712,6 +712,7 @@ const state = {
   db: null,
   downloads: null,
   dbAvailable: null, // null = desconocido todavía, true/false una vez resuelto
+  storageMode: null, // "cloud" (capability db) | "local" (localStorage del navegador) | "none"
   clients: [],               // [{id,name,cuit,iva,iibbLocal,iibbCM}]
   periods: {},                // clientId -> { period: doc }
   currentClientId: null,
@@ -737,6 +738,38 @@ function listPeriodsWithTax(clientId, taxKey) {
 // ---------------------------------------------------------------------
 // Persistencia (capability db) con arranque a partir de datos de ejemplo
 // ---------------------------------------------------------------------
+// Fuera de Claude (por ejemplo, el index.html subido a un hosting propio
+// como GitHub Pages) no existe window.claude, así que no hay capability
+// "db". En ese caso, en vez de quedar en modo demo puro (que se reinicia
+// con los datos de ejemplo en cada visita), guardamos todo en el
+// localStorage del propio navegador: persiste entre visitas en ESE
+// navegador/dispositivo, aunque no se sincroniza entre dispositivos ni
+// queda accesible desde Claude.
+const LOCAL_STORAGE_KEY = "papelesFiscales.v1";
+function localStorageWorks() {
+  try {
+    const k = "__papelesFiscales_test__";
+    window.localStorage.setItem(k, "1");
+    window.localStorage.removeItem(k);
+    return true;
+  } catch (e) { return false; }
+}
+function loadFromLocalStorage() {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.clients)) return null;
+    return parsed;
+  } catch (e) { return null; }
+}
+function saveToLocalStorage() {
+  if (state.storageMode !== "local") return;
+  try {
+    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ clients: state.clients, periods: state.periods }));
+  } catch (e) { /* almacenamiento lleno o bloqueado (ej. navegación privada): seguimos sin persistir */ }
+}
+
 async function initApp() {
   let db = null, downloads = null;
   try { db = window.claude ? await window.claude.use("db") : null; } catch (e) { db = null; }
@@ -746,6 +779,7 @@ async function initApp() {
   state.dbAvailable = !!db;
 
   if (db) {
+    state.storageMode = "cloud";
     try {
       const snap = await db.collection("clients").get();
       if (snap.empty) {
@@ -754,8 +788,17 @@ async function initApp() {
     } catch (e) { /* seguimos con lo que haya */ }
     subscribeToStore(db);
   } else {
-    // Sin capability de persistencia: trabajamos en memoria con los datos de ejemplo.
-    loadSeedIntoMemory();
+    // Sin capability de persistencia: intentamos localStorage; si tampoco
+    // está disponible, quedamos en memoria pura (modo demo).
+    state.storageMode = localStorageWorks() ? "local" : "none";
+    const saved = state.storageMode === "local" ? loadFromLocalStorage() : null;
+    if (saved) {
+      state.clients = saved.clients || [];
+      state.periods = saved.periods || {};
+    } else {
+      loadSeedIntoMemory();
+      saveToLocalStorage();
+    }
     state.currentClientId = state.clients[0] && state.clients[0].id;
     pickDefaultPeriod();
     render();
@@ -828,17 +871,25 @@ function scheduleSave(clientId, period) {
 }
 function persistDoc(clientId, period) {
   const doc = getDoc(clientId, period);
-  if (!doc || !state.db) return;
-  state.db.collection("periods").doc(clientId + "__" + period).set(doc).catch(() => showToast("No se pudo guardar (reintentá en unos segundos)"));
+  if (!doc) return;
+  if (state.db) {
+    state.db.collection("periods").doc(clientId + "__" + period).set(doc).catch(() => showToast("No se pudo guardar (reintentá en unos segundos)"));
+  } else {
+    saveToLocalStorage();
+  }
 }
 function persistClient(client) {
   if (state.db) {
     state.db.collection("clients").doc(client.id).set(client).catch(() => showToast("No se pudo guardar el cliente"));
+  } else {
+    saveToLocalStorage();
   }
 }
 function persistDeleteClient(clientId) {
   if (state.db) {
     state.db.collection("clients").doc(clientId).delete().catch(() => {});
+  } else {
+    saveToLocalStorage();
   }
 }
 
@@ -1282,7 +1333,7 @@ function renderSidebar() {
     <div class="side-section">
       <div class="side-label">Estado</div>
       <p style="font-size:11.5px;color:var(--muted);padding:0 4px;">
-        ${state.dbAvailable ? "Los cambios se guardan automáticamente." : "Vista de demostración: los cambios no se guardan de forma permanente en este entorno."}
+        ${state.storageMode === "cloud" ? "Los cambios se guardan automáticamente." : state.storageMode === "local" ? "Los cambios se guardan en este navegador (no se sincronizan entre dispositivos ni con Claude)." : "Vista de demostración: los cambios no se guardan en este entorno."}
       </p>
     </div>`;
 }
