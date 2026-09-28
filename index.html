@@ -1175,7 +1175,10 @@ function computeIvaPeriod(client, doc, carryIn) {
 
   let saldoLibreDisponibilidad = 0, saldoAPagar = 0;
   if (saldoTecnicoFavorARCA <= 0) {
-    saldoLibreDisponibilidad = round2(libreDispAnterior + percepciones + retenciones);
+    // El "monto utilizado" también debita acá: si no, un monto utilizado
+    // cargado en un período sin saldo técnico a favor de ARCA quedaba sin
+    // efecto y el saldo de libre disponibilidad no bajaba.
+    saldoLibreDisponibilidad = round2(Math.max(0, libreDispAnterior + percepciones + retenciones - montoUtilizado));
   } else {
     const x = round2(saldoTecnicoFavorARCA + montoUtilizado - libreDispAnterior - percepciones - retenciones);
     if (x > 0) { saldoAPagar = x; saldoLibreDisponibilidad = 0; }
@@ -3347,7 +3350,7 @@ function buildIvaSheets(wb, client) {
 
     const saldoLibreDispRow = ddjj.length;
     ddjjFormulas.set(saldoLibreDispRow + ":1",
-      `IF(B${saldoTecARCARow + 1}<=0,B${libreDispAnteriorRow + 1}+B${percepcionesRow + 1}+B${retencionesRow + 1},` +
+      `IF(B${saldoTecARCARow + 1}<=0,MAX(B${libreDispAnteriorRow + 1}+B${percepcionesRow + 1}+B${retencionesRow + 1}-B${montoUtilizadoRow + 1},0),` +
       `MAX(-(B${saldoTecARCARow + 1}+B${montoUtilizadoRow + 1}-B${libreDispAnteriorRow + 1}-B${percepcionesRow + 1}-B${retencionesRow + 1}),0))`);
     ddjj.push(["Saldo de libre disponibilidad", r.saldoLibreDisponibilidad]);
     prevSaldoLibreDispCell = [saldoLibreDispRow, 1];
