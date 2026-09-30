@@ -308,12 +308,21 @@
   .pdf-section th:first-child, .pdf-section td:first-child{ text-align:left; }
   .pdf-section td{ text-align:right; }
   .pdf-section tr.total td{ font-weight:700; border-top:1.5px solid #141413; border-bottom:none; }
+  .pdf-favor{ color:#16794f !important; font-weight:700; }
+  .pdf-pagar{ color:#c0392b !important; font-weight:700; }
   .pdf-foot{ font-size:10.5px; color:#9a9a9a; text-align:center; margin-top:28px; }
   @media print{
     body *{ visibility:hidden; }
     #pdf-print-area, #pdf-print-area *{ visibility:visible; }
-    #pdf-print-area{ position:absolute; left:0; top:0; width:100%; }
     .no-print{ display:none !important; }
+    /* El backdrop y el modal quedan con position:fixed/sticky en pantalla;
+       si se imprimen así, Chrome repite ese subárbol "fijo" en cada página
+       (eso era el contenido duplicado). Al imprimir los volvemos estáticos
+       y dejamos que #pdf-print-area fluya normalmente en el documento. */
+    .modal-backdrop{ position:static !important; inset:auto !important; background:none !important; padding:0 !important; display:block !important; }
+    .pdf-modal{ position:static !important; max-width:none !important; width:auto !important; max-height:none !important; overflow:visible !important; box-shadow:none !important; border:none !important; border-radius:0 !important; }
+    .pdf-toolbar{ position:static !important; }
+    #pdf-print-area{ position:static; width:auto; }
     .pdf-page{ padding:0; }
   }
 
@@ -1712,10 +1721,14 @@ function openPdfPreviewModal(client) {
           <tr><td>IVA Débito Fiscal</td><td>${fmtMoney(r.debitoFiscal)}</td></tr>
           <tr><td>IVA Crédito Fiscal</td><td>${fmtMoney(r.creditoFiscal)}</td></tr>
           <tr><td>Saldo técnico a favor del período anterior</td><td>${fmtMoney(r.saldoTecnicoAnterior)}</td></tr>
+          <tr class="total"><td>Saldo técnico a favor de ARCA</td><td class="${r.saldoTecnicoFavorARCA > 0 ? "pdf-pagar" : ""}">${fmtMoney(r.saldoTecnicoFavorARCA)}</td></tr>
+          <tr><td>Saldo técnico a favor del contribuyente</td><td class="${r.saldoTecnicoFavorContribuyente > 0 ? "pdf-favor" : ""}">${fmtMoney(r.saldoTecnicoFavorContribuyente)}</td></tr>
+          <tr><td>Saldo libre disponibilidad período anterior</td><td>${fmtMoney(r.libreDispAnterior)}</td></tr>
+          <tr><td>Monto utilizado</td><td>${fmtMoney(r.montoUtilizado)}</td></tr>
           <tr><td>Retenciones</td><td>${fmtMoney(r.retenciones)}</td></tr>
           <tr><td>Percepciones</td><td>${fmtMoney(r.percepciones)}</td></tr>
-          <tr><td>Saldo de libre disponibilidad</td><td>${fmtMoney(r.saldoLibreDisponibilidad)}</td></tr>
-          <tr class="total"><td>${r.saldoAPagar > 0 ? "Saldo a pagar" : "Saldo técnico a favor del contribuyente"}</td><td>${fmtMoney(r.saldoAPagar > 0 ? r.saldoAPagar : r.saldoTecnicoFavorContribuyente)}</td></tr>
+          <tr><td>Saldo de libre disponibilidad</td><td class="${r.saldoLibreDisponibilidad > 0 ? "pdf-favor" : ""}">${fmtMoney(r.saldoLibreDisponibilidad)}</td></tr>
+          <tr class="total"><td>Saldo a pagar</td><td class="${r.saldoAPagar > 0 ? "pdf-pagar" : ""}">${fmtMoney(r.saldoAPagar)}</td></tr>
         </table>
       </div>`;
   }
@@ -1731,7 +1744,8 @@ function openPdfPreviewModal(client) {
           <tr><td>Retenciones</td><td>${fmtMoney(r.retenciones)}</td></tr>
           <tr><td>Percepciones</td><td>${fmtMoney(r.percepciones)}</td></tr>
           <tr><td>Recaudaciones bancarias</td><td>${fmtMoney(r.recaudacionesBancarias)}</td></tr>
-          <tr class="total"><td>${r.saldoAPagar > 0 ? "Saldo a pagar" : "Saldo a favor"}</td><td>${fmtMoney(r.saldoAPagar || r.saldoAFavor)}</td></tr>
+          <tr><td>Saldo a favor del período anterior</td><td>${fmtMoney(r.saldoAnterior)}</td></tr>
+          <tr class="total"><td>${r.saldoAPagar > 0 ? "Saldo a pagar" : "Saldo a favor"}</td><td class="${r.saldoAPagar > 0 ? "pdf-pagar" : "pdf-favor"}">${fmtMoney(r.saldoAPagar || r.saldoAFavor)}</td></tr>
         </table>
       </div>`;
   }
@@ -1743,16 +1757,18 @@ function openPdfPreviewModal(client) {
         <td>${escapeHtml(j.jurisdiccion)}</td>
         <td>${fmtMoney(j.baseTotal)}</td>
         <td>${fmtMoney(j.impuestoAnticipo)}</td>
-        <td>${j.aPagar > 0 ? fmtMoney(j.aPagar) : "—"}</td>
-        <td>${j.aFavor > 0 ? fmtMoney(j.aFavor) : "—"}</td>
+        <td>${fmtMoney(j.ret + j.perc + j.recban)}</td>
+        <td>${fmtMoney(j.saldoAnterior)}</td>
+        <td class="${j.aPagar > 0 ? "pdf-pagar" : ""}">${j.aPagar > 0 ? fmtMoney(j.aPagar) : "—"}</td>
+        <td class="${j.aFavor > 0 ? "pdf-favor" : ""}">${j.aFavor > 0 ? fmtMoney(j.aFavor) : "—"}</td>
       </tr>`).join("");
     sections += `
       <div class="pdf-section">
         <h3>IIBB Convenio Multilateral — DDJJ ${periodLabel(period)}</h3>
         <table>
-          <tr><th style="text-align:left">Jurisdicción</th><th>Base imponible</th><th>Anticipo</th><th>A pagar</th><th>A favor</th></tr>
+          <tr><th style="text-align:left">Jurisdicción</th><th>Base imponible</th><th>Anticipo</th><th>Ret/Perc/RecBan</th><th>Saldo anterior</th><th>A pagar</th><th>A favor</th></tr>
           ${rows}
-          <tr class="total"><td>TOTALES</td><td>${fmtMoney(r.totales.baseTotal)}</td><td>${fmtMoney(r.totales.impuestoAnticipo)}</td><td>${fmtMoney(r.totales.aPagar)}</td><td>${fmtMoney(r.totales.aFavor)}</td></tr>
+          <tr class="total"><td>TOTALES</td><td>${fmtMoney(r.totales.baseTotal)}</td><td>${fmtMoney(r.totales.impuestoAnticipo)}</td><td>${fmtMoney(r.totales.ret + r.totales.perc + r.totales.recban)}</td><td>${fmtMoney(r.totales.saldoAnterior)}</td><td class="${r.totales.aPagar > 0 ? "pdf-pagar" : ""}">${fmtMoney(r.totales.aPagar)}</td><td class="${r.totales.aFavor > 0 ? "pdf-favor" : ""}">${fmtMoney(r.totales.aFavor)}</td></tr>
         </table>
       </div>`;
   }
