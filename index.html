@@ -307,13 +307,16 @@
   .pdf-section th{ text-align:right; color:#8a8a8a; font-size:10px; text-transform:uppercase; }
   .pdf-section th:first-child, .pdf-section td:first-child{ text-align:left; }
   .pdf-section td{ text-align:right; }
-  .pdf-section tr.total td{ font-weight:700; border-top:1.5px solid #141413; border-bottom:none; }
+  .pdf-section tr.total td{ border-top:1.5px solid #141413; border-bottom:none; }
+  .pdf-section tr.total td.pdf-bold{ font-weight:700; }
   .pdf-favor{ color:#16794f !important; font-weight:700; }
   .pdf-pagar{ color:#c0392b !important; font-weight:700; }
   .pdf-foot{ font-size:10.5px; color:#9a9a9a; text-align:center; margin-top:28px; }
   @media print{
-    body *{ visibility:hidden; }
-    #pdf-print-area, #pdf-print-area *{ visibility:visible; }
+    /* El dashboard (#app) y los demás overlays quedan totalmente afuera del
+       flujo con display:none — con visibility:hidden solamente, el sidebar
+       de 100vh seguía reservando ese espacio y salía una hoja 1 en blanco. */
+    #app, #date-picker-root, #toast-root{ display:none !important; }
     .no-print{ display:none !important; }
     /* El backdrop y el modal quedan con position:fixed/sticky en pantalla;
        si se imprimen así, Chrome repite ese subárbol "fijo" en cada página
@@ -1721,14 +1724,14 @@ function openPdfPreviewModal(client) {
           <tr><td>IVA Débito Fiscal</td><td>${fmtMoney(r.debitoFiscal)}</td></tr>
           <tr><td>IVA Crédito Fiscal</td><td>${fmtMoney(r.creditoFiscal)}</td></tr>
           <tr><td>Saldo técnico a favor del período anterior</td><td>${fmtMoney(r.saldoTecnicoAnterior)}</td></tr>
-          <tr class="total"><td>Saldo técnico a favor de ARCA</td><td class="${r.saldoTecnicoFavorARCA > 0 ? "pdf-pagar" : ""}">${fmtMoney(r.saldoTecnicoFavorARCA)}</td></tr>
+          <tr class="total"><td class="${r.saldoTecnicoFavorARCA > 0 ? "pdf-bold" : ""}">Saldo técnico a favor de ARCA</td><td class="${r.saldoTecnicoFavorARCA > 0 ? "pdf-pagar" : ""}">${fmtMoney(r.saldoTecnicoFavorARCA)}</td></tr>
           <tr><td>Saldo técnico a favor del contribuyente</td><td class="${r.saldoTecnicoFavorContribuyente > 0 ? "pdf-favor" : ""}">${fmtMoney(r.saldoTecnicoFavorContribuyente)}</td></tr>
           <tr><td>Saldo libre disponibilidad período anterior</td><td>${fmtMoney(r.libreDispAnterior)}</td></tr>
           <tr><td>Monto utilizado</td><td>${fmtMoney(r.montoUtilizado)}</td></tr>
           <tr><td>Retenciones</td><td>${fmtMoney(r.retenciones)}</td></tr>
           <tr><td>Percepciones</td><td>${fmtMoney(r.percepciones)}</td></tr>
           <tr><td>Saldo de libre disponibilidad</td><td class="${r.saldoLibreDisponibilidad > 0 ? "pdf-favor" : ""}">${fmtMoney(r.saldoLibreDisponibilidad)}</td></tr>
-          <tr class="total"><td>Saldo a pagar</td><td class="${r.saldoAPagar > 0 ? "pdf-pagar" : ""}">${fmtMoney(r.saldoAPagar)}</td></tr>
+          <tr class="total"><td class="${r.saldoAPagar > 0 ? "pdf-bold" : ""}">Saldo a pagar</td><td class="${r.saldoAPagar > 0 ? "pdf-pagar" : ""}">${fmtMoney(r.saldoAPagar)}</td></tr>
         </table>
       </div>`;
   }
@@ -1745,7 +1748,7 @@ function openPdfPreviewModal(client) {
           <tr><td>Percepciones</td><td>${fmtMoney(r.percepciones)}</td></tr>
           <tr><td>Recaudaciones bancarias</td><td>${fmtMoney(r.recaudacionesBancarias)}</td></tr>
           <tr><td>Saldo a favor del período anterior</td><td>${fmtMoney(r.saldoAnterior)}</td></tr>
-          <tr class="total"><td>${r.saldoAPagar > 0 ? "Saldo a pagar" : "Saldo a favor"}</td><td class="${r.saldoAPagar > 0 ? "pdf-pagar" : "pdf-favor"}">${fmtMoney(r.saldoAPagar || r.saldoAFavor)}</td></tr>
+          <tr class="total"><td class="${(r.saldoAPagar || r.saldoAFavor) ? "pdf-bold" : ""}">${r.saldoAPagar > 0 ? "Saldo a pagar" : "Saldo a favor"}</td><td class="${r.saldoAPagar > 0 ? "pdf-pagar" : (r.saldoAFavor > 0 ? "pdf-favor" : "")}">${fmtMoney(r.saldoAPagar || r.saldoAFavor)}</td></tr>
         </table>
       </div>`;
   }
