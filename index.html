@@ -291,6 +291,32 @@
 
   .toast{ position:fixed; bottom:20px; right:20px; background:var(--ink); color:var(--bg); padding:10px 16px; border-radius:8px; font-size:12.5px; box-shadow:0 8px 24px var(--shadow); z-index:60; max-width:340px; }
 
+  /* ---- Borrador PDF ---- */
+  .pdf-modal{ background:var(--surface); border-radius:18px; border:1px solid var(--border); max-width:820px; width:100%; max-height:92vh; overflow-y:auto; box-shadow:0 20px 60px var(--shadow); }
+  .pdf-toolbar{ position:sticky; top:0; z-index:2; display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-bottom:1px solid var(--border); background:var(--surface); }
+  .pdf-page{ background:#fff; color:#141413; padding:40px 44px; font-family:'Public Sans', system-ui, sans-serif; }
+  .pdf-page h1,.pdf-page h2,.pdf-page h3{ font-family:'Public Sans', system-ui, sans-serif; }
+  .pdf-letterhead{ display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #141413; padding-bottom:14px; margin-bottom:18px; }
+  .pdf-letterhead h1{ font-size:19px; margin:0 0 2px; }
+  .pdf-letterhead .sub{ font-size:12px; color:#6b6b6b; }
+  .pdf-letterhead .badge{ font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; background:#fdecea; color:#c0392b; padding:4px 10px; border-radius:99px; white-space:nowrap; }
+  .pdf-section{ margin-bottom:22px; }
+  .pdf-section h3{ font-size:14px; margin:0 0 8px; padding-bottom:5px; border-bottom:1px solid #e4e4e4; }
+  .pdf-section table{ width:100%; border-collapse:collapse; min-width:0; }
+  .pdf-section td, .pdf-section th{ padding:5px 8px; font-size:12px; border-bottom:1px solid #eee; white-space:normal; }
+  .pdf-section th{ text-align:right; color:#8a8a8a; font-size:10px; text-transform:uppercase; }
+  .pdf-section th:first-child, .pdf-section td:first-child{ text-align:left; }
+  .pdf-section td{ text-align:right; }
+  .pdf-section tr.total td{ font-weight:700; border-top:1.5px solid #141413; border-bottom:none; }
+  .pdf-foot{ font-size:10.5px; color:#9a9a9a; text-align:center; margin-top:28px; }
+  @media print{
+    body *{ visibility:hidden; }
+    #pdf-print-area, #pdf-print-area *{ visibility:visible; }
+    #pdf-print-area{ position:absolute; left:0; top:0; width:100%; }
+    .no-print{ display:none !important; }
+    .pdf-page{ padding:0; }
+  }
+
   @media (max-width:820px){
     .app{ flex-direction:column; }
     .sidebar{ width:100%; height:auto; position:relative; border-right:none; border-bottom:1px solid var(--border); }
@@ -1660,7 +1686,104 @@ function renderResumenTab(client) {
 
   if (!kpis) return `<div class="empty"><h2>Este cliente no tiene impuestos activados</h2><p>Andá a la pestaña Configuración para activar IVA, IIBB Local o Convenio Multilateral.</p></div>`;
 
-  return `<h2 class="period-heading">${periodLabel(period)}</h2><div class="kpi-row" style="margin-bottom:20px;">${kpis}</div><div style="display:flex;flex-direction:column;gap:16px;">${sections}</div>`;
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
+      <h2 class="period-heading" style="margin:0;">${periodLabel(period)}</h2>
+      <button class="btn" data-action="open-pdf-preview">📄 Ver / exportar PDF del resumen</button>
+    </div>
+    <div class="kpi-row" style="margin-bottom:20px;">${kpis}</div>
+    <div style="display:flex;flex-direction:column;gap:16px;">${sections}</div>`;
+}
+
+// ---------------------------------------------------------------------
+// Modal: borrador PDF (vista previa imprimible de la DDJJ del período)
+// ---------------------------------------------------------------------
+function openPdfPreviewModal(client) {
+  if (!client) return;
+  const period = state.currentPeriod;
+  let sections = "";
+
+  if (client.iva.enabled) {
+    const r = calcIvaFor(client, period);
+    sections += `
+      <div class="pdf-section">
+        <h3>IVA — DDJJ ${periodLabel(period)}</h3>
+        <table>
+          <tr><td>IVA Débito Fiscal</td><td>${fmtMoney(r.debitoFiscal)}</td></tr>
+          <tr><td>IVA Crédito Fiscal</td><td>${fmtMoney(r.creditoFiscal)}</td></tr>
+          <tr><td>Saldo técnico a favor del período anterior</td><td>${fmtMoney(r.saldoTecnicoAnterior)}</td></tr>
+          <tr><td>Retenciones</td><td>${fmtMoney(r.retenciones)}</td></tr>
+          <tr><td>Percepciones</td><td>${fmtMoney(r.percepciones)}</td></tr>
+          <tr><td>Saldo de libre disponibilidad</td><td>${fmtMoney(r.saldoLibreDisponibilidad)}</td></tr>
+          <tr class="total"><td>${r.saldoAPagar > 0 ? "Saldo a pagar" : "Saldo técnico a favor del contribuyente"}</td><td>${fmtMoney(r.saldoAPagar > 0 ? r.saldoAPagar : r.saldoTecnicoFavorContribuyente)}</td></tr>
+        </table>
+      </div>`;
+  }
+
+  if (client.iibbLocal.enabled) {
+    const r = calcIibbLocalFor(client, period);
+    sections += `
+      <div class="pdf-section">
+        <h3>IIBB Local (${escapeHtml(client.iibbLocal.jurisdiccion || "jurisdicción")}) — DDJJ ${periodLabel(period)}</h3>
+        <table>
+          <tr><td>Base imponible declarada</td><td>${fmtMoney(r.baseImponible)}</td></tr>
+          <tr><td>Impuesto determinado</td><td>${fmtMoney(r.impuesto)}</td></tr>
+          <tr><td>Retenciones</td><td>${fmtMoney(r.retenciones)}</td></tr>
+          <tr><td>Percepciones</td><td>${fmtMoney(r.percepciones)}</td></tr>
+          <tr><td>Recaudaciones bancarias</td><td>${fmtMoney(r.recaudacionesBancarias)}</td></tr>
+          <tr class="total"><td>${r.saldoAPagar > 0 ? "Saldo a pagar" : "Saldo a favor"}</td><td>${fmtMoney(r.saldoAPagar || r.saldoAFavor)}</td></tr>
+        </table>
+      </div>`;
+  }
+
+  if (client.iibbCM.enabled) {
+    const r = calcIibbCMFor(client, period);
+    const rows = r.jurRows.map((j) => `
+      <tr>
+        <td>${escapeHtml(j.jurisdiccion)}</td>
+        <td>${fmtMoney(j.baseTotal)}</td>
+        <td>${fmtMoney(j.impuestoAnticipo)}</td>
+        <td>${j.aPagar > 0 ? fmtMoney(j.aPagar) : "—"}</td>
+        <td>${j.aFavor > 0 ? fmtMoney(j.aFavor) : "—"}</td>
+      </tr>`).join("");
+    sections += `
+      <div class="pdf-section">
+        <h3>IIBB Convenio Multilateral — DDJJ ${periodLabel(period)}</h3>
+        <table>
+          <tr><th style="text-align:left">Jurisdicción</th><th>Base imponible</th><th>Anticipo</th><th>A pagar</th><th>A favor</th></tr>
+          ${rows}
+          <tr class="total"><td>TOTALES</td><td>${fmtMoney(r.totales.baseTotal)}</td><td>${fmtMoney(r.totales.impuestoAnticipo)}</td><td>${fmtMoney(r.totales.aPagar)}</td><td>${fmtMoney(r.totales.aFavor)}</td></tr>
+        </table>
+      </div>`;
+  }
+
+  if (!sections) sections = `<p style="color:#8a8a8a;font-size:12px;">Este cliente no tiene impuestos activados.</p>`;
+
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="pdf-modal">
+        <div class="pdf-toolbar no-print">
+          <div style="font-size:13px;font-weight:600;">Vista previa — Borrador PDF</div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" data-action="close-modal">Cerrar</button>
+            <button class="btn btn-accent" data-action="pdf-print">🖨️ Imprimir / Guardar como PDF</button>
+          </div>
+        </div>
+        <div id="pdf-print-area">
+          <div class="pdf-page">
+            <div class="pdf-letterhead">
+              <div>
+                <h1>${escapeHtml(client.name)}</h1>
+                <div class="sub">${escapeHtml(client.cuit || "CUIT sin cargar")} · Borrador de DDJJ — ${periodLabel(period)}</div>
+              </div>
+            </div>
+            ${sections}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  wireModalBackdropClose();
 }
 
 // ---- IVA (papel de trabajo) ----
@@ -2297,6 +2420,8 @@ document.addEventListener("click", (e) => {
   else if (action === "open-add-client") { openAddClientModal(); }
   else if (action === "delete-client") { if (confirm("¿Eliminar este cliente y todos sus períodos cargados?")) deleteClient(currentClient().id); }
   else if (action === "export-excel") { exportClientToExcel(currentClient()); }
+  else if (action === "open-pdf-preview") { openPdfPreviewModal(currentClient()); }
+  else if (action === "pdf-print") { window.print(); }
   else if (action === "add-activity") { mutateClient(currentClient().id, (c) => c.iibbCM.activities.push({ code: "", desc: "" })); render(); }
   else if (action === "remove-activity") { const idx = Number(btn.dataset.idx); mutateClient(currentClient().id, (c) => c.iibbCM.activities.splice(idx, 1)); render(); }
   else if (action === "add-activity-local") { mutateClient(currentClient().id, (c) => c.iibbLocal.activities.push({ code: "", desc: "", alicuota: 0 })); render(); }
