@@ -299,16 +299,20 @@
   .pdf-scope-chip{ border:none; background:transparent; color:var(--muted); font-size:11.5px; font-weight:600; padding:5px 11px; border-radius:99px; font-family:inherit; cursor:pointer; white-space:nowrap; }
   .pdf-scope-chip:hover{ color:var(--ink); }
   .pdf-scope-chip.active{ background:var(--accent); color:var(--accent-ink); }
-  .pdf-page{ background:#faf9f6; color:#141413; padding:40px 44px; font-family:'Public Sans', system-ui, sans-serif; }
+  /* En pantalla (previsualización), la hoja usa un celeste suave — pedido
+     explícito del usuario (variante E) para que no "encandile" en blanco.
+     Al imprimir de verdad, @media print más abajo la fuerza a papel claro
+     fijo (blanco hueso + tinta negra), que es lo que corresponde en papel. */
+  .pdf-page{ background:#f3f8fb; color:#142433; padding:40px 44px; font-family:'Public Sans', system-ui, sans-serif; }
   .pdf-page h1,.pdf-page h2,.pdf-page h3{ font-family:'Public Sans', system-ui, sans-serif; }
-  .pdf-letterhead{ display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #141413; padding-bottom:16px; margin-bottom:26px; }
+  .pdf-letterhead{ display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0369a1; padding-bottom:16px; margin-bottom:26px; }
   .pdf-letterhead h1{ font-size:23px; font-weight:800; letter-spacing:-.01em; margin:0 0 4px; }
-  .pdf-letterhead .sub{ font-size:12px; color:#6b6b6b; }
+  .pdf-letterhead .sub{ font-size:12px; color:#5b7a92; }
   .pdf-letterhead .badge{ font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; background:#fdecea; color:#c0392b; padding:4px 10px; border-radius:99px; white-space:nowrap; }
   .pdf-kpis{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:28px; }
-  .pdf-kpi{ flex:1; min-width:170px; border:1px solid #e4e4e4; border-radius:10px; padding:13px 15px; }
-  .pdf-kpi .pk-label{ font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#8a8a8a; margin-bottom:5px; }
-  .pdf-kpi .pk-value{ font-size:19px; font-weight:800; color:#141413; margin-bottom:5px; font-variant-numeric:tabular-nums; }
+  .pdf-kpi{ flex:1; min-width:170px; border:1px solid #d7e8f0; border-radius:10px; padding:13px 15px; background:#fff; }
+  .pdf-kpi .pk-label{ font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#6b89a0; margin-bottom:5px; }
+  .pdf-kpi .pk-value{ font-size:19px; font-weight:800; color:#142433; margin-bottom:5px; font-variant-numeric:tabular-nums; }
   .pdf-kpi .pk-sub{ display:inline-block; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:3px 9px; border-radius:99px; }
   .pdf-kpi.pagar{ border-color:#f3c9c2; }
   .pdf-kpi.pagar .pk-value{ color:#c0392b; }
@@ -317,18 +321,18 @@
   .pdf-kpi.favor .pk-value{ color:#16794f; }
   .pdf-kpi.favor .pk-sub{ background:#e7f7ef; color:#16794f; }
   .pdf-section{ margin-bottom:28px; }
-  .pdf-section h3{ font-size:12.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#5b21b6; margin:0 0 12px; padding-bottom:7px; border-bottom:1.5px solid #ece4fb; }
+  .pdf-section h3{ font-size:12.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#0369a1; margin:0 0 12px; padding-bottom:7px; border-bottom:1.5px solid #cfe6f3; }
   .pdf-section table{ width:100%; border-collapse:collapse; min-width:0; }
   /* Tablas clave/valor (IVA e IIBB Local): sin width:100% quedaban con el
      valor pegado al borde derecho de la hoja y un hueco enorme respecto de
      la etiqueta ("estirado"). Se angostan y quedan pegadas a la izquierda. */
   .pdf-section table.kv{ width:auto; min-width:340px; max-width:460px; }
   .pdf-section table.kv td:first-child{ padding-right:28px; }
-  .pdf-section td, .pdf-section th{ padding:6px 8px; font-size:12px; border-bottom:1px solid #eee; white-space:normal; color:#141413; }
-  .pdf-section th{ text-align:right; color:#8a8a8a; font-size:10px; text-transform:uppercase; }
-  .pdf-section th:first-child, .pdf-section td:first-child{ text-align:left; position:static; background:#faf9f6; }
+  .pdf-section td, .pdf-section th{ padding:6px 8px; font-size:12px; border-bottom:1px solid #dceaf1; white-space:normal; color:#142433; }
+  .pdf-section th{ text-align:right; color:#6b89a0; font-size:10px; text-transform:uppercase; }
+  .pdf-section th:first-child, .pdf-section td:first-child{ text-align:left; position:static; background:#f3f8fb; }
   .pdf-section td{ text-align:right; }
-  .pdf-section tr.total td{ border-top:1.5px solid #141413; border-bottom:none; padding-top:9px; padding-bottom:9px; }
+  .pdf-section tr.total td{ border-top:1.5px solid #142433; border-bottom:none; padding-top:9px; padding-bottom:9px; }
   .pdf-section tr.total td.pdf-bold{ font-weight:700; }
   /* Resultado final (a pagar / a favor): resalta la fila entera, no sólo
      el número, para que se vea de un vistazo el resultado de la DDJJ. */
@@ -338,11 +342,24 @@
   .pdf-section tr.total.result-pagar td:last-child, .pdf-section tr.total.result-favor td:last-child{ border-radius:0 6px 6px 0; }
   .pdf-favor{ color:#16794f !important; font-weight:700; }
   .pdf-pagar{ color:#c0392b !important; font-weight:700; }
-  .pdf-foot{ font-size:10.5px; color:#9a9a9a; text-align:center; margin-top:28px; }
+  .pdf-foot{ font-size:10.5px; color:#8aa4b5; text-align:center; margin-top:28px; }
   @media print{
-    /* Sin esto, algunos navegadores aclaran el texto al imprimir para
-       "ahorrar tinta" y el negro #141413 sale gris. */
+    /* Al imprimir en papel de verdad, siempre colores fijos de papel claro
+       — no el celeste de la previsualización en pantalla. */
     .pdf-page, .pdf-page *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .pdf-page{ background:#faf9f6 !important; color:#141413 !important; }
+    .pdf-letterhead{ border-color:#141413 !important; }
+    .pdf-letterhead .sub{ color:#6b6b6b !important; }
+    .pdf-kpi{ border-color:#e4e4e4 !important; background:#fff !important; }
+    .pdf-kpi .pk-value{ color:#141413 !important; } .pdf-kpi .pk-label{ color:#8a8a8a !important; }
+    .pdf-kpi.pagar{ border-color:#f3c9c2 !important; }
+    .pdf-kpi.favor{ border-color:#bfe3cd !important; }
+    .pdf-section h3{ color:#5b21b6 !important; border-color:#ece4fb !important; }
+    .pdf-section td, .pdf-section th{ color:#141413 !important; border-color:#eee !important; }
+    .pdf-section th{ color:#8a8a8a !important; }
+    .pdf-section th:first-child, .pdf-section td:first-child{ background:#faf9f6 !important; }
+    .pdf-section tr.total td{ border-color:#141413 !important; }
+    .pdf-foot{ color:#9a9a9a !important; }
     /* El dashboard (#app) y los demás overlays quedan totalmente afuera del
        flujo con display:none — con visibility:hidden solamente, el sidebar
        de 100vh seguía reservando ese espacio y salía una hoja 1 en blanco. */
