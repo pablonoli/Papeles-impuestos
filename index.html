@@ -313,7 +313,7 @@
      la etiqueta ("estirado"). Se angostan y quedan pegadas a la izquierda. */
   .pdf-section table.kv{ width:auto; min-width:340px; max-width:460px; }
   .pdf-section table.kv td:first-child{ padding-right:28px; }
-  .pdf-section td, .pdf-section th{ padding:6px 8px; font-size:12px; border-bottom:1px solid #eee; white-space:normal; }
+  .pdf-section td, .pdf-section th{ padding:6px 8px; font-size:12px; border-bottom:1px solid #eee; white-space:normal; color:#141413; }
   .pdf-section th{ text-align:right; color:#8a8a8a; font-size:10px; text-transform:uppercase; }
   .pdf-section th:first-child, .pdf-section td:first-child{ text-align:left; }
   .pdf-section td{ text-align:right; }
@@ -329,6 +329,9 @@
   .pdf-pagar{ color:#c0392b !important; font-weight:700; }
   .pdf-foot{ font-size:10.5px; color:#9a9a9a; text-align:center; margin-top:28px; }
   @media print{
+    /* Sin esto, algunos navegadores aclaran el texto al imprimir para
+       "ahorrar tinta" y el negro #141413 sale gris. */
+    .pdf-page, .pdf-page *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     /* El dashboard (#app) y los demás overlays quedan totalmente afuera del
        flujo con display:none — con visibility:hidden solamente, el sidebar
        de 100vh seguía reservando ese espacio y salía una hoja 1 en blanco. */
@@ -1793,14 +1796,21 @@ function openPdfPreviewModal(client, scope) {
         <td class="${j.aPagar > 0 ? "pdf-pagar" : ""}">${j.aPagar > 0 ? fmtMoney(j.aPagar) : "—"}</td>
         <td class="${j.aFavor > 0 ? "pdf-favor" : ""}">${j.aFavor > 0 ? fmtMoney(j.aFavor) : "—"}</td>
       </tr>`).join("");
-    const rowFinalCM = r.totales.aPagar > 0 ? "total result-pagar" : (r.totales.aFavor > 0 ? "total result-favor" : "total");
     sections += `
       <div class="pdf-section">
         <h3>IIBB Convenio Multilateral — DDJJ ${periodLabel(period)}</h3>
         <table>
           <tr><th style="text-align:left">Jurisdicción</th><th>Base imponible</th><th>Anticipo</th><th>Ret/Perc/RecBan</th><th>Saldo anterior</th><th>A pagar</th><th>A favor</th></tr>
           ${rows}
-          <tr class="${rowFinalCM}"><td>TOTALES</td><td>${fmtMoney(r.totales.baseTotal)}</td><td>${fmtMoney(r.totales.impuestoAnticipo)}</td><td>${fmtMoney(r.totales.ret + r.totales.recban + r.totales.perc)}</td><td>${fmtMoney(r.totales.saldoAnterior)}</td><td>${fmtMoney(r.totales.aPagar)}</td><td>${fmtMoney(r.totales.aFavor)}</td></tr>
+          <tr class="total">
+            <td class="pdf-bold">TOTALES</td>
+            <td class="pdf-bold">${fmtMoney(r.totales.baseTotal)}</td>
+            <td class="pdf-bold">${fmtMoney(r.totales.impuestoAnticipo)}</td>
+            <td class="pdf-bold">${fmtMoney(r.totales.ret + r.totales.recban + r.totales.perc)}</td>
+            <td class="pdf-bold">${fmtMoney(r.totales.saldoAnterior)}</td>
+            <td class="pdf-bold ${r.totales.aPagar > 0 ? "pdf-pagar" : ""}">${fmtMoney(r.totales.aPagar)}</td>
+            <td class="pdf-bold ${r.totales.aFavor > 0 ? "pdf-favor" : ""}">${fmtMoney(r.totales.aFavor)}</td>
+          </tr>
         </table>
       </div>`;
   }
