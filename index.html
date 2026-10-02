@@ -305,6 +305,17 @@
   .pdf-letterhead h1{ font-size:23px; font-weight:800; letter-spacing:-.01em; margin:0 0 4px; }
   .pdf-letterhead .sub{ font-size:12px; color:#6b6b6b; }
   .pdf-letterhead .badge{ font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; background:#fdecea; color:#c0392b; padding:4px 10px; border-radius:99px; white-space:nowrap; }
+  .pdf-kpis{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:28px; }
+  .pdf-kpi{ flex:1; min-width:170px; border:1px solid #e4e4e4; border-radius:10px; padding:13px 15px; }
+  .pdf-kpi .pk-label{ font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#8a8a8a; margin-bottom:5px; }
+  .pdf-kpi .pk-value{ font-size:19px; font-weight:800; color:#141413; margin-bottom:5px; font-variant-numeric:tabular-nums; }
+  .pdf-kpi .pk-sub{ display:inline-block; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:3px 9px; border-radius:99px; }
+  .pdf-kpi.pagar{ border-color:#f3c9c2; }
+  .pdf-kpi.pagar .pk-value{ color:#c0392b; }
+  .pdf-kpi.pagar .pk-sub{ background:#fdecea; color:#c0392b; }
+  .pdf-kpi.favor{ border-color:#bfe3cd; }
+  .pdf-kpi.favor .pk-value{ color:#16794f; }
+  .pdf-kpi.favor .pk-sub{ background:#e7f7ef; color:#16794f; }
   .pdf-section{ margin-bottom:28px; }
   .pdf-section h3{ font-size:12.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#5b21b6; margin:0 0 12px; padding-bottom:7px; border-bottom:1.5px solid #ece4fb; }
   .pdf-section table{ width:100%; border-collapse:collapse; min-width:0; }
@@ -1743,9 +1754,17 @@ function openPdfPreviewModal(client, scope) {
   const showIva = hasIva && scope !== "iibb";
   const showIibb = hasIibb && scope !== "iva";
   let sections = "";
+  let kpiCards = "";
 
   if (showIva) {
     const r = calcIvaFor(client, period);
+    const ivaPagar = r.saldoAPagar > 0;
+    kpiCards += `
+      <div class="pdf-kpi ${ivaPagar ? "pagar" : "favor"}">
+        <div class="pk-label">IVA</div>
+        <div class="pk-value">${fmtMoney(ivaPagar ? r.saldoAPagar : r.saldoLibreDisponibilidad)}</div>
+        <div class="pk-sub">${ivaPagar ? "A pagar" : "A favor (libre disp.)"}</div>
+      </div>`;
     const rowFinal = r.saldoAPagar > 0 ? "total result-pagar" : "total";
     sections += `
       <div class="pdf-section">
@@ -1768,6 +1787,13 @@ function openPdfPreviewModal(client, scope) {
 
   if (showIibb && client.iibbLocal.enabled) {
     const r = calcIibbLocalFor(client, period);
+    const localPagar = r.saldoAPagar > 0;
+    kpiCards += `
+      <div class="pdf-kpi ${localPagar ? "pagar" : "favor"}">
+        <div class="pk-label">IIBB Local — ${escapeHtml(client.iibbLocal.jurisdiccion || "jurisdicción")}</div>
+        <div class="pk-value">${fmtMoney(r.saldoAPagar || r.saldoAFavor)}</div>
+        <div class="pk-sub">${localPagar ? "A pagar" : "A favor"}</div>
+      </div>`;
     const rowFinal = r.saldoAPagar > 0 ? "total result-pagar" : (r.saldoAFavor > 0 ? "total result-favor" : "total");
     sections += `
       <div class="pdf-section">
@@ -1786,6 +1812,13 @@ function openPdfPreviewModal(client, scope) {
 
   if (showIibb && client.iibbCM.enabled) {
     const r = calcIibbCMFor(client, period);
+    const cmPagar = r.totales.aPagar > 0;
+    kpiCards += `
+      <div class="pdf-kpi ${cmPagar ? "pagar" : "favor"}">
+        <div class="pk-label">IIBB Convenio Multilateral</div>
+        <div class="pk-value">${fmtMoney(cmPagar ? r.totales.aPagar : 0)}</div>
+        <div class="pk-sub">${cmPagar ? "A pagar" : "Saldo a pagar"}</div>
+      </div>`;
     const rows = r.jurRows.map((j) => `
       <tr>
         <td>${escapeHtml(j.jurisdiccion)}</td>
@@ -1844,6 +1877,7 @@ function openPdfPreviewModal(client, scope) {
                 <div class="sub">${escapeHtml(client.cuit || "CUIT sin cargar")} · Borrador de DDJJ — ${periodLabel(period)}</div>
               </div>
             </div>
+            ${kpiCards ? `<div class="pdf-kpis">${kpiCards}</div>` : ""}
             ${sections}
           </div>
         </div>
