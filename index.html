@@ -344,22 +344,9 @@
   .pdf-pagar{ color:#c0392b !important; font-weight:700; }
   .pdf-foot{ font-size:10.5px; color:#8aa4b5; text-align:center; margin-top:28px; }
   @media print{
-    /* Al imprimir en papel de verdad, siempre colores fijos de papel claro
-       — no el celeste de la previsualización en pantalla. */
+    /* El celeste se mantiene también al imprimir/exportar — se fuerza con
+       print-color-adjust para que Chrome no lo apague "para ahorrar tinta". */
     .pdf-page, .pdf-page *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    .pdf-page{ background:#faf9f6 !important; color:#141413 !important; }
-    .pdf-letterhead{ border-color:#141413 !important; }
-    .pdf-letterhead .sub{ color:#6b6b6b !important; }
-    .pdf-kpi{ border-color:#e4e4e4 !important; background:#fff !important; }
-    .pdf-kpi .pk-value{ color:#141413 !important; } .pdf-kpi .pk-label{ color:#8a8a8a !important; }
-    .pdf-kpi.pagar{ border-color:#f3c9c2 !important; }
-    .pdf-kpi.favor{ border-color:#bfe3cd !important; }
-    .pdf-section h3{ color:#5b21b6 !important; border-color:#ece4fb !important; }
-    .pdf-section td, .pdf-section th{ color:#141413 !important; border-color:#eee !important; }
-    .pdf-section th{ color:#8a8a8a !important; }
-    .pdf-section th:first-child, .pdf-section td:first-child{ background:#faf9f6 !important; }
-    .pdf-section tr.total td{ border-color:#141413 !important; }
-    .pdf-foot{ color:#9a9a9a !important; }
     /* El dashboard (#app) y los demás overlays quedan totalmente afuera del
        flujo con display:none — con visibility:hidden solamente, el sidebar
        de 100vh seguía reservando ese espacio y salía una hoja 1 en blanco. */
