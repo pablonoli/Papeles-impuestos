@@ -648,7 +648,10 @@ function fmtMoneyRaw(n) {
 // porcentaje (5 significa 5%), como "X,XX" (el signo "%" se muestra aparte,
 // como sufijo visual del input, no como parte del valor editable).
 function fmtPctRaw(n) {
-  n = Number(n) || 0;
+  // num() (no Number()) porque la alícuota puede venir como texto con coma
+  // decimal (ej. "5,00", tal como lo deja el input al perder el foco); con
+  // Number() directo eso daba NaN y el encabezado mostraba siempre 0,00%.
+  n = num(n);
   return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
 function periodLabel(period) {
@@ -3748,77 +3751,82 @@ function buildIibbCMSheets(wb, client) {
   const periods = listPeriodsWithTax(client.id, "iibbCM");
   const jurisdictions = sortedJurisdictions(client.iibbCM.jurisdictions);
   const activities = client.iibbCM.activities || [];
+  // "Actividades" y "Coeficientes" eran dos hojas separadas; se unifican acá
+  // en una sola ("Base y Coeficientes CM") porque son los dos insumos que
+  // alimentan el Detalle, uno debajo del otro.
+  const baseSheetName = "Base y Coeficientes CM";
 
-  // ---- 1) Coeficientes: se guarda el valor de cada vigencia y se recuerda
-  // en qué celda quedó cada jurisdicción, para poder referenciarla desde el
-  // detalle. ----
-  const coefCell = {}; // "desde|jurName" -> [row,col]
-  const coefRows = [["Coeficientes de distribución por jurisdicción — " + client.name]];
-  const coefMerges = [sectionMerge(coefRows, 2)];
-  const coefFormats = new Map();
-  const coefHeaderRows = [];
-  (client.iibbCM.coeficientes || []).slice().sort((a, b) => a.desde.localeCompare(b.desde)).forEach((v) => {
-    coefRows.push([]);
-    coefRows.push([`Coeficiente vigente desde ${periodLabel(v.desde)}`]);
-    coefMerges.push({ s: { r: coefRows.length - 1, c: 0 }, e: { r: coefRows.length - 1, c: 1 } });
-    coefRows.push(["Jurisdicción", "Coeficiente"]);
-    coefHeaderRows.push(coefRows.length - 1);
-    jurisdictions.forEach((j) => {
-      const R = coefRows.length;
-      coefFormats.set(R + ":1", "0.00%");
-      coefCell[v.desde + "|" + j.name] = [R, 1];
-      coefRows.push([j.name, num(v.valores[j.name]) / 100]);
-    });
-  });
-  XLSX.utils.book_append_sheet(wb, newSheet(coefRows, {
-    colWidths: [30, 16],
-    merges: coefMerges.filter(Boolean),
-    skipCols: [0],
-    formats: coefFormats,
-    headerRows: coefHeaderRows,
-  }), "Coeficientes");
+  const rows = [];
+  const merges = [];
+  const formats = new Map();
+  const formulas = new Map();
+  const headerRows = [];
 
-  // ---- 2) Actividades: monto imponible nacional (dato cargado), por
+  // ---- 1) Actividades: monto imponible nacional (dato cargado), por
   // período y actividad. ----
   const actCell = {}; // period -> { [code]: [row,col] }
-  const actRows = [["Monto imponible nacional por actividad (según libros) — " + client.name]];
-  const actMerges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: activities.length + 1 } }];
-  const actFormulas = new Map();
-  actRows.push([]);
-  actRows.push(["Período", ...activities.map((a) => `${a.code} — ${a.desc}`), "TOTAL"]);
-  const cmActHeaderRow = actRows.length - 1;
-  const cmActDataStart = actRows.length;
+  rows.push(["Monto imponible nacional por actividad (según libros) — " + client.name]);
+  merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: activities.length + 1 } });
+  rows.push([]);
+  rows.push(["Período", ...activities.map((a) => `${a.code} — ${a.desc}`), "TOTAL"]);
+  headerRows.push(rows.length - 1);
+  const cmActDataStart = rows.length;
   periods.forEach((p) => {
     const doc = getDoc(client.id, p);
     const acts = (doc && doc.iibbCM && doc.iibbCM.actividades) || {};
-    const R = actRows.length;
+    const R = rows.length;
     actCell[p] = {};
     const vals = activities.map((a, i) => { actCell[p][a.code] = [R, 1 + i]; return num(acts[a.code]); });
     const totalCol = 1 + activities.length;
-    actFormulas.set(R + ":" + totalCol, `SUM(${XLSX.utils.encode_col(1)}${R + 1}:${XLSX.utils.encode_col(totalCol - 1)}${R + 1})`);
-    actRows.push([periodLabel(p), ...vals, vals.reduce((s, v) => s + v, 0)]);
+    formulas.set(R + ":" + totalCol, `SUM(${XLSX.utils.encode_col(1)}${R + 1}:${XLSX.utils.encode_col(totalCol - 1)}${R + 1})`);
+    rows.push([periodLabel(p), ...vals, vals.reduce((s, v) => s + v, 0)]);
   });
   // Fila de totales acumulados por actividad (y el gran total), sumando
   // todos los períodos cargados.
   if (periods.length) {
-    const cmActDataEnd = actRows.length - 1;
+    const cmActDataEnd = rows.length - 1;
     const numDataCols = activities.length + 1;
     const totalRow = ["TOTAL"];
     for (let c = 1; c <= numDataCols; c++) {
       let sum = 0;
-      for (let R2 = cmActDataStart; R2 <= cmActDataEnd; R2++) sum += num(actRows[R2][c]);
+      for (let R2 = cmActDataStart; R2 <= cmActDataEnd; R2++) sum += num(rows[R2][c]);
       totalRow.push(round2(sum));
-      actFormulas.set(actRows.length + ":" + c, `SUM(${XLSX.utils.encode_col(c)}${cmActDataStart + 1}:${XLSX.utils.encode_col(c)}${cmActDataEnd + 1})`);
+      formulas.set(rows.length + ":" + c, `SUM(${XLSX.utils.encode_col(c)}${cmActDataStart + 1}:${XLSX.utils.encode_col(c)}${cmActDataEnd + 1})`);
     }
-    actRows.push(totalRow);
+    rows.push(totalRow);
   }
-  XLSX.utils.book_append_sheet(wb, newSheet(actRows, {
-    colWidths: [14, ...activities.map(() => 22), 18],
-    merges: actMerges.filter(Boolean),
+
+  // ---- 2) Coeficientes: se guarda el valor de cada vigencia y se recuerda
+  // en qué celda quedó cada jurisdicción, para poder referenciarla desde el
+  // detalle. Va debajo de "Actividades", separado por un salto de dos
+  // filas para que se note el corte entre ambas secciones. ----
+  rows.push([]);
+  rows.push([]);
+  const coefCell = {}; // "desde|jurName" -> [row,col]
+  rows.push(["Coeficientes de distribución por jurisdicción — " + client.name]);
+  merges.push(sectionMerge(rows, 2));
+  (client.iibbCM.coeficientes || []).slice().sort((a, b) => a.desde.localeCompare(b.desde)).forEach((v) => {
+    rows.push([]);
+    rows.push([`Coeficiente vigente desde ${periodLabel(v.desde)}`]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 1 } });
+    rows.push(["Jurisdicción", "Coeficiente"]);
+    headerRows.push(rows.length - 1);
+    jurisdictions.forEach((j) => {
+      const R = rows.length;
+      formats.set(R + ":1", "0.00%");
+      coefCell[v.desde + "|" + j.name] = [R, 1];
+      rows.push([j.name, num(v.valores[j.name]) / 100]);
+    });
+  });
+
+  XLSX.utils.book_append_sheet(wb, newSheet(rows, {
+    colWidths: [22, ...activities.map(() => 22), 18],
+    merges: merges.filter(Boolean),
     skipCols: [0],
-    formulas: actFormulas,
-    headerRows: [cmActHeaderRow],
-  }), "Actividades");
+    formats,
+    formulas,
+    headerRows,
+  }), baseSheetName);
 
   // ---- 3) Detalle: una fila por jurisdicción x actividad, agrupadas por
   // período (con un renglón banner al cambiar de mes, para que se note el
@@ -3857,11 +3865,11 @@ function buildIibbCMSheets(wb, client) {
         const alicuota = num(j.alicuotas && j.alicuotas[a.code]) / 100;
         const base = round2(montoNacional * attrib + ajuste);
         const impuesto = round2(base * alicuota);
-        if (actCell[p] && actCell[p][a.code]) detFormulas.set(R + ":2", xsheetRef("Actividades", ...actCell[p][a.code]));
-        // El link a la hoja "Coeficientes" sólo aplica a Art. 2 (general) —
-        // las actividades con reparto propio (especial/Art. 14) llevan acá
-        // directamente su % fijo, sin depender de esa hoja.
-        if (!a.regimen && coefVigencia && coefCell[coefVigencia.desde + "|" + j.name]) detFormulas.set(R + ":3", xsheetRef("Coeficientes", ...coefCell[coefVigencia.desde + "|" + j.name]));
+        if (actCell[p] && actCell[p][a.code]) detFormulas.set(R + ":2", xsheetRef(baseSheetName, ...actCell[p][a.code]));
+        // El link a la sección "Coeficientes" sólo aplica a Art. 2 (general)
+        // — las actividades con reparto propio (especial/Art. 14) llevan acá
+        // directamente su % fijo, sin depender de esa sección.
+        if (!a.regimen && coefVigencia && coefCell[coefVigencia.desde + "|" + j.name]) detFormulas.set(R + ":3", xsheetRef(baseSheetName, ...coefCell[coefVigencia.desde + "|" + j.name]));
         detFormulas.set(R + ":5", `C${R + 1}*D${R + 1}+E${R + 1}`);
         detFormulas.set(R + ":7", `F${R + 1}*G${R + 1}`);
         const regimenTag = a.regimen === "especial" ? " [Especial]" : a.regimen === "art14" ? " [Art.14]" : "";
