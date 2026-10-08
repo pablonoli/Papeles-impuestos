@@ -1412,7 +1412,7 @@ function calcIibbCMFor(client, period) {
 function newClientTemplate(name, cuit) {
   return {
     id: uid("cli"), name: name || "Nuevo cliente", cuit: cuit || "",
-    iva: { enabled: true, decreto814Rate: 3, prorrateoExento: false, turIva: false, activities: [], saldosIniciales: { saldoTecnicoAnterior: 0, saldoLibreDisponibilidadAnterior: 0 } },
+    iva: { enabled: true, decreto814Rate: 3, prorrateoExento: false, turIva: false, activities: [], puntosVenta: [], saldosIniciales: { saldoTecnicoAnterior: 0, saldoLibreDisponibilidadAnterior: 0 } },
     iibbLocal: { enabled: false, jurisdiccion: "", activities: [], saldoInicial: 0 },
     iibbCM: { enabled: false, activities: [], jurisdictions: [], coeficientes: [], saldosIniciales: {} },
   };
@@ -2300,6 +2300,27 @@ function renderConfigTab(client) {
             </table></div>
             <button class="btn btn-sm" data-action="open-activity-picker-iva">+ Agregar actividad</button>
           </div>
+          <div class="subsection">
+            <h4 class="subhead">Puntos de venta <span style="text-transform:none;letter-spacing:0;">— para importar el Excel de Comprobantes de ARCA</span></h4>
+            <p class="hint-sm" style="margin:0 0 8px;">Asociá cada punto de venta a la actividad que corresponde, para que al importar el Excel de ventas de ARCA el sistema sepa a qué actividad cargar cada comprobante. Si un mismo punto de venta factura más de una actividad, agregalo dos veces indicando la alícuota que distingue a cada una (sólo funciona si esas actividades no comparten alícuota).</p>
+            <div class="table-scroll"><table>
+              <tr><th style="text-align:left;width:70px;">Punto de venta</th><th style="text-align:left;">Actividad</th><th style="width:110px;">Alícuota</th><th></th></tr>
+              ${(client.iva.puntosVenta || []).map((pv, i) => `
+              <tr>
+                <td><input type="text" inputmode="numeric" value="${escapeHtml(pv.puntoVenta)}" data-cfg="iva-pv-numero" data-idx="${i}" style="width:70px;"></td>
+                <td><select data-cfg="iva-pv-code" data-idx="${i}" style="width:100%;min-width:260px;">
+                  <option value="">Elegir…</option>
+                  ${(client.iva.activities || []).map((a) => `<option value="${escapeHtml(a.code)}" ${pv.code === a.code ? "selected" : ""}>${escapeHtml(a.code)} — ${escapeHtml(a.desc)}</option>`).join("")}
+                </select></td>
+                <td><select data-cfg="iva-pv-alicuota" data-idx="${i}">
+                  <option value="21" ${String(pv.alicuota) === "21" ? "selected" : ""}>21%</option>
+                  <option value="10.5" ${String(pv.alicuota) === "10.5" ? "selected" : ""}>10,5%</option>
+                </select></td>
+                <td><button class="btn btn-ghost btn-danger btn-sm" data-action="remove-pv-iva" data-idx="${i}">Quitar</button></td>
+              </tr>`).join("") || `<tr><td colspan="4" style="text-align:center;color:var(--muted)">Sin puntos de venta asociados.</td></tr>`}
+            </table></div>
+            <button class="btn btn-sm" data-action="add-pv-iva">+ Agregar punto de venta</button>
+          </div>
         </div>
       </div>` : ""}
 
@@ -2535,6 +2556,8 @@ document.addEventListener("click", (e) => {
   else if (action === "add-activity-local") { mutateClient(currentClient().id, (c) => c.iibbLocal.activities.push({ code: "", desc: "", alicuota: 0 })); render(); }
   else if (action === "remove-activity-local") { const idx = Number(btn.dataset.idx); mutateClient(currentClient().id, (c) => c.iibbLocal.activities.splice(idx, 1)); render(); }
   else if (action === "remove-activity-iva") { const idx = Number(btn.dataset.idx); mutateClient(currentClient().id, (c) => c.iva.activities.splice(idx, 1)); render(); }
+  else if (action === "add-pv-iva") { mutateClient(currentClient().id, (c) => { if (!c.iva.puntosVenta) c.iva.puntosVenta = []; c.iva.puntosVenta.push({ puntoVenta: "", code: "", alicuota: "21" }); }); render(); }
+  else if (action === "remove-pv-iva") { const idx = Number(btn.dataset.idx); mutateClient(currentClient().id, (c) => c.iva.puntosVenta.splice(idx, 1)); render(); }
   else if (action === "open-activity-picker-local") { openActivityPickerModal("iibbLocal"); }
   else if (action === "open-activity-picker-cm") { openActivityPickerModal("iibbCM"); }
   else if (action === "open-activity-picker-iva") { openActivityPickerModal("iva"); }
@@ -2578,6 +2601,11 @@ document.addEventListener("change", (e) => {
     const name = t.value;
     if (name) mutateClient(currentClient().id, (c) => { if (!c.iibbCM.jurisdictions.some((x) => x.name === name)) c.iibbCM.jurisdictions.push({ name, alicuotas: {} }); });
     render();
+  } else if (t.dataset.action === "import-arca-file") {
+    const { clientid, period } = t.dataset;
+    const file = t.files && t.files[0];
+    t.value = ""; // permite volver a elegir el mismo archivo si hace falta reimportar
+    if (file) importArcaComprobantes(clientid, period, file);
   }
 });
 
@@ -2600,6 +2628,9 @@ function handleConfigInput(t) {
   else if (cfg === "iibblocal-activity-code") mutateClient(c.id, (cl) => (cl.iibbLocal.activities[Number(t.dataset.idx)].code = t.value));
   else if (cfg === "iva-activity-code") mutateClient(c.id, (cl) => (cl.iva.activities[Number(t.dataset.idx)].code = t.value));
   else if (cfg === "iva-activity-desc") mutateClient(c.id, (cl) => (cl.iva.activities[Number(t.dataset.idx)].desc = t.value));
+  else if (cfg === "iva-pv-numero") mutateClient(c.id, (cl) => (cl.iva.puntosVenta[Number(t.dataset.idx)].puntoVenta = t.value));
+  else if (cfg === "iva-pv-code") mutateClient(c.id, (cl) => (cl.iva.puntosVenta[Number(t.dataset.idx)].code = t.value));
+  else if (cfg === "iva-pv-alicuota") mutateClient(c.id, (cl) => (cl.iva.puntosVenta[Number(t.dataset.idx)].alicuota = t.value));
   else if (cfg === "iibblocal-activity-desc") mutateClient(c.id, (cl) => (cl.iibbLocal.activities[Number(t.dataset.idx)].desc = t.value));
   else if (cfg === "iibblocal-activity-alicuota") mutateClient(c.id, (cl) => (cl.iibbLocal.activities[Number(t.dataset.idx)].alicuota = t.value));
   else if (cfg === "activity-code") mutateClient(c.id, (cl) => (cl.iibbCM.activities[Number(t.dataset.idx)].code = t.value));
@@ -3044,6 +3075,13 @@ function renderIvaActividadesModal(clientId, period) {
       <div class="modal" style="max-width:680px;">
         <div class="modal-head"><h3>Apertura de Otros Conceptos — ${periodLabel(period)}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
         <div class="modal-body">
+          <div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+            <label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">
+              📂 Importar comprobantes de ventas (ARCA, .xlsx)
+              <input type="file" accept=".xlsx" style="display:none;" data-action="import-arca-file" data-clientid="${clientId}" data-period="${period}">
+            </label>
+            <p class="hint-sm" style="margin:6px 0 0;">Excel "Comprobantes de Ventas" descargado del portal IVA de ARCA. Usa los puntos de venta configurados en Configuración → IVA para asignar cada comprobante a su actividad.</p>
+          </div>
           ${activityTabs}
           ${blocks}
           <div style="text-align:right;font-size:13px;font-weight:700;padding-top:6px;">TOTAL — todas las actividades: <span class="mono">${fmtMoney(granTotal)}</span></div>
@@ -3056,6 +3094,165 @@ function renderIvaActividadesModal(clientId, period) {
 function refreshIvaActividadesModal(clientId, period) {
   renderIvaActividadesModal(clientId, period);
   renderMain();
+}
+
+// ---------------------------------------------------------------------
+// Importar "Comprobantes de Ventas" (Excel descargado del portal IVA de
+// ARCA) y volcarlo en "Apertura de Otros Conceptos", por actividad/
+// alícuota/condición del comprador — usando el mapeo Punto de Venta →
+// Actividad cargado en Configuración → IVA. No toca lo que el contador ya
+// haya tipeado a mano en otras actividades/alícuotas no presentes en el
+// archivo importado.
+// ---------------------------------------------------------------------
+function parseArcaFecha(raw) {
+  // Siempre "dd/mm/aaaa" (así la exporta el portal de ARCA). Si viniera
+  // como fecha real de Excel (número serie), XLSX ya la entrega como string
+  // acá porque leemos la hoja con raw:false.
+  const m = String(raw || "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  return { y: Number(m[3]), m: Number(m[2]), d: Number(m[1]) };
+}
+function importArcaComprobantes(clientId, period, file) {
+  const client = getClient(clientId);
+  if (!client) return;
+  const puntosVenta = client.iva.puntosVenta || [];
+  const [targetY, targetM] = period.split("-").map(Number);
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let wb;
+    try {
+      wb = XLSX.read(e.target.result, { type: "array" });
+    } catch (err) {
+      alert("No pude leer el archivo. ¿Es el Excel de \"Comprobantes de Ventas\" exportado de ARCA?");
+      return;
+    }
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+
+    // Ubicar la fila de encabezados por nombre de columna (en vez de asumir
+    // que es la fila 0), por si el portal cambia el orden o hay filas antes.
+    const norm = (s) => String(s || "").trim().toLowerCase();
+    let headerIdx = -1, col = {};
+    for (let r = 0; r < Math.min(rows.length, 10); r++) {
+      const names = rows[r].map(norm);
+      if (names.includes("fecha") && names.some((n) => n.indexOf("punto de venta") !== -1)) {
+        headerIdx = r;
+        names.forEach((n, i) => {
+          if (n === "fecha") col.fecha = i;
+          else if (n === "tipo") col.tipo = i;
+          else if (n.indexOf("punto de venta") !== -1) col.pv = i;
+          else if (n.indexOf("neto gravado") !== -1) col.neto = i;
+          else if (n === "exento") col.exento = i;
+          else if (n === "iva") col.iva = i;
+        });
+        break;
+      }
+    }
+    if (headerIdx === -1 || col.fecha == null || col.tipo == null || col.pv == null || col.neto == null || col.iva == null) {
+      alert("No reconocí las columnas del archivo. Tiene que ser el Excel \"Comprobantes de Ventas\" tal como lo exporta el portal IVA de ARCA.");
+      return;
+    }
+
+    // Acumuladores por actividad: igual estructura que iva.porActividad.
+    const acc = {}; // code -> { debito:{ri105,cf105,ri21,cf21}, restCredito:{ncEmit105RI,...}, exento, exentoNC }
+    const emptyAcc = () => ({ debito: { ri105: 0, cf105: 0, ri21: 0, cf21: 0 }, restCredito: { ncEmit105RI: 0, ncEmit105CF: 0, ncEmit21RI: 0, ncEmit21CF: 0 }, exento: 0, exentoNC: 0 });
+
+    let comprobantesOk = 0, comprobantesFueraDePeriodo = 0;
+    let montoSinPV = 0, pvSinConfigurar = new Set();
+    let montoSinAlicuota = 0;
+    let montoSinLetra = 0;
+
+    for (let r = headerIdx + 1; r < rows.length; r++) {
+      const row = rows[r];
+      const fechaRaw = row[col.fecha];
+      // La hoja trae, debajo de los comprobantes, el cuadro resumen armado a
+      // mano (separado por una fila en blanco) — cortamos ahí.
+      if (!fechaRaw && String(row[col.pv] || "").trim() === "" && comprobantesOk > 0) break;
+      const fecha = parseArcaFecha(fechaRaw);
+      if (!fecha) continue; // fila sin fecha válida (totales, encabezados repetidos, etc.)
+
+      const tipo = String(row[col.tipo] || "").trim();
+      const pv = String(row[col.pv] || "").trim();
+      // Las Notas de Crédito vienen con el Neto Gravado (y el IVA) en
+      // negativo en el export de ARCA — se trabaja con el valor absoluto, ya
+      // que acá se guardan como un monto positivo de "N.C. emitidas" que el
+      // propio papel de trabajo resta del débito (no como un neto negativo).
+      const netoGravado = Math.abs(num(row[col.neto]));
+      const ivaMonto = Math.abs(num(row[col.iva]));
+      const exentoMonto = Math.abs(col.exento != null ? num(row[col.exento]) : 0);
+
+      if (fecha.y !== targetY || fecha.m !== targetM) { comprobantesFueraDePeriodo++; continue; }
+
+      const letraMatch = tipo.match(/([A-Z])\s*$/);
+      const letra = letraMatch ? letraMatch[1] : null;
+      const esRI = letra === "A";
+      const esCF = letra === "B" || letra === "C";
+      if (!esRI && !esCF) { montoSinLetra += netoGravado + exentoMonto; continue; }
+      const esNC = /Nota de Cr[eé]dito/i.test(tipo);
+
+      // A qué actividad corresponde este punto de venta — si tiene más de
+      // una actividad asociada, se distingue por la alícuota real del
+      // comprobante (IVA / Neto Gravado).
+      const candidatos = puntosVenta.filter((x) => String(x.puntoVenta).trim() === pv);
+      let code = null;
+      let rate105 = null; // true=10,5% / false=21% / null=no se pudo determinar
+      if (candidatos.length === 1) {
+        code = candidatos[0].code;
+      } else if (candidatos.length > 1) {
+        const rateReal = netoGravado > 0 ? ivaMonto / netoGravado : 0;
+        const match = candidatos.find((x) => Math.abs(rateReal - num(x.alicuota) / 100) < 0.02);
+        code = match ? match.code : null;
+      }
+      if (!code) {
+        montoSinPV += netoGravado + exentoMonto;
+        if (pv) pvSinConfigurar.add(pv);
+        continue;
+      }
+
+      if (netoGravado > 0) {
+        const rateReal = ivaMonto / netoGravado;
+        if (Math.abs(rateReal - 0.21) < 0.03) rate105 = false;
+        else if (Math.abs(rateReal - 0.105) < 0.02) rate105 = true;
+        else { montoSinAlicuota += netoGravado; continue; }
+      }
+
+      if (!acc[code]) acc[code] = emptyAcc();
+      if (netoGravado > 0) {
+        const key = (esRI ? "ri" : "cf") + (rate105 ? "105" : "21");
+        if (esNC) acc[code].restCredito[("ncEmit" + (rate105 ? "105" : "21") + (esRI ? "RI" : "CF"))] += netoGravado;
+        else acc[code].debito[key] += netoGravado;
+      }
+      if (exentoMonto) {
+        if (esNC) acc[code].exentoNC += exentoMonto; else acc[code].exento += exentoMonto;
+      }
+      comprobantesOk++;
+    }
+
+    if (!comprobantesOk) {
+      alert(`No encontré comprobantes de ${periodLabel(period)} en este archivo (¿es el período correcto?).`);
+      return;
+    }
+
+    const codesImportados = Object.keys(acc);
+    touchDoc(clientId, period, (doc) => {
+      codesImportados.forEach((code) => {
+        setDeep(doc, `iva.porActividad.${code}`, acc[code]);
+      });
+    });
+    codesImportados.forEach((code) => syncVentasNetasFromIvaActividad(clientId, period, `iva.porActividad.${code}.debito.ri21`));
+
+    let msg = `Importados ${comprobantesOk} comprobantes de ${periodLabel(period)} en ${codesImportados.length} actividad(es).`;
+    if (montoSinPV > 0) msg += `\n\nOjo: ${fmtMoney(montoSinPV)} corresponden a punto(s) de venta sin configurar (${[...pvSinConfigurar].join(", ")}) — andá a Configuración → IVA → Puntos de venta y asignalos.`;
+    if (montoSinAlicuota > 0) msg += `\n\n${fmtMoney(montoSinAlicuota)} tienen una alícuota que no pude identificar como 10,5% ni 21% — revisalos a mano.`;
+    if (montoSinLetra > 0) msg += `\n\n${fmtMoney(montoSinLetra)} corresponden a comprobantes cuyo tipo no reconocí (ni Factura A, B o C) — revisalos a mano.`;
+    if (comprobantesFueraDePeriodo > 0) msg += `\n\n(Se ignoraron ${comprobantesFueraDePeriodo} comprobantes del archivo por no pertenecer a ${periodLabel(period)}.)`;
+    alert(msg);
+
+    refreshIvaActividadesModal(clientId, period);
+  };
+  reader.onerror = () => alert("No pude leer el archivo.");
+  reader.readAsArrayBuffer(file);
 }
 
 function renderDecreto814Modal(clientId, period) {
@@ -3307,7 +3504,7 @@ function newSheet(rows, opts) {
           continue;
         }
         const style = { border: { top: THIN, bottom: THIN, left: THIN, right: THIN } };
-        if (R === 0) {
+        if (R === 0 || (opts.mainTitleRows && opts.mainTitleRows.has(R))) {
           style.font = { bold: true, sz: 13, color: { rgb: "FFFFFF" } };
           style.fill = { patternType: "solid", fgColor: { rgb: "6D28D9" } };
           style.alignment = { vertical: "center", horizontal: "center", wrapText: true };
@@ -3803,12 +4000,17 @@ function buildIibbCMSheets(wb, client) {
   rows.push([]);
   rows.push([]);
   const coefCell = {}; // "desde|jurName" -> [row,col]
+  // El título va fusionado con el mismo ancho que el de "Actividades" (no
+  // sólo 2 columnas) para que la banda de color cubra todo el texto y las
+  // dos secciones queden con el mismo diseño.
+  const coefTitleEndCol = Math.max(activities.length + 1, 1);
   rows.push(["Coeficientes de distribución por jurisdicción — " + client.name]);
-  merges.push(sectionMerge(rows, 2));
+  const coefTitleRow = rows.length - 1;
+  merges.push({ s: { r: coefTitleRow, c: 0 }, e: { r: coefTitleRow, c: coefTitleEndCol } });
   (client.iibbCM.coeficientes || []).slice().sort((a, b) => a.desde.localeCompare(b.desde)).forEach((v) => {
     rows.push([]);
     rows.push([`Coeficiente vigente desde ${periodLabel(v.desde)}`]);
-    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 1 } });
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: coefTitleEndCol } });
     rows.push(["Jurisdicción", "Coeficiente"]);
     headerRows.push(rows.length - 1);
     jurisdictions.forEach((j) => {
@@ -3826,6 +4028,9 @@ function buildIibbCMSheets(wb, client) {
     formats,
     formulas,
     headerRows,
+    // Mismo violeta oscuro + texto blanco que el título de la hoja (fila 0),
+    // para que "Coeficientes..." se vea igual que "Monto imponible...".
+    mainTitleRows: new Set([coefTitleRow]),
   }), baseSheetName);
 
   // ---- 3) Detalle: una fila por jurisdicción x actividad, agrupadas por
