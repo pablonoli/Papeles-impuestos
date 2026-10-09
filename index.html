@@ -2285,8 +2285,9 @@ function renderConfigTab(client) {
   // histórico que tenía el cliente (así los períodos ya cargados no cambian
   // de golpe con este ajuste).
   const currentIvaDoc = getDoc(client.id, state.currentPeriod);
-  const prorrateoExentoActual = currentIvaDoc && typeof currentIvaDoc.prorrateoExento === "boolean" ? currentIvaDoc.prorrateoExento : !!client.iva.prorrateoExento;
-  const turIvaActual = currentIvaDoc && typeof currentIvaDoc.turIvaEnabled === "boolean" ? currentIvaDoc.turIvaEnabled : !!client.iva.turIva;
+  const currentIvaSub = currentIvaDoc && currentIvaDoc.iva;
+  const prorrateoExentoActual = currentIvaSub && typeof currentIvaSub.prorrateoExento === "boolean" ? currentIvaSub.prorrateoExento : !!client.iva.prorrateoExento;
+  const turIvaActual = currentIvaSub && typeof currentIvaSub.turIvaEnabled === "boolean" ? currentIvaSub.turIvaEnabled : !!client.iva.turIva;
   const iibbLocalPrevPeriods = listPeriodsWithTax(client.id, "iibbLocal").filter((p) => p < state.currentPeriod).sort();
   const iibbLocalPrevPeriod = iibbLocalPrevPeriods.length ? iibbLocalPrevPeriods[iibbLocalPrevPeriods.length - 1] : null;
   const iibbLocalPrevResult = iibbLocalPrevPeriod ? calcIibbLocalFor(client, iibbLocalPrevPeriod) : null;
@@ -2742,8 +2743,8 @@ function handleConfigInput(t) {
   if (cfg === "name") mutateClient(c.id, (cl) => (cl.name = t.value));
   else if (cfg === "cuit") mutateClient(c.id, (cl) => (cl.cuit = t.value));
   else if (cfg === "toggle-iva") mutateClient(c.id, (cl) => (cl.iva.enabled = t.checked));
-  else if (cfg === "toggle-prorrateo-exento") touchDoc(c.id, state.currentPeriod, (doc) => (doc.prorrateoExento = t.checked));
-  else if (cfg === "toggle-turiva") touchDoc(c.id, state.currentPeriod, (doc) => (doc.turIvaEnabled = t.checked));
+  else if (cfg === "toggle-prorrateo-exento") touchDoc(c.id, state.currentPeriod, (doc) => setDeep(doc, "iva.prorrateoExento", t.checked));
+  else if (cfg === "toggle-turiva") touchDoc(c.id, state.currentPeriod, (doc) => setDeep(doc, "iva.turIvaEnabled", t.checked));
   else if (cfg === "toggle-iibblocal") mutateClient(c.id, (cl) => (cl.iibbLocal.enabled = t.checked));
   else if (cfg === "toggle-iibbcm") mutateClient(c.id, (cl) => (cl.iibbCM.enabled = t.checked));
   else if (cfg === "decreto814rate") mutateClient(c.id, (cl) => (cl.iva.decreto814Rate = t.value));
