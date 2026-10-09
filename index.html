@@ -1320,7 +1320,12 @@ function computeIvaPeriod(client, doc, carryIn) {
   // crédito fiscal especial por esas operaciones. El crédito se carga a
   // mano (no hay forma de calcularlo a partir de otros datos del período) y
   // se suma al resto del crédito fiscal computable.
-  const turIvaEnabled = !!client.iva.turIva;
+  // Estos dos son por período (ver doc.prorrateoExento / doc.turIvaEnabled
+  // más abajo): si el período puntual no tiene el campo cargado todavía, se
+  // usa como arranque el valor histórico a nivel cliente (client.iva.*),
+  // que quedó "congelado" en lo que era antes de pasar a ser por período —
+  // así los períodos ya declarados no cambian de golpe.
+  const turIvaEnabled = typeof doc.turIvaEnabled === "boolean" ? doc.turIvaEnabled : !!client.iva.turIva;
   const creditoTurIva = turIvaEnabled ? num(doc.turIva.credito) : 0;
 
   const ventasNetasGravadas = round2(debitoBrackets.reduce((s, b) => s + b.neto, 0) - restCreditoBrackets.reduce((s, b) => s + b.neto, 0));
@@ -1335,7 +1340,8 @@ function computeIvaPeriod(client, doc, carryIn) {
     ? round2(exentoPorActividad - exentoNCPorActividad)
     : round2(num(doc.exento.ventas) - num(doc.exento.ncVentas));
   const totalVentasParaProrrateo = ventasNetasGravadas + ventasExentasNetas;
-  const coefProrrateo = client.iva.prorrateoExento
+  const prorrateoExentoEnabled = typeof doc.prorrateoExento === "boolean" ? doc.prorrateoExento : !!client.iva.prorrateoExento;
+  const coefProrrateo = prorrateoExentoEnabled
     ? (totalVentasParaProrrateo > 0 ? ventasNetasGravadas / totalVentasParaProrrateo : 1)
     : 1;
 
@@ -1378,7 +1384,7 @@ function computeIvaPeriod(client, doc, carryIn) {
   const result = {
     doc, debitoBrackets, restDebitoBrackets, creditoBrackets, restCreditoBrackets,
     decreto814Rate, remuneraciones, creditoDecreto814, f931Pagado, turIvaEnabled, creditoTurIva,
-    debitoFiscal, creditoFiscal, coefProrrateo, ventasNetasGravadas, ventasExentasNetas, comprasNetasGravadas,
+    debitoFiscal, creditoFiscal, coefProrrateo, prorrateoExentoEnabled, ventasNetasGravadas, ventasExentasNetas, comprasNetasGravadas,
     saldoTecnicoAnterior, saldoTecnico, saldoTecnicoFavorARCA, saldoTecnicoFavorContribuyente,
     libreDispAnterior, montoUtilizado, percepciones, retenciones,
     saldoLibreDisponibilidad, saldoAPagar, exento, usaActividadesIva,
@@ -2047,12 +2053,12 @@ function renderIvaTab(client) {
       <div class="card">
         <div class="card-head">
           <h3>Crédito Fiscal — Papel de trabajo</h3>
-          <span class="hint">Compras y restitución de débito fiscal (N.C. emitidas)${client.iva.prorrateoExento ? ` · <span class="pill" style="background:var(--accent-soft);color:var(--accent);" title="Ventas netas gravadas: ${fmtMoney(r.ventasNetasGravadas)}&#10;Ventas exentas o no gravadas (netas de N.C.): ${fmtMoney(r.ventasExentasNetas)}&#10;(el cálculo usa el coeficiente completo, sin redondear)">⚡ Prorrateo ${(r.coefProrrateo * 100).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>` : ""}</span>
+          <span class="hint">Compras y restitución de débito fiscal (N.C. emitidas)${r.prorrateoExentoEnabled ? ` · <span class="pill" style="background:var(--accent-soft);color:var(--accent);" title="Ventas netas gravadas: ${fmtMoney(r.ventasNetasGravadas)}&#10;Ventas exentas o no gravadas (netas de N.C.): ${fmtMoney(r.ventasExentasNetas)}&#10;(el cálculo usa el coeficiente completo, sin redondear)">⚡ Prorrateo ${(r.coefProrrateo * 100).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>` : ""}</span>
         </div>
         <div class="card-body">
           <div class="table-scroll"><table>
-            <tr><th>Concepto</th><th>Neto (libro)</th><th>Crédito calculado${client.iva.prorrateoExento ? " *" : ""}</th><th>S/ Portal ARCA</th><th>Diferencia</th></tr>
-            <tr class="section-row"><td colspan="5">Compras${client.iva.prorrateoExento ? ` <span style="font-weight:400;color:var(--muted);">(ya incluye el coeficiente de prorrateo)</span>` : ""}</td></tr>
+            <tr><th>Concepto</th><th>Neto (libro)</th><th>Crédito calculado${r.prorrateoExentoEnabled ? " *" : ""}</th><th>S/ Portal ARCA</th><th>Diferencia</th></tr>
+            <tr class="section-row"><td colspan="5">Compras${r.prorrateoExentoEnabled ? ` <span style="font-weight:400;color:var(--muted);">(ya incluye el coeficiente de prorrateo)</span>` : ""}</td></tr>
             ${bracketRows(client, period, "credito", r.creditoBrackets)}
             <tr class="section-row"><td colspan="5">Restitución de débito fiscal (N.C. emitidas)</td></tr>
             ${bracketRows(client, period, "restCredito", r.restCreditoBrackets, r.usaActividadesIva)}
@@ -2272,6 +2278,15 @@ function renderConfigTab(client) {
   const ivaPrevPeriods = listPeriodsWithTax(client.id, "iva").filter((p) => p < state.currentPeriod).sort();
   const ivaPrevPeriod = ivaPrevPeriods.length ? ivaPrevPeriods[ivaPrevPeriods.length - 1] : null;
   const ivaPrevResult = ivaPrevPeriod ? calcIvaFor(client, ivaPrevPeriod) : null;
+  // Prorrateo y TurIVA son por período (no todos los períodos aplican el
+  // mismo tratamiento necesariamente), así que el switch de Configuración
+  // muestra y edita el valor del período que se está viendo. Si ese período
+  // todavía no tiene el campo cargado a mano, se usa como arranque el valor
+  // histórico que tenía el cliente (así los períodos ya cargados no cambian
+  // de golpe con este ajuste).
+  const currentIvaDoc = getDoc(client.id, state.currentPeriod);
+  const prorrateoExentoActual = currentIvaDoc && typeof currentIvaDoc.prorrateoExento === "boolean" ? currentIvaDoc.prorrateoExento : !!client.iva.prorrateoExento;
+  const turIvaActual = currentIvaDoc && typeof currentIvaDoc.turIvaEnabled === "boolean" ? currentIvaDoc.turIvaEnabled : !!client.iva.turIva;
   const iibbLocalPrevPeriods = listPeriodsWithTax(client.id, "iibbLocal").filter((p) => p < state.currentPeriod).sort();
   const iibbLocalPrevPeriod = iibbLocalPrevPeriods.length ? iibbLocalPrevPeriods[iibbLocalPrevPeriods.length - 1] : null;
   const iibbLocalPrevResult = iibbLocalPrevPeriod ? calcIibbLocalFor(client, iibbLocalPrevPeriod) : null;
@@ -2390,12 +2405,12 @@ function renderConfigTab(client) {
                 : `<input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(client.iva.saldosIniciales.saldoLibreDisponibilidadAnterior, "money")}" data-cfg="iva-saldo-libre-inicial"><span class="hint-sm">Previo al primer período cargado</span>`}</div>
             </div>
             <div class="switch-row">
-              <div class="st"><b>Prorrateo crédito fiscal</b><span>Coeficiente = ventas gravadas / (ventas gravadas + ventas exentas); se aplica sobre el crédito fiscal de compras de cada período</span></div>
-              <label class="switch"><input type="checkbox" ${client.iva.prorrateoExento ? "checked" : ""} data-cfg="toggle-prorrateo-exento"><span class="slider"></span></label>
+              <div class="st"><b>Prorrateo crédito fiscal</b><span>Coeficiente = ventas gravadas / (ventas gravadas + ventas exentas); se aplica sobre el crédito fiscal de compras — <b>solo para ${periodLabel(state.currentPeriod)}</b>, no afecta otros períodos</span></div>
+              <label class="switch"><input type="checkbox" ${prorrateoExentoActual ? "checked" : ""} data-cfg="toggle-prorrateo-exento"><span class="slider"></span></label>
             </div>
             <div class="switch-row">
-              <div class="st"><b>Incluido en el régimen TurIVA</b><span>Ventas a turistas extranjeros que generan crédito fiscal especial — habilita cargarlo a mano en el papel de trabajo del Crédito Fiscal</span></div>
-              <label class="switch"><input type="checkbox" ${client.iva.turIva ? "checked" : ""} data-cfg="toggle-turiva"><span class="slider"></span></label>
+              <div class="st"><b>Incluido en el régimen TurIVA</b><span>Ventas a turistas extranjeros que generan crédito fiscal especial — habilita cargarlo a mano en el papel de trabajo del Crédito Fiscal — <b>solo para ${periodLabel(state.currentPeriod)}</b>, no afecta otros períodos</span></div>
+              <label class="switch"><input type="checkbox" ${turIvaActual ? "checked" : ""} data-cfg="toggle-turiva"><span class="slider"></span></label>
             </div>
           </div>
           <div class="subsection">
@@ -2727,8 +2742,8 @@ function handleConfigInput(t) {
   if (cfg === "name") mutateClient(c.id, (cl) => (cl.name = t.value));
   else if (cfg === "cuit") mutateClient(c.id, (cl) => (cl.cuit = t.value));
   else if (cfg === "toggle-iva") mutateClient(c.id, (cl) => (cl.iva.enabled = t.checked));
-  else if (cfg === "toggle-prorrateo-exento") mutateClient(c.id, (cl) => (cl.iva.prorrateoExento = t.checked));
-  else if (cfg === "toggle-turiva") mutateClient(c.id, (cl) => (cl.iva.turIva = t.checked));
+  else if (cfg === "toggle-prorrateo-exento") touchDoc(c.id, state.currentPeriod, (doc) => (doc.prorrateoExento = t.checked));
+  else if (cfg === "toggle-turiva") touchDoc(c.id, state.currentPeriod, (doc) => (doc.turIvaEnabled = t.checked));
   else if (cfg === "toggle-iibblocal") mutateClient(c.id, (cl) => (cl.iibbLocal.enabled = t.checked));
   else if (cfg === "toggle-iibbcm") mutateClient(c.id, (cl) => (cl.iibbCM.enabled = t.checked));
   else if (cfg === "decreto814rate") mutateClient(c.id, (cl) => (cl.iva.decreto814Rate = t.value));
@@ -3821,7 +3836,7 @@ function buildIvaSheets(wb, client) {
     rows.push(["TOTAL DÉBITO FISCAL (según portal)", "", "", r.debitoFiscal, "", ""]);
 
     rows.push([]);
-    rows.push([client.iva.prorrateoExento ? `CRÉDITO FISCAL (compras con prorrateo ${fmtPctRaw(r.coefProrrateo * 100)}% aplicado)` : "CRÉDITO FISCAL"]);
+    rows.push([r.prorrateoExentoEnabled ? `CRÉDITO FISCAL (compras con prorrateo ${fmtPctRaw(r.coefProrrateo * 100)}% aplicado)` : "CRÉDITO FISCAL"]);
     merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 5 } });
     rows.push(["Concepto", "Neto según libros", "Crédito calculado", "Crédito según portal ARCA", "Diferencia (portal - calculado)", "Alerta"]);
     const creditoHeaderRow = rows.length - 1;
