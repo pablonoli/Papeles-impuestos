@@ -828,6 +828,12 @@ function listPeriodsWithTax(clientId, taxKey) {
 const LOCAL_STORE_KEY = "papeles_fiscales_store_v1";
 const SYNC_CONFIG_KEY = "papeles_fiscales_sync_v1";
 const GIST_FILENAME = "papeles-fiscales-datos.json";
+// Se prende cuando hay un cambio local todavía no confirmado en el Gist, y
+// se apaga recién cuando el push efectivamente se completa. Persiste en
+// localStorage (no sólo en memoria) para sobrevivir a un F5 a mitad de un
+// push trabado — si no, un simple reload podía perder cambios reales (ver
+// comentario largo en initApp).
+const SYNC_DIRTY_KEY = "papeles_fiscales_sync_dirty_v1";
 
 function loadLocalStore() {
   try {
@@ -869,7 +875,23 @@ async function initApp() {
 
   // Si hay sincronización configurada, traer lo último apenas arranca (sin
   // bloquear el primer render, que ya se hizo con lo que había en local).
+  //
+  // PERO: si quedaron cambios locales sin confirmar en el Gist de la sesión
+  // anterior (por ejemplo, se cerró la pestaña o se refrescó mientras el
+  // push automático seguía reintentando tras un corte), NO hacemos ese pull
+  // — pisaría esos cambios con la versión vieja del Gist sin que el usuario
+  // se entere, perdiéndolos para siempre. En ese caso primero empujamos lo
+  // local (que es la versión más nueva) y recién después queda habilitado
+  // volver a traer.
   if (state.syncConfig.token && state.syncConfig.gistId) {
+    if (isSyncDirty()) {
+      showToast("Había cambios de la sesión anterior sin sincronizar — los estamos subiendo primero.");
+      const pushed = await gistPush();
+      if (!pushed) {
+        showToast("No se pudo confirmar esos cambios en GitHub todavía — no se trae nada del Gist para no pisarlos. Abrí Sincronización cuando tengas conexión.");
+        return;
+      }
+    }
     const changed = await gistPull();
     if (changed) { state.currentClientId = state.clients[0] && state.clients[0].id; pickDefaultPeriod(); render(); }
   }
@@ -929,9 +951,21 @@ let gistRetryDelay = 4000; // arranca en 4s y se va duplicando hasta un tope de 
 let gistPushInFlight = false;
 let gistPushDirty = false; // hubo un cambio nuevo mientras se estaba sincronizando
 let gistFatalErrorShown = false; // token/Gist inválidos: avisar una sola vez, no en cada reintento
+let gistRetryFailCount = 0; // reintentos consecutivos fallidos (red/rate-limit), para avisar si se estanca
+let gistStuckWarningShown = false;
+function markSyncDirty() {
+  try { localStorage.setItem(SYNC_DIRTY_KEY, "1"); } catch (e) {}
+}
+function clearSyncDirty() {
+  try { localStorage.removeItem(SYNC_DIRTY_KEY); } catch (e) {}
+}
+function isSyncDirty() {
+  try { return localStorage.getItem(SYNC_DIRTY_KEY) === "1"; } catch (e) { return false; }
+}
 function scheduleGistPush() {
   if (!state.syncConfig.token || !state.syncConfig.gistId) return;
   gistPushDirty = true;
+  markSyncDirty();
   clearTimeout(gistPushTimer);
   gistPushTimer = setTimeout(() => attemptAutoGistPush(), 3000);
 }
@@ -966,16 +1000,27 @@ async function attemptAutoGistPush() {
     }
     gistFatalErrorShown = false;
     gistRetryDelay = 4000;
+    gistRetryFailCount = 0;
+    gistStuckWarningShown = false;
     state.lastSync = new Date();
     state.syncStatus = "idle";
+    if (!gistPushDirty) clearSyncDirty(); // si no quedó otro cambio pendiente en el medio, ya está todo subido
     renderSidebar();
     if (gistPushDirty) { gistPushDirty = false; scheduleGistPush(); }
   } catch (e) {
-    // Falla transitoria (red, rate limit, etc.) — no se le muestra nada al
-    // usuario, sigue apareciendo "Sincronizando…" mientras reintenta solo.
+    // Falla transitoria (red, rate limit, etc.): no corta el reintento
+    // (los datos están a salvo en este navegador mientras tanto), pero si
+    // se repite varias veces seguidas sí avisamos una vez — antes quedaba
+    // reintentando en silencio indefinidamente y la única pista era el
+    // cartelito "Sincronizando…" sin fecha, fácil de no notar.
     gistPushInFlight = false;
     state.syncStatus = "syncing";
     renderSidebar();
+    gistRetryFailCount++;
+    if (gistRetryFailCount >= 5 && !gistStuckWarningShown) {
+      gistStuckWarningShown = true;
+      showToast("La sincronización con GitHub viene fallando hace rato — tus cambios están a salvo en este navegador. Revisá tu conexión o abrí Sincronización.");
+    }
     gistRetryDelay = Math.min(Math.round(gistRetryDelay * 1.8), 60000);
     gistRetryTimer = setTimeout(() => attemptAutoGistPush(), gistRetryDelay);
   }
@@ -1001,8 +1046,11 @@ async function gistPush() {
     if (!res.ok) throw new Error(String(res.status));
     gistFatalErrorShown = false;
     gistRetryDelay = 4000;
+    gistRetryFailCount = 0;
+    gistStuckWarningShown = false;
     state.lastSync = new Date();
     state.syncStatus = "idle";
+    clearSyncDirty();
     renderSidebar();
     return true;
   } catch (e) {
