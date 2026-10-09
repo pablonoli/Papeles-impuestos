@@ -2053,7 +2053,7 @@ function renderIvaTab(client) {
       <div class="card">
         <div class="card-head">
           <h3>Crédito Fiscal — Papel de trabajo</h3>
-          <span class="hint">Compras y restitución de débito fiscal (N.C. emitidas)${r.prorrateoExentoEnabled ? ` · <span class="pill" style="background:var(--accent-soft);color:var(--accent);" title="Ventas netas gravadas: ${fmtMoney(r.ventasNetasGravadas)}&#10;Ventas exentas o no gravadas (netas de N.C.): ${fmtMoney(r.ventasExentasNetas)}&#10;(el cálculo usa el coeficiente completo, sin redondear)">⚡ Prorrateo ${(r.coefProrrateo * 100).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>` : ""}</span>
+          <span class="hint">Compras y restitución de débito fiscal (N.C. emitidas)${r.prorrateoExentoEnabled ? ` · <button type="button" class="pill" style="background:var(--accent-soft);color:var(--accent);border:none;cursor:pointer;font:inherit;" data-action="open-prorrateo-modal" data-clientid="${client.id}" data-period="${period}" title="Ver detalle del prorrateo">⚡ Prorrateo ${(r.coefProrrateo * 100).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</button>` : ""}</span>
         </div>
         <div class="card-body">
           <div class="table-scroll"><table>
@@ -2553,6 +2553,7 @@ function renderConfigTab(client) {
 const MODAL_REFRESHERS = {
   decreto814: refreshDecreto814,
   "iva-actividades": refreshIvaActividadesModal,
+  prorrateo: refreshProrrateoModal,
 };
 
 // Cuando se carga un importe en "Apertura de Otros Conceptos" (IVA), la
@@ -2689,6 +2690,8 @@ document.addEventListener("click", (e) => {
   else if (action === "open-activity-picker-cm") { openActivityPickerModal("iibbCM"); }
   else if (action === "open-activity-picker-iva") { openActivityPickerModal("iva"); }
   else if (action === "open-decreto814-modal") { renderDecreto814Modal(btn.dataset.clientid, btn.dataset.period); }
+  else if (action === "open-prorrateo-modal") { prorrateoModalShowDesglose = false; renderProrrateoModal(btn.dataset.clientid, btn.dataset.period); }
+  else if (action === "toggle-prorrateo-desglose") { prorrateoModalShowDesglose = true; renderProrrateoModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "open-date-picker") { openDatePickerFor(btn); }
   else if (action === "open-f2083-modal") { renderFormulario2083Modal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "open-iva-actividades-modal") { ivaActividadesActiveCode = null; renderIvaActividadesModal(btn.dataset.clientid, btn.dataset.period); }
@@ -3414,6 +3417,89 @@ function renderDecreto814Modal(clientId, period) {
 // previo a abrir el modal) hasta el próximo cambio de pestaña.
 function refreshDecreto814(clientId, period) {
   renderDecreto814Modal(clientId, period);
+  renderMain();
+}
+
+// Si mostrar o no el desglose del CF original por alícuota dentro del modal
+// de Prorrateo — no se persiste (es sólo para no abrir siempre la tabla
+// completa), así que alcanza con una variable de módulo.
+let prorrateoModalShowDesglose = false;
+const PRORRATEO_ALICUOTAS = [
+  { key: "r105", rate: 0.105 },
+  { key: "r21", rate: 0.21 },
+  { key: "r27", rate: 0.27 },
+];
+function renderProrrateoModal(clientId, period) {
+  const client = getClient(clientId);
+  if (!client) return;
+  const r = calcIvaFor(client, period);
+  const doc = getDoc(clientId, period);
+  const pm = (doc && doc.iva && doc.iva.prorrateoManual) || {};
+  const porAl = pm.porAlicuota || {};
+  const coef = r.coefProrrateo;
+  const cfTotal = num(pm.cfTotal);
+  const cfComputable = round2(cfTotal * coef);
+  const cfNoComputable = round2(cfTotal - cfComputable);
+  const totalVentasNetas = round2(r.ventasNetasGravadas + r.ventasExentasNetas);
+
+  const alRows = PRORRATEO_ALICUOTAS.map(({ key, rate }) => {
+    const prorrateado = round2(num(porAl[key]) * coef);
+    return `
+      <tr>
+        <td style="white-space:nowrap;">CF ${fmtPct(rate)}</td>
+        <td><input type="text" style="width:100%;max-width:none;box-sizing:border-box;" inputmode="decimal" data-kind="money" value="${rawOrBlank(porAl[key], "money")}" data-path="iva.prorrateoManual.porAlicuota.${key}" data-action="field" data-clientid="${clientId}" data-period="${period}" data-reopen="prorrateo"></td>
+        <td class="num readonly">${fmtMoney(prorrateado)}</td>
+      </tr>`;
+  }).join("");
+  const totalAlOriginal = round2(PRORRATEO_ALICUOTAS.reduce((s, { key }) => s + num(porAl[key]), 0));
+  const totalAlProrrateado = round2(PRORRATEO_ALICUOTAS.reduce((s, { key }) => s + round2(num(porAl[key]) * coef), 0));
+
+  const kv = (label, value, opts) => `
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:4px 0;${opts && opts.bold ? "font-weight:700;" : ""}">
+      <span style="${opts && opts.bold ? "font-weight:700;" : "color:var(--muted);"}">${label}</span>
+      <span class="mono" style="flex-shrink:0;${opts && opts.color ? `color:${opts.color};font-weight:700;` : ""}">${value}</span>
+    </div>`;
+
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal" style="max-width:480px;">
+        <div class="modal-head"><h3>Prorrateo de Crédito Fiscal</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+        <div class="modal-body" style="gap:16px;">
+          <div class="subsection" style="padding:0;border:none;">
+            <h4 class="subhead">Ventas del período <span style="text-transform:none;letter-spacing:0;">— base del cálculo</span></h4>
+            ${kv("Ventas gravadas", fmtMoney(r.ventasNetasGravadas))}
+            ${kv("Ventas exentas o no gravadas", fmtMoney(r.ventasExentasNetas))}
+            <div style="border-top:1px solid var(--border);margin-top:2px;">${kv("Total ventas netas", fmtMoney(totalVentasNetas), { bold: true })}</div>
+            ${kv("Coeficiente de prorrateo", fmtPct(coef), { color: "var(--accent)" })}
+          </div>
+          <div class="subsection" style="padding-top:12px;border-top:1px solid var(--border);">
+            <h4 class="subhead">Crédito Fiscal Total del período</h4>
+            <div class="field"><label>CF Total (a prorratear)</label><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(pm.cfTotal, "money")}" data-path="iva.prorrateoManual.cfTotal" data-action="field" data-clientid="${clientId}" data-period="${period}" data-reopen="prorrateo"></div>
+            <div style="margin-top:6px;">
+              ${kv("CF Computable (prorrateado)", fmtMoney(cfComputable), { color: "var(--favor)" })}
+              ${kv("CF No Computable", fmtMoney(cfNoComputable), { color: "var(--pagar)" })}
+            </div>
+          </div>
+          <div class="subsection" style="padding-top:12px;border-top:1px solid var(--border);">
+            ${prorrateoModalShowDesglose ? `
+            <h4 class="subhead">CF original por alícuota</h4>
+            <table style="width:100%;min-width:0;font-size:13px;border-collapse:collapse;table-layout:fixed;">
+              <colgroup><col style="width:82px;"><col><col></colgroup>
+              <tr><th style="text-align:left;">Alícuota</th><th>Total</th><th>Prorrateado</th></tr>
+              ${alRows}
+              <tr class="total-row"><td>Total</td><td class="num">${fmtMoney(totalAlOriginal)}</td><td class="num">${fmtMoney(totalAlProrrateado)}</td></tr>
+            </table>
+            <p class="hint-sm" style="margin:6px 0 0;">Informativo — no reemplaza el CF Total de arriba, es sólo para ver cómo queda prorrateado abriendo por alícuota.</p>
+            ` : `<button type="button" class="btn btn-sm" data-action="toggle-prorrateo-desglose" data-clientid="${clientId}" data-period="${period}">+ Cargar CF original por alícuota</button>`}
+          </div>
+        </div>
+        <div class="modal-foot"><button class="btn btn-accent" data-action="close-modal">Listo</button></div>
+      </div>
+    </div>`;
+  wireModalBackdropClose();
+}
+function refreshProrrateoModal(clientId, period) {
+  renderProrrateoModal(clientId, period);
   renderMain();
 }
 
