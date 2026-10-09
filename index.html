@@ -964,6 +964,20 @@ let gistPushDirty = false; // hubo un cambio nuevo mientras se estaba sincroniza
 let gistFatalErrorShown = false; // token/Gist inválidos: avisar una sola vez, no en cada reintento
 let gistRetryFailCount = 0; // reintentos consecutivos fallidos (red/rate-limit), para avisar si se estanca
 let gistStuckWarningShown = false;
+// Convierte la cabecera X-RateLimit-Reset (timestamp Unix en segundos) de
+// una respuesta 403 de GitHub en una hora local legible, para avisar al
+// usuario cuándo se libera el límite. Si la cabecera no viene, devolvemos
+// un texto genérico en vez de romper el flujo.
+function rateLimitResetLabel(res) {
+  try {
+    const raw = res && res.headers && res.headers.get("x-ratelimit-reset");
+    const secs = Number(raw);
+    if (!raw || !isFinite(secs) || secs <= 0) return "dentro de un rato";
+    return new Date(secs * 1000).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+  } catch (e) {
+    return "dentro de un rato";
+  }
+}
 function markSyncDirty() {
   try { localStorage.setItem(SYNC_DIRTY_KEY, "1"); } catch (e) {}
 }
@@ -1005,6 +1019,24 @@ async function attemptAutoGistPush() {
           gistFatalErrorShown = true;
           showToast(res.status === 401 ? "El token de GitHub venció o no es válido — cargá uno nuevo en Sincronización" : "No se encontró el Gist configurado — revisá el Gist ID en Sincronización");
         }
+        return;
+      }
+      // 403 con cabecera X-RateLimit-Remaining en 0: límite de requests de
+      // GitHub agotado (5000/hora por token) — pasa si hubo muchos
+      // reintentos seguidos (como el cuelgue que originó este arreglo) o si
+      // varias computadoras comparten el mismo token. No es un error real:
+      // se soluciona solo cuando resetea, así que lo mostramos aparte en vez
+      // de "Error al sincronizar" genérico, con la hora en que se libera.
+      if (res.status === 403 && res.headers.get("x-ratelimit-remaining") === "0") {
+        state.syncStatus = "ratelimited";
+        state.rateLimitReset = rateLimitResetLabel(res);
+        renderSidebar();
+        if (!gistFatalErrorShown) {
+          gistFatalErrorShown = true;
+          showToast("Se agotó el límite de pedidos a GitHub por ahora — tus cambios siguen a salvo acá y se van a sincronizar solos cuando se libere.");
+        }
+        gistRetryDelay = 60000; // no tiene sentido reintentar seguido mientras dure el límite
+        gistRetryTimer = setTimeout(() => attemptAutoGistPush(), gistRetryDelay);
         return;
       }
       throw new Error(String(res.status));
@@ -1058,7 +1090,19 @@ async function gistPush() {
       body: JSON.stringify({ files: { [GIST_FILENAME]: { content: payload } } }),
     });
     gistPushInFlight = false;
-    if (!res.ok) throw new Error(String(res.status));
+    if (!res.ok) {
+      // Mismo caso que en attemptAutoGistPush(): límite de requests de
+      // GitHub agotado, no un error real. Acá el usuario está mirando el
+      // modal, así que el mensaje va directo en vez de un toast.
+      if (res.status === 403 && res.headers.get("x-ratelimit-remaining") === "0") {
+        state.syncStatus = "ratelimited";
+        state.rateLimitReset = rateLimitResetLabel(res);
+        renderSidebar();
+        showToast("Se agotó el límite de pedidos a GitHub por ahora — tus cambios siguen a salvo acá y se van a sincronizar solos cuando se libere.");
+        return false;
+      }
+      throw new Error(String(res.status));
+    }
     gistFatalErrorShown = false;
     gistRetryDelay = 4000;
     gistRetryFailCount = 0;
@@ -1646,6 +1690,7 @@ function renderSidebar() {
 function syncStatusLabel() {
   if (state.syncStatus === "syncing") return "Sincronizando…";
   if (state.syncStatus === "stuck") return `<span style="color:var(--pagar);">No se pudo sincronizar con GitHub hace varios minutos — tus cambios están a salvo en este navegador. Probá "Guardar y sincronizar" en Sincronización.</span>`;
+  if (state.syncStatus === "ratelimited") return `<span style="color:var(--pagar);">Límite de pedidos a GitHub agotado por ahora — se libera alrededor de las ${state.rateLimitReset || "dentro de un rato"}. Tus cambios están a salvo en este navegador y se sincronizan solos cuando se libere.</span>`;
   if (state.syncStatus === "error") return `<span style="color:var(--pagar);">Error al sincronizar — reintentá.</span>`;
   return state.lastSync ? `Sincronizado ${state.lastSync.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}.` : "Sincronización configurada.";
 }
