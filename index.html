@@ -1025,9 +1025,13 @@ async function attemptAutoGistPush() {
     // reintentando en silencio indefinidamente y la única pista era el
     // cartelito "Sincronizando…" sin fecha, fácil de no notar.
     gistPushInFlight = false;
-    state.syncStatus = "syncing";
-    renderSidebar();
     gistRetryFailCount++;
+    // Después de varios reintentos seguidos fallidos dejamos de mostrar
+    // "Sincronizando…" sin más (parece que está progresando cuando en
+    // realidad está trabada) y pasamos a un estado "stuck" que lo dice
+    // explícitamente, con el aviso una sola vez.
+    state.syncStatus = gistRetryFailCount >= 5 ? "stuck" : "syncing";
+    renderSidebar();
     if (gistRetryFailCount >= 5 && !gistStuckWarningShown) {
       gistStuckWarningShown = true;
       showToast("La sincronización con GitHub viene fallando hace rato — tus cambios están a salvo en este navegador. Revisá tu conexión o abrí Sincronización.");
@@ -1641,6 +1645,7 @@ function renderSidebar() {
 }
 function syncStatusLabel() {
   if (state.syncStatus === "syncing") return "Sincronizando…";
+  if (state.syncStatus === "stuck") return `<span style="color:var(--pagar);">No se pudo sincronizar con GitHub hace varios minutos — tus cambios están a salvo en este navegador. Probá "Guardar y sincronizar" en Sincronización.</span>`;
   if (state.syncStatus === "error") return `<span style="color:var(--pagar);">Error al sincronizar — reintentá.</span>`;
   return state.lastSync ? `Sincronizado ${state.lastSync.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}.` : "Sincronización configurada.";
 }
