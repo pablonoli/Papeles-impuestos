@@ -938,6 +938,17 @@ function persistDeleteClient(clientId) {
   saveLocalStore();
   scheduleGistPush();
 }
+// fetch() del navegador no tiene timeout propio: con wifi inestable, una
+// conexión que "se cuelga" (ni responde ni corta) puede dejar un await
+// esperando indefinidamente sin llegar nunca al catch — y por lo tanto sin
+// disparar el reintento ni el cartel de error, quedando "Sincronizando…"
+// pegado en pantalla para siempre. Este helper fuerza que, pasados 15s sin
+// respuesta, se aborte y se trate como una falla transitoria más.
+function fetchGithub(url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  return fetch(url, Object.assign({}, options, { signal: controller.signal })).finally(() => clearTimeout(timer));
+}
 // Push automático en segundo plano, después de cada cambio. A diferencia del
 // botón manual del modal de Sincronización, éste NO se rinde ni molesta al
 // usuario si falla por algo transitorio (se cortó un instante el wifi, o
@@ -978,7 +989,7 @@ async function attemptAutoGistPush() {
   const cfg = state.syncConfig;
   state.syncStatus = "syncing"; renderSidebar();
   try {
-    const res = await fetch(`https://api.github.com/gists/${cfg.gistId}`, {
+    const res = await fetchGithub(`https://api.github.com/gists/${cfg.gistId}`, {
       method: "PATCH",
       headers: { "Authorization": `Bearer ${cfg.token}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
       body: JSON.stringify({ files: { [GIST_FILENAME]: { content: JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() }) } } }),
@@ -1037,7 +1048,7 @@ async function gistPush() {
   state.syncStatus = "syncing"; renderSidebar();
   const payload = JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() }, null, 0);
   try {
-    const res = await fetch(`https://api.github.com/gists/${cfg.gistId}`, {
+    const res = await fetchGithub(`https://api.github.com/gists/${cfg.gistId}`, {
       method: "PATCH",
       headers: { "Authorization": `Bearer ${cfg.token}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
       body: JSON.stringify({ files: { [GIST_FILENAME]: { content: payload } } }),
@@ -1066,13 +1077,13 @@ async function gistPull() {
   if (!cfg.token || !cfg.gistId) return false;
   state.syncStatus = "syncing"; renderSidebar();
   try {
-    const res = await fetch(`https://api.github.com/gists/${cfg.gistId}`, {
+    const res = await fetchGithub(`https://api.github.com/gists/${cfg.gistId}`, {
       headers: { "Authorization": `Bearer ${cfg.token}`, "Accept": "application/vnd.github+json" },
     });
     if (!res.ok) throw new Error(String(res.status));
     const data = await res.json();
     const file = data.files && data.files[GIST_FILENAME];
-    if (!file || !file.content) { state.syncStatus = "idle"; return false; }
+    if (!file || !file.content) { state.syncStatus = "idle"; renderSidebar(); return false; }
     const parsed = JSON.parse(file.content);
     if (parsed && Array.isArray(parsed.clients)) {
       state.clients = parsed.clients;
@@ -1081,9 +1092,11 @@ async function gistPull() {
     }
     state.lastSync = new Date();
     state.syncStatus = "idle";
+    renderSidebar();
     return true;
   } catch (e) {
     state.syncStatus = "error";
+    renderSidebar();
     showToast("No se pudo traer los datos de GitHub — revisá el token/Gist ID");
     return false;
   }
@@ -1093,7 +1106,7 @@ async function gistPull() {
 async function gistCreate(token) {
   const payload = JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() });
   try {
-    const res = await fetch("https://api.github.com/gists", {
+    const res = await fetchGithub("https://api.github.com/gists", {
       method: "POST",
       headers: { "Authorization": `Bearer ${token}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
       body: JSON.stringify({ description: "Papeles de Trabajo Fiscales — datos (privado)", public: false, files: { [GIST_FILENAME]: { content: payload } } }),
