@@ -4359,6 +4359,7 @@ function buildIibbLocalSheet(wb, client) {
   const filaDe = {};
   ordenVisual.forEach((p, i) => { filaDe[p] = mainStart + i; });
   const mainHighlights = new Map();
+  const mainCellColors = new Map(); // "Saldo a pagar / (a favor)": rojo si debe, verde si queda a favor
   ordenVisual.forEach((p) => {
     const cIdx = periods.indexOf(p);
     const prevSaldoCell = cIdx > 0 ? filaDe[periods[cIdx - 1]] : null; // fila del período anterior (cronológico), esté donde esté
@@ -4375,6 +4376,8 @@ function buildIibbLocalSheet(wb, client) {
     formulas.set(R + ":8", `D${R + 1}-E${R + 1}-F${R + 1}-G${R + 1}-H${R + 1}`);
     rows.push([periodLabel(p), r.baseImponible, alicuotaEfectiva, r.impuesto, r.retenciones, r.percepciones, r.recaudacionesBancarias, r.saldoAnterior, r.saldoAPagar > 0 ? r.saldoAPagar : -r.saldoAFavor]);
     if (resaltarActual && p === state.currentPeriod) mainHighlights.set(R, COLOR_ACTUAL);
+    if (r.saldoAPagar > 0) mainCellColors.set(R + ":8", { bg: "FBE1DE", fg: "C0392B" });
+    else if (r.saldoAFavor > 0) mainCellColors.set(R + ":8", { bg: "DDF2E6", fg: "146C43" });
   });
   // Fila de TOTAL (acumulado del ejercicio). La alícuota efectiva, el saldo
   // del período anterior y el saldo a pagar / (a favor) no se suman: cada mes ya arrastra el saldo
@@ -4399,6 +4402,7 @@ function buildIibbLocalSheet(wb, client) {
     freezeHeaderRow: 3,
     headerRows: [mainHeaderRow],
     highlightRows: mainHighlights,
+    highlightCells: mainCellColors,
   }), sheetName);
 }
 
