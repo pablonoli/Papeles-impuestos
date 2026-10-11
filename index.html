@@ -3607,6 +3607,17 @@ function filterActivityPicker(q) {
 // ---------------------------------------------------------------------
 // Exportación a Excel (valores calculados, sin fórmulas frágiles)
 // ---------------------------------------------------------------------
+// Orden en que se muestran los períodos en las hojas del Excel: primero el
+// que se está viendo en el tablero y después el resto del más nuevo al más
+// viejo (así el último período no queda al final de la hoja).
+const COLOR_ACTUAL = { bg: "FFE08A", fg: "5C3B00" };
+function periodosOrdenVisual(periods) {
+  const v = periods.slice().sort().reverse();
+  const i = v.indexOf(state.currentPeriod);
+  if (i > 0) v.unshift(v.splice(i, 1)[0]);
+  return v;
+}
+
 function nowStampAR() {
   return new Date().toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
 }
@@ -3890,6 +3901,7 @@ function exportClientToExcel(client, which) {
   }
   if (!esIva && client.iibbLocal.enabled) sections.push({ sheet: "DDJJ IIBB Local", desc: "Liquidación mensual de Ingresos Brutos, jurisdicción local." });
   if (!esIva && client.iibbCM.enabled) sections.push({ sheet: "Liquidación CM / Detalle CM / Base y Coeficientes CM", desc: "Ingresos Brutos Convenio Multilateral: monto imponible por actividad, coeficientes de distribución y liquidación por jurisdicción." });
+  if (!esIva && state.currentPeriod) extraIndice = "Período que se está viendo: " + periodLabel(state.currentPeriod) + " — figura primero y resaltado en las hojas; el resto, del más nuevo al más viejo.";
   buildIndexSheet(wb, client, sections, esIva ? "iva" : "iibb", extraIndice);
 
   if (esIva && client.iva.enabled) buildIvaSheets(wb, client);
@@ -4262,6 +4274,8 @@ function buildIibbLocalSheet(wb, client) {
   const periods = listPeriodsWithTax(client.id, "iibbLocal");
   const title = client.iibbLocal.jurisdiccion || "IIBB Local (jurisdicción sin cargar)";
   const activities = client.iibbLocal.activities || [];
+  const ordenVisual = periodosOrdenVisual(periods);
+  const resaltarActual = periods.length > 1 && periods.includes(state.currentPeriod);
 
   // ---- 1) Hoja de actividades: Base (dato cargado) x Alícuota (=Base x
   // alícuota) por actividad, con los totales de cada período. ----
@@ -4277,7 +4291,8 @@ function buildIibbLocalSheet(wb, client) {
     actRows.push(header);
     const actHeaderRow = actRows.length - 1;
     const actDataStart = actRows.length;
-    periods.forEach((p) => {
+    const actHighlights = new Map();
+    ordenVisual.forEach((p) => {
       const doc = getDoc(client.id, p);
       const actData = (doc && doc.iibbLocal && doc.iibbLocal.actividades) || {};
       const R = actRows.length;
@@ -4298,6 +4313,7 @@ function buildIibbLocalSheet(wb, client) {
       const totalImp = round2(impCols.reduce((s, c, i) => s + round2(num(actData[activities[i].code]) * (num(activities[i].alicuota) / 100)), 0));
       row.push(totalBase, totalImp);
       actMeta[p] = { totalBaseCell: [R, totalBaseCol], totalImpuestoCell: [R, totalImpCol] };
+      if (resaltarActual && p === state.currentPeriod) actHighlights.set(R, COLOR_ACTUAL);
       actRows.push(row);
     });
     // Fila de totales acumulados (suma de cada columna a lo largo de todos
@@ -4321,6 +4337,7 @@ function buildIibbLocalSheet(wb, client) {
       skipCols: [0],
       formulas: actFormulas,
       headerRows: [actHeaderRow],
+      highlightRows: actHighlights,
     }), "IIBB Local Activ.");
   }
 
@@ -4335,8 +4352,13 @@ function buildIibbLocalSheet(wb, client) {
   const formulas = new Map();
   const sheetName = "DDJJ IIBB Local";
   const actSheetName = "IIBB Local Activ.";
-  let prevSaldoCell = null;
-  periods.forEach((p) => {
+  const mainStart = rows.length;
+  const filaDe = {};
+  ordenVisual.forEach((p, i) => { filaDe[p] = mainStart + i; });
+  const mainHighlights = new Map();
+  ordenVisual.forEach((p) => {
+    const cIdx = periods.indexOf(p);
+    const prevSaldoCell = cIdx > 0 ? filaDe[periods[cIdx - 1]] : null; // fila del período anterior (cronológico), esté donde esté
     const r = calcIibbLocalFor(client, p);
     const alicuotaEfectiva = r.baseImponible ? Math.round((r.impuesto / r.baseImponible) * 10000) / 10000 : 0;
     const R = rows.length;
@@ -4346,10 +4368,10 @@ function buildIibbLocalSheet(wb, client) {
       formulas.set(R + ":3", xsheetRef(actSheetName, ...actMeta[p].totalImpuestoCell));
     }
     formulas.set(R + ":2", `IF(B${R + 1}=0,0,D${R + 1}/B${R + 1})`);
-    if (prevSaldoCell) formulas.set(R + ":7", `MAX(-I${prevSaldoCell + 1},0)`);
+    if (prevSaldoCell != null) formulas.set(R + ":7", `MAX(-I${prevSaldoCell + 1},0)`);
     formulas.set(R + ":8", `D${R + 1}-E${R + 1}-F${R + 1}-G${R + 1}-H${R + 1}`);
     rows.push([periodLabel(p), r.baseImponible, alicuotaEfectiva, r.impuesto, r.retenciones, r.percepciones, r.recaudacionesBancarias, r.saldoAnterior, r.saldoAPagar > 0 ? r.saldoAPagar : -r.saldoAFavor]);
-    prevSaldoCell = R;
+    if (resaltarActual && p === state.currentPeriod) mainHighlights.set(R, COLOR_ACTUAL);
   });
   XLSX.utils.book_append_sheet(wb, newSheet(rows, {
     colWidths: [14, 22, 12, 18, 16, 16, 18, 18, 20],
@@ -4359,11 +4381,15 @@ function buildIibbLocalSheet(wb, client) {
     formulas,
     freezeHeaderRow: 3,
     headerRows: [mainHeaderRow],
+    highlightRows: mainHighlights,
   }), sheetName);
 }
 
 function buildIibbCMSheets(wb, client) {
   const periods = listPeriodsWithTax(client.id, "iibbCM");
+  const ordenVisual = periodosOrdenVisual(periods);
+  const resaltarActual = periods.length > 1 && periods.includes(state.currentPeriod);
+  const etiquetaPeriodo = (p) => periodLabel(p).toUpperCase() + (resaltarActual && p === state.currentPeriod ? " — PERÍODO ACTUAL" : "");
   const jurisdictions = sortedJurisdictions(client.iibbCM.jurisdictions);
   const activities = client.iibbCM.activities || [];
   // "Actividades" y "Coeficientes" eran dos hojas separadas; se unifican acá
@@ -4386,7 +4412,8 @@ function buildIibbCMSheets(wb, client) {
   rows.push(["Período", ...activities.map((a) => `${a.code} — ${a.desc}`), "TOTAL"]);
   headerRows.push(rows.length - 1);
   const cmActDataStart = rows.length;
-  periods.forEach((p) => {
+  const baseHighlights = new Map();
+  ordenVisual.forEach((p) => {
     const doc = getDoc(client.id, p);
     const acts = (doc && doc.iibbCM && doc.iibbCM.actividades) || {};
     const R = rows.length;
@@ -4394,6 +4421,7 @@ function buildIibbCMSheets(wb, client) {
     const vals = activities.map((a, i) => { actCell[p][a.code] = [R, 1 + i]; return num(acts[a.code]); });
     const totalCol = 1 + activities.length;
     formulas.set(R + ":" + totalCol, `SUM(${XLSX.utils.encode_col(1)}${R + 1}:${XLSX.utils.encode_col(totalCol - 1)}${R + 1})`);
+    if (resaltarActual && p === state.currentPeriod) baseHighlights.set(R, COLOR_ACTUAL);
     rows.push([periodLabel(p), ...vals, vals.reduce((s, v) => s + v, 0)]);
   });
   // Fila de totales acumulados por actividad (y el gran total), sumando
@@ -4446,6 +4474,7 @@ function buildIibbCMSheets(wb, client) {
     formats,
     formulas,
     headerRows,
+    highlightRows: baseHighlights,
     // Mismo violeta oscuro + texto blanco que el título de la hoja (fila 0),
     // para que "Coeficientes..." se vea igual que "Monto imponible...".
     mainTitleRows: new Set([coefTitleRow]),
@@ -4463,14 +4492,16 @@ function buildIibbCMSheets(wb, client) {
   detRows.push([]);
   const detHeaderRows = [];
   const detDividers = [];
+  const detBanners = new Map();
   const detMeta = {}; // period -> { [jurName]: {start,end} }
-  periods.forEach((p, pIdx) => {
+  ordenVisual.forEach((p, pIdx) => {
     const doc = getDoc(client.id, p);
     const coefVigencia = getCoefVigencia(client, p);
     detMeta[p] = {};
     if (pIdx > 0) { detRows.push([]); detRows.push([]); } // doble salto entre un mes y el siguiente
-    detRows.push([periodLabel(p).toUpperCase()]);
+    detRows.push([etiquetaPeriodo(p)]);
     detMerges.push(sectionMerge(detRows, 8));
+    if (resaltarActual && p === state.currentPeriod) detBanners.set(detRows.length - 1, COLOR_ACTUAL);
     detRows.push(["Jurisdicción", "Actividad", "Ventas nacionales (actividad)", "Coeficiente", "Ajuste", "Base (Ventas x Coef + Ajuste)", "Alícuota", "Impuesto"]);
     detHeaderRows.push(detRows.length - 1);
     let firstJurInPeriod = true;
@@ -4509,6 +4540,7 @@ function buildIibbCMSheets(wb, client) {
     formulas: detFormulas,
     headerRows: detHeaderRows,
     innerDividerRows: detDividers,
+    highlightBanners: detBanners,
     wrapCols: [0, 1],
   }), "Detalle CM");
 
@@ -4520,13 +4552,17 @@ function buildIibbCMSheets(wb, client) {
   const liqFormulas = new Map();
   const liqHeaderRows = [];
   const liqHighlights = new Map();
-  const prevAFavorRow = {}; // jurName -> row
-  periods.forEach((p, pIdx) => {
+  const liqBanners = new Map();
+  const filaJur = {}; // period -> { jurName: fila } (para el arrastre del saldo a favor, que va al período anterior esté donde esté)
+  const pendientes = [];
+  ordenVisual.forEach((p, pIdx) => {
     const r = calcIibbCMFor(client, p);
     liqRows.push([]);
     if (pIdx > 0) liqRows.push([]); // doble salto entre un período y el siguiente
-    liqRows.push([periodLabel(p).toUpperCase()]);
+    liqRows.push([etiquetaPeriodo(p)]);
     liqMerges.push({ s: { r: liqRows.length - 1, c: 0 }, e: { r: liqRows.length - 1, c: 8 } });
+    if (resaltarActual && p === state.currentPeriod) liqBanners.set(liqRows.length - 1, COLOR_ACTUAL);
+    filaJur[p] = {};
     liqRows.push(["Jurisdicción", "Base imponible (calculada)", "Impuesto anticipo (calculado)", "Retenciones (sistema)", "Percepciones (sistema)", "Rec. bancarias (sistema)", "Saldo período anterior", "A pagar", "A favor"]);
     liqHeaderRows.push(liqRows.length - 1);
     const periodJurRows = [];
@@ -4537,7 +4573,8 @@ function buildIibbCMSheets(wb, client) {
         liqFormulas.set(R + ":1", `SUM('Detalle CM'!F${meta.start + 1}:F${meta.end + 1})`);
         liqFormulas.set(R + ":2", `SUM('Detalle CM'!H${meta.start + 1}:H${meta.end + 1})`);
       }
-      if (prevAFavorRow[j.jurisdiccion] != null) liqFormulas.set(R + ":6", `I${prevAFavorRow[j.jurisdiccion] + 1}`);
+      pendientes.push({ R, jur: j.jurisdiccion, p });
+      filaJur[p][j.jurisdiccion] = R;
       liqFormulas.set(R + ":7", `MAX(C${R + 1}-D${R + 1}-E${R + 1}-F${R + 1}-G${R + 1},0)`);
       liqFormulas.set(R + ":8", `MAX(-(C${R + 1}-D${R + 1}-E${R + 1}-F${R + 1}-G${R + 1}),0)`);
       liqRows.push([j.jurisdiccion, j.baseTotal, j.impuestoAnticipo, j.ret, j.perc, j.recban, j.saldoAnterior, j.aPagar, j.aFavor]);
@@ -4545,7 +4582,6 @@ function buildIibbCMSheets(wb, client) {
       // condicional: rojo si esa jurisdicción debe, verde si le queda a favor.
       if (j.aPagar > 0) liqHighlights.set(R + ":7", { bg: "FBE1DE", fg: "C0392B" });
       else if (j.aFavor > 0) liqHighlights.set(R + ":8", { bg: "DDF2E6", fg: "146C43" });
-      prevAFavorRow[j.jurisdiccion] = R;
       periodJurRows.push(R);
     });
     const totalRow = liqRows.length;
@@ -4557,6 +4593,14 @@ function buildIibbCMSheets(wb, client) {
     }
     liqRows.push(["TOTALES", r.totales.baseTotal, r.totales.impuestoAnticipo, r.totales.ret, r.totales.perc, r.totales.recban, r.totales.saldoAnterior, r.totales.aPagar, r.totales.aFavor]);
   });
+  // Saldo del período anterior: el "A favor" de la última vez (cronológica)
+  // que esa jurisdicción apareció antes de este período.
+  pendientes.forEach(({ R, jur, p }) => {
+    for (let k = periods.indexOf(p) - 1; k >= 0; k--) {
+      const rr = filaJur[periods[k]] && filaJur[periods[k]][jur];
+      if (rr != null) { liqFormulas.set(R + ":6", `I${rr + 1}`); break; }
+    }
+  });
   XLSX.utils.book_append_sheet(wb, newSheet(liqRows, {
     colWidths: [22, 20, 20, 16, 16, 16, 18, 14, 14],
     merges: liqMerges.filter(Boolean),
@@ -4564,6 +4608,7 @@ function buildIibbCMSheets(wb, client) {
     formulas: liqFormulas,
     headerRows: liqHeaderRows,
     highlightCells: liqHighlights,
+    highlightBanners: liqBanners,
   }), "Liquidación CM");
 }
 
