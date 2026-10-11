@@ -3727,6 +3727,11 @@ function newSheet(rows, opts) {
           style.font = { bold: true, color: { rgb: "3D2273" } };
           style.fill = { patternType: "solid", fgColor: { rgb: "EAE1FB" } };
           style.alignment = { vertical: "center", horizontal: "center", wrapText: true };
+          if (opts.highlightBanners && opts.highlightBanners.has(R)) {
+            const h = opts.highlightBanners.get(R);
+            style.font = { bold: true, color: { rgb: h.fg } };
+            style.fill = { patternType: "solid", fgColor: { rgb: h.bg } };
+          }
         } else if (headerRows.has(R)) {
           style.font = { bold: true, color: { rgb: "3D2273" } };
           style.fill = { patternType: "solid", fgColor: { rgb: "F5F1FC" } };
@@ -3823,7 +3828,7 @@ function sectionMerge(rows, ncols) {
   return ncols > 1 ? { s: { r, c: 0 }, e: { r, c: ncols - 1 } } : null;
 }
 
-function buildIndexSheet(wb, client, sections, which) {
+function buildIndexSheet(wb, client, sections, which, extraLine) {
   const rows = [];
   const plainRows = new Set();
   const headerRows = [];
@@ -3832,6 +3837,7 @@ function buildIndexSheet(wb, client, sections, which) {
   rows.push([]);
   rows.push([`Generado el ${nowStampAR()} desde el tablero de Papeles de Trabajo Fiscales`]);
   plainRows.add(rows.length - 1);
+  if (extraLine) { rows.push([extraLine]); plainRows.add(rows.length - 1); }
   rows.push([]);
   rows.push(["Contenido de este archivo"]);
   const contenidoMerge = sectionMerge(rows, 2);
@@ -3864,22 +3870,27 @@ function exportClientToExcel(client, which) {
   if (!client) return;
   const esIva = which === "iva";
   const wb = XLSX.utils.book_new();
-  wb.Props = { Title: `Papeles de trabajo ${esIva ? "IVA" : "IIBB"} — ${client.name}`, Author: "Papeles de Trabajo Fiscales", CreatedDate: new Date() };
+  // Nombre del archivo: "<Sociedad> IVA 09-2026" (período que se está viendo).
+  const periodoArch = state.currentPeriod ? state.currentPeriod.slice(5, 7) + "-" + state.currentPeriod.slice(0, 4) : "";
+  const baseName = `${client.name.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim()} ${esIva ? "IVA" : "IIBB"}${periodoArch ? " " + periodoArch : ""}`;
+  wb.Props = { Title: baseName, Author: "Papeles de Trabajo Fiscales", CreatedDate: new Date() };
 
   const sections = [];
+  let extraIndice = null;
   if (esIva && client.iva.enabled) {
     const hayPeriodo = listPeriodsWithTax(client.id, "iva").includes(state.currentPeriod);
     const conProrrateo = hayPeriodo && calcIvaFor(client, state.currentPeriod).prorrateoExentoEnabled;
-    sections.push({ sheet: "DDJJ IVA", desc: "Declaración jurada de IVA de todos los períodos cargados, con arrastre de saldos." });
+    sections.push({ sheet: "Posición IVA", desc: "Resultado de IVA mes por mes (débito, crédito, saldos y arrastre) de todos los períodos cargados, con el período que se está viendo primero y resaltado." });
     if (hayPeriodo) {
-      sections.push({ sheet: "IVA MM-AAAA", desc: "Detalle del período que se está viendo: débito y crédito fiscal con origen de cada importe" + (conProrrateo ? ", y prorrateo del crédito fiscal (ventas gravadas y exentas, coeficiente, CF computable y no computable)." : ".") });
-      if ((client.iva.activities || []).length) sections.push({ sheet: "Ventas x Actividad MM-AAAA", desc: "Apertura de las ventas del período por actividad: gravadas por alícuota, exentas o no gravadas, N.C. emitidas y ventas netas." });
-      sections.push({ sheet: "F2083 MM-AAAA", desc: "Resumen del Formulario 2083 del período (ventas, compras y operaciones que no generan crédito fiscal), para cotejar contra el Libro de IVA Digital." });
+      extraIndice = "Período detallado en las hojas IVA, Ventas x Actividad y F2083: " + periodLabel(state.currentPeriod);
+      sections.push({ sheet: "IVA", desc: "Detalle del período que se está viendo: débito y crédito fiscal con origen de cada importe" + (conProrrateo ? ", y prorrateo del crédito fiscal (ventas gravadas y exentas, coeficiente, CF computable y no computable)." : ".") });
+      if ((client.iva.activities || []).length) sections.push({ sheet: "Ventas x Actividad", desc: "Apertura de las ventas del período por actividad: gravadas por alícuota, exentas o no gravadas, N.C. emitidas y ventas netas." });
+      sections.push({ sheet: "F2083", desc: "Resumen del Formulario 2083 del período (ventas, compras y operaciones que no generan crédito fiscal), para cotejar contra el Libro de IVA Digital." });
     }
   }
   if (!esIva && client.iibbLocal.enabled) sections.push({ sheet: "DDJJ IIBB Local", desc: "Liquidación mensual de Ingresos Brutos, jurisdicción local." });
   if (!esIva && client.iibbCM.enabled) sections.push({ sheet: "Liquidación CM / Detalle CM / Base y Coeficientes CM", desc: "Ingresos Brutos Convenio Multilateral: monto imponible por actividad, coeficientes de distribución y liquidación por jurisdicción." });
-  buildIndexSheet(wb, client, sections, esIva ? "iva" : "iibb");
+  buildIndexSheet(wb, client, sections, esIva ? "iva" : "iibb", extraIndice);
 
   if (esIva && client.iva.enabled) buildIvaSheets(wb, client);
   if (!esIva && client.iibbLocal.enabled) buildIibbLocalSheet(wb, client);
@@ -3890,13 +3901,13 @@ function exportClientToExcel(client, which) {
   // hojas se arman en el orden del cálculo (porque las fórmulas se referencian
   // entre sí), así que acá se reordenan; lo que no figura en la lista queda
   // al final, en su orden original.
-  const ordenPestanias = ["Índice", "DDJJ IVA", "IVA ", "Ventas x Actividad", "F2083", "DDJJ IIBB Local", "IIBB Local Activ.", "Liquidación CM", "Detalle CM", "Base y Coeficientes CM"];
+  const ordenPestanias = ["Índice", "Posición IVA", "IVA", "Ventas x Actividad", "F2083", "DDJJ IIBB Local", "IIBB Local Activ.", "Liquidación CM", "Detalle CM", "Base y Coeficientes CM"];
   const posicion = (n) => { const i = ordenPestanias.findIndex((pre) => n.startsWith(pre)); return i === -1 ? ordenPestanias.length : i; };
   wb.SheetNames = wb.SheetNames.map((n, i) => ({ n, i })).sort((a, b) => posicion(a.n) - posicion(b.n) || a.i - b.i).map((x) => x.n);
 
   const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const filename = `${client.name.replace(/[^a-z0-9]+/gi, "_")}_${esIva ? "IVA" : "IIBB"}.xlsx`;
+  const filename = baseName + ".xlsx";
 
   if (state.downloads) {
     state.downloads.save({ filename, data: blob }).then(() => showToast("Excel descargado")).catch((err) => {
@@ -3912,52 +3923,71 @@ function exportClientToExcel(client, which) {
 }
 
 // ---- Hoja "Ventas x Actividad": la apertura de ventas por actividad del
-// período (mismo contenido que el modal "Apertura de Otros Conceptos"), una
-// fila por actividad. Sólo si el cliente tiene actividades de IVA cargadas.
+// período (mismo contenido que el modal "Apertura de Otros Conceptos"). Los
+// conceptos van en filas y las actividades en columnas (+ una columna TOTAL),
+// así la hoja crece hacia abajo y no se estira a lo ancho. Sólo si el cliente
+// tiene actividades de IVA cargadas.
 function buildIvaActividadesSheet(wb, client, p, r) {
   const activities = client.iva.activities || [];
   if (!activities.length) return;
   const porActividad = (r.doc && r.doc.porActividad) || {};
-  const NCOLS = 12;
+  const nAct = activities.length;
+  const NCOLS = nAct + 2; // concepto + una columna por actividad + TOTAL
+  const colTotal = nAct + 1;
+  const col = (c) => XLSX.utils.encode_col(c);
   const rows = [["Ventas por actividad — " + periodLabel(p) + " — " + client.name]];
   const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: NCOLS - 1 } }];
   const formulas = new Map();
   rows.push([]);
-  rows.push(["", "1. Ventas gravadas", "", "", "", "2. Ventas exentas o no gravadas", "", "3. N.C. emitidas (restitución de crédito fiscal)", "", "", "", ""]);
-  merges.push({ s: { r: 2, c: 1 }, e: { r: 2, c: 4 } }, { s: { r: 2, c: 5 }, e: { r: 2, c: 6 } }, { s: { r: 2, c: 7 }, e: { r: 2, c: 10 } });
-  rows.push(["Actividad", "R.I. y Monotributistas 10,5%", "Cons. Finales y Exentos 10,5%", "R.I. y Monotributistas 21%", "Cons. Finales y Exentos 21%",
-    "Ventas exentas o no gravadas", "N.C. de venta exentas / no gravadas",
-    "N.C. a R.I. y Monotrib. 10,5%", "N.C. a Cons. Finales y Exentos 10,5%", "N.C. a R.I. y Monotrib. 21%", "N.C. a Cons. Finales y Exentos 21%", "Ventas netas"]);
+  rows.push(["Concepto", ...activities.map((a) => (a.code ? a.code + " — " : "") + (a.desc || "")), "TOTAL"]);
   const headerRow = rows.length - 1;
-  const g = (pa, path) => num(getDeep(pa, path, 0));
-  const first = rows.length;
-  activities.forEach((a) => {
-    const pa = porActividad[a.code] || {};
-    const v = [
-      g(pa, "debito.ri105"), g(pa, "debito.cf105"), g(pa, "debito.ri21"), g(pa, "debito.cf21"),
-      num(pa.exento), num(pa.exentoNC),
-      g(pa, "restCredito.ncEmit105RI"), g(pa, "restCredito.ncEmit105CF"), g(pa, "restCredito.ncEmit21RI"), g(pa, "restCredito.ncEmit21CF"),
-    ];
-    const netas = round2(v[0] + v[1] + v[2] + v[3] - (v[6] + v[7] + v[8] + v[9]) + v[4] - v[5]);
-    const R = rows.length;
-    formulas.set(R + ":11", `SUM(B${R + 1}:E${R + 1})-SUM(H${R + 1}:K${R + 1})+F${R + 1}-G${R + 1}`);
-    rows.push([(a.code ? a.code + " — " : "") + (a.desc || ""), ...v, netas]);
-  });
-  const last = rows.length - 1;
-  const totalRow = rows.length;
-  const tot = ["TOTAL"];
-  for (let c = 1; c < NCOLS; c++) {
-    const col = String.fromCharCode(65 + c);
-    formulas.set(totalRow + ":" + c, `SUM(${col}${first + 1}:${col}${last + 1})`);
-    tot.push(round2(rows.slice(first, last + 1).reduce((s2, row) => s2 + num(row[c]), 0)));
-  }
-  rows.push(tot);
+  const g = (a, path) => num(getDeep(porActividad[a.code] || {}, path, 0));
 
-  const sheetName = ("Ventas x Actividad " + p.slice(5, 7) + "-" + p.slice(0, 4)).slice(0, 31);
+  const secciones = [
+    { titulo: "1. Ventas gravadas", filas: [
+      ["R.I. y Monotributistas 10,5%", "debito.ri105"], ["Cons. Finales y Exentos 10,5%", "debito.cf105"],
+      ["R.I. y Monotributistas 21%", "debito.ri21"], ["Cons. Finales y Exentos 21%", "debito.cf21"] ] },
+    { titulo: "2. Ventas exentas o no gravadas", filas: [
+      ["Ventas exentas o no gravadas", "exento"], ["N.C. de venta exentas / no gravadas", "exentoNC"] ] },
+    { titulo: "3. N.C. emitidas (restitución de crédito fiscal)", filas: [
+      ["N.C. a R.I. y Monotrib. 10,5%", "restCredito.ncEmit105RI"], ["N.C. a Cons. Finales y Exentos 10,5%", "restCredito.ncEmit105CF"],
+      ["N.C. a R.I. y Monotrib. 21%", "restCredito.ncEmit21RI"], ["N.C. a Cons. Finales y Exentos 21%", "restCredito.ncEmit21CF"] ] },
+  ];
+  const filaRows = {}; // path -> índice de fila (0-based)
+  const valores = {};  // path -> [valor por actividad]
+  secciones.forEach((sec) => {
+    rows.push([sec.titulo]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: NCOLS - 1 } });
+    sec.filas.forEach(([label, path]) => {
+      const R = rows.length;
+      const vals = activities.map((a) => g(a, path));
+      formulas.set(R + ":" + colTotal, `SUM(B${R + 1}:${col(nAct)}${R + 1})`);
+      rows.push([label, ...vals, round2(vals.reduce((x, y) => x + y, 0))]);
+      filaRows[path] = R; valores[path] = vals;
+    });
+  });
+
+  // Ventas netas = gravadas - N.C. gravadas + exentas - N.C. exentas.
+  const rg = (path) => filaRows[path] + 1; // fila en notación A1
+  const R = rows.length;
+  const gravIni = rg("debito.ri105"), gravFin = rg("debito.cf21");
+  const ncIni = rg("restCredito.ncEmit105RI"), ncFin = rg("restCredito.ncEmit21CF");
+  const netas = [];
+  for (let c = 1; c <= colTotal; c++) {
+    const L = col(c);
+    formulas.set(R + ":" + c, `SUM(${L}${gravIni}:${L}${gravFin})-SUM(${L}${ncIni}:${L}${ncFin})+${L}${rg("exento")}-${L}${rg("exentoNC")}`);
+    const sumPaths = (paths) => paths.reduce((s2, pth) => s2 + (c === colTotal ? valores[pth].reduce((x, y) => x + y, 0) : valores[pth][c - 1]), 0);
+    netas.push(round2(
+      sumPaths(["debito.ri105", "debito.cf105", "debito.ri21", "debito.cf21"])
+      - sumPaths(["restCredito.ncEmit105RI", "restCredito.ncEmit105CF", "restCredito.ncEmit21RI", "restCredito.ncEmit21CF"])
+      + sumPaths(["exento"]) - sumPaths(["exentoNC"])));
+  }
+  rows.push(["TOTAL VENTAS NETAS", ...netas]);
+
   XLSX.utils.book_append_sheet(wb, newSheet(rows, {
-    colWidths: [46, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 19],
-    merges, skipCols: [0], formulas, headerRows: [headerRow], freezeHeaderRow: 4,
-  }), sheetName);
+    colWidths: [42, ...activities.map(() => 24), 20],
+    merges, skipCols: [0], formulas, headerRows: [headerRow], freezeHeaderRow: headerRow + 1,
+  }), "Ventas x Actividad");
 }
 
 // ---- Hoja "F2083": resumen del Formulario 2083 del período (mismo
@@ -3990,7 +4020,7 @@ function buildIvaF2083Sheet(wb, client, p, r) {
   rows.push([]);
   rows.push(["Operaciones que no generan Crédito Fiscal", "", "", num(r.exento.operacionesNoCredito)]);
 
-  const sheetName = ("F2083 " + p.slice(5, 7) + "-" + p.slice(0, 4)).slice(0, 31);
+  const sheetName = "F2083";
   XLSX.utils.book_append_sheet(wb, newSheet(rows, {
     colWidths: [56, 20, 22, 20],
     merges, skipCols: [0], headerRows,
@@ -4111,7 +4141,7 @@ function buildIvaSheets(wb, client) {
       }
     }
 
-    const sheetName = ("IVA " + p.slice(5, 7) + "-" + p.slice(0, 4)).slice(0, 31);
+    const sheetName = "IVA";
     sheetMeta[p] = {
       sheetName,
       totalDebitoCell: [totalDebitoRow, 3],
@@ -4135,21 +4165,36 @@ function buildIvaSheets(wb, client) {
   // ---- 2) Hoja DDJJ: un bloque por período, con fórmulas que referencian
   // la hoja de detalle de ese período y (para los saldos que se arrastran)
   // el bloque del período anterior en esta misma hoja. ----
-  const ddjj = [["DDJJ IVA — " + client.name]];
+  const ddjj = [["Posición IVA — " + client.name]];
   const ddjjMerges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }];
   const ddjjFormulas = new Map();
   const ddjjHighlights = new Map();
+  const ddjjBanners = new Map();
   ddjj.push([client.cuit ? "CUIT " + client.cuit : ""]);
   ddjj.push([]);
 
-  let prevSaldoTecnicoFavorContribCell = null; // [row,col] en esta hoja
-  let prevSaldoLibreDispCell = null;
+  // Orden de los bloques: el período que se está viendo va primero y
+  // resaltado, y después el resto del más nuevo al más viejo. Cada bloque
+  // ocupa siempre la misma cantidad de filas, así que se puede calcular de
+  // antemano en qué fila queda cada período — las fórmulas de arrastre de
+  // saldos apuntan al bloque del período anterior donde sea que esté.
+  const BLOQUE_FILAS = 14, ENCABEZADO_FILAS = 3;
+  const cronologico = periods.slice().sort();
+  const visual = cronologico.slice().reverse();
+  const actual = visual.indexOf(state.currentPeriod);
+  if (actual > 0) visual.unshift(visual.splice(actual, 1)[0]);
+  const inicioBloque = {};
+  visual.forEach((p, i) => { inicioBloque[p] = ENCABEZADO_FILAS + i * BLOQUE_FILAS; });
 
-  periods.forEach((p, idx) => {
+  visual.forEach((p) => {
     const r = calcIvaFor(client, p);
     const meta = sheetMeta[p];
-    ddjj.push([periodLabel(p).toUpperCase()]);
+    const cIdx = cronologico.indexOf(p);
+    const prevInicio = cIdx > 0 ? inicioBloque[cronologico[cIdx - 1]] : null;
+    const esActual = p === state.currentPeriod && cronologico.length > 1;
+    ddjj.push([periodLabel(p).toUpperCase() + (esActual ? " — PERÍODO ACTUAL" : "")]);
     ddjjMerges.push(sectionMerge(ddjj, 2));
+    if (esActual) ddjjBanners.set(ddjj.length - 1, { bg: "FFE08A", fg: "5C3B00" });
 
     const debitoRow = ddjj.length;
     if (meta) ddjjFormulas.set(debitoRow + ":1", xsheetRef(meta.sheetName, ...meta.totalDebitoCell));
@@ -4160,7 +4205,7 @@ function buildIvaSheets(wb, client) {
     ddjj.push(["IVA Crédito Fiscal", r.creditoFiscal]);
 
     const saldoTecAnteriorRow = ddjj.length;
-    if (prevSaldoTecnicoFavorContribCell) ddjjFormulas.set(saldoTecAnteriorRow + ":1", `B${prevSaldoTecnicoFavorContribCell[0] + 1}`);
+    if (prevInicio != null) ddjjFormulas.set(saldoTecAnteriorRow + ":1", `B${prevInicio + 5 + 1}`); // "Saldo técnico a favor del contribuyente" del período anterior
     ddjj.push(["Saldo técnico a favor del contribuyente, período anterior", r.saldoTecnicoAnterior]);
 
     const saldoTecARCARow = ddjj.length;
@@ -4170,10 +4215,9 @@ function buildIvaSheets(wb, client) {
     const saldoTecContribRow = ddjj.length;
     ddjjFormulas.set(saldoTecContribRow + ":1", `MAX(-(B${debitoRow + 1}-B${creditoRow + 1}-B${saldoTecAnteriorRow + 1}),0)`);
     ddjj.push(["Saldo técnico a favor del contribuyente", r.saldoTecnicoFavorContribuyente]);
-    prevSaldoTecnicoFavorContribCell = [saldoTecContribRow, 1];
 
     const libreDispAnteriorRow = ddjj.length;
-    if (prevSaldoLibreDispCell) ddjjFormulas.set(libreDispAnteriorRow + ":1", `B${prevSaldoLibreDispCell[0] + 1}`);
+    if (prevInicio != null) ddjjFormulas.set(libreDispAnteriorRow + ":1", `B${prevInicio + 10 + 1}`); // "Saldo de libre disponibilidad" del período anterior
     ddjj.push(["Saldo a favor de libre disponibilidad, período anterior", r.libreDispAnterior]);
 
     const montoUtilizadoRow = ddjj.length;
@@ -4188,7 +4232,6 @@ function buildIvaSheets(wb, client) {
       `IF(B${saldoTecARCARow + 1}<=0,MAX(B${libreDispAnteriorRow + 1}+B${percepcionesRow + 1}+B${retencionesRow + 1}-B${montoUtilizadoRow + 1},0),` +
       `MAX(-(B${saldoTecARCARow + 1}+B${montoUtilizadoRow + 1}-B${libreDispAnteriorRow + 1}-B${percepcionesRow + 1}-B${retencionesRow + 1}),0))`);
     ddjj.push(["Saldo de libre disponibilidad", r.saldoLibreDisponibilidad]);
-    prevSaldoLibreDispCell = [saldoLibreDispRow, 1];
 
     const saldoAPagarRow = ddjj.length;
     ddjjFormulas.set(saldoAPagarRow + ":1",
@@ -4196,21 +4239,13 @@ function buildIvaSheets(wb, client) {
     ddjj.push(["Saldo a pagar", r.saldoAPagar]);
     // Se resalta el resultado real de la DDJJ: si queda saldo a pagar, esa
     // fila en rojo; si no (quedó a favor / de libre disponibilidad), la fila
-    // de "Saldo de libre disponibilidad" en verde — no las dos siempre en
-    // negrita negra, como pasaba antes.
+    // de "Saldo de libre disponibilidad" en verde.
     if (r.saldoAPagar > 0) ddjjHighlights.set(saldoAPagarRow, { bg: "FBE1DE", fg: "C0392B" });
     else ddjjHighlights.set(saldoLibreDispRow, { bg: "DDF2E6", fg: "146C43" });
 
     ddjj.push([]);
-    ddjj.push(["Información adicional a presentar (no integra la DDJJ)"]);
-    ddjjMerges.push(sectionMerge(ddjj, 2));
-    ddjj.push(["Ventas exentas o no gravadas (neto)", r.exento.ventas]);
-    ddjj.push(["N.C. de venta — Exentas/No gravadas", r.exento.ncVentas]);
-    ddjj.push(["Compras exentas/No gravadas", r.exento.compras]);
-    ddjj.push(["N.C. de compra — Exentas/No gravadas", r.exento.ncCompras]);
-    ddjj.push(["Operaciones que no generan Crédito Fiscal", r.exento.operacionesNoCredito]);
-    ddjj.push([]);
     ddjj.push([]); // doble salto entre un período y el siguiente, para que el cambio de mes se note de un vistazo
+    if (ddjj.length !== inicioBloque[p] + BLOQUE_FILAS) throw new Error("Posición IVA: el bloque de " + p + " no ocupa " + BLOQUE_FILAS + " filas");
   });
 
   XLSX.utils.book_append_sheet(wb, newSheet(ddjj, {
@@ -4219,7 +4254,8 @@ function buildIvaSheets(wb, client) {
     skipCols: [],
     formulas: ddjjFormulas,
     highlightRows: ddjjHighlights,
-  }), "DDJJ IVA");
+    highlightBanners: ddjjBanners,
+  }), "Posición IVA");
 }
 
 function buildIibbLocalSheet(wb, client) {
