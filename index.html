@@ -3607,12 +3607,13 @@ function filterActivityPicker(q) {
 // ---------------------------------------------------------------------
 // Exportación a Excel (valores calculados, sin fórmulas frágiles)
 // ---------------------------------------------------------------------
-// Orden en que se muestran los períodos en las hojas del Excel: primero el
-// que se está viendo en el tablero y después el resto del más nuevo al más
-// viejo (así el último período no queda al final de la hoja).
+// Orden en que se muestran los períodos en las hojas de IIBB del Excel:
+// primero el que se está viendo en el tablero y después el resto en orden
+// cronológico (Enero → Agosto, por ejemplo). En IVA el resto va del más nuevo
+// al más viejo.
 const COLOR_ACTUAL = { bg: "FFE08A", fg: "5C3B00" };
 function periodosOrdenVisual(periods) {
-  const v = periods.slice().sort().reverse();
+  const v = periods.slice().sort();
   const i = v.indexOf(state.currentPeriod);
   if (i > 0) v.unshift(v.splice(i, 1)[0]);
   return v;
@@ -3901,7 +3902,7 @@ function exportClientToExcel(client, which) {
   }
   if (!esIva && client.iibbLocal.enabled) sections.push({ sheet: "DDJJ IIBB Local", desc: "Liquidación mensual de Ingresos Brutos, jurisdicción local." });
   if (!esIva && client.iibbCM.enabled) sections.push({ sheet: "Liquidación CM / Detalle CM / Base y Coeficientes CM", desc: "Ingresos Brutos Convenio Multilateral: monto imponible por actividad, coeficientes de distribución y liquidación por jurisdicción." });
-  if (!esIva && state.currentPeriod) extraIndice = "Período que se está viendo: " + periodLabel(state.currentPeriod) + " — figura primero y resaltado en las hojas; el resto, del más nuevo al más viejo.";
+  if (!esIva && state.currentPeriod) extraIndice = "Período que se está viendo: " + periodLabel(state.currentPeriod) + " — figura primero y resaltado en las hojas; el resto, en orden cronológico.";
   buildIndexSheet(wb, client, sections, esIva ? "iva" : "iibb", extraIndice);
 
   if (esIva && client.iva.enabled) buildIvaSheets(wb, client);
@@ -4413,7 +4414,9 @@ function buildIibbCMSheets(wb, client) {
   headerRows.push(rows.length - 1);
   const cmActDataStart = rows.length;
   const baseHighlights = new Map();
-  ordenVisual.forEach((p) => {
+  // Esta hoja va en orden cronológico puro (Enero → último período); el
+  // período actual sólo se marca en dorado.
+  periods.forEach((p) => {
     const doc = getDoc(client.id, p);
     const acts = (doc && doc.iibbCM && doc.iibbCM.actividades) || {};
     const R = rows.length;
