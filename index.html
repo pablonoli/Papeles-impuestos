@@ -3868,9 +3868,14 @@ function exportClientToExcel(client, which) {
 
   const sections = [];
   if (esIva && client.iva.enabled) {
-    const conProrrateo = listPeriodsWithTax(client.id, "iva").includes(state.currentPeriod) && calcIvaFor(client, state.currentPeriod).prorrateoExentoEnabled;
+    const hayPeriodo = listPeriodsWithTax(client.id, "iva").includes(state.currentPeriod);
+    const conProrrateo = hayPeriodo && calcIvaFor(client, state.currentPeriod).prorrateoExentoEnabled;
     sections.push({ sheet: "DDJJ IVA", desc: "Declaración jurada de IVA de todos los períodos cargados, con arrastre de saldos." });
-    sections.push({ sheet: "IVA MM-AAAA", desc: "Detalle del período que se está viendo: débito y crédito fiscal con origen de cada importe" + (conProrrateo ? ", y prorrateo del crédito fiscal (ventas gravadas y exentas, coeficiente, CF computable y no computable)." : ".") });
+    if (hayPeriodo) {
+      sections.push({ sheet: "IVA MM-AAAA", desc: "Detalle del período que se está viendo: débito y crédito fiscal con origen de cada importe" + (conProrrateo ? ", y prorrateo del crédito fiscal (ventas gravadas y exentas, coeficiente, CF computable y no computable)." : ".") });
+      if ((client.iva.activities || []).length) sections.push({ sheet: "Ventas x Actividad MM-AAAA", desc: "Apertura de las ventas del período por actividad: gravadas por alícuota, exentas o no gravadas, N.C. emitidas y ventas netas." });
+      sections.push({ sheet: "F2083 MM-AAAA", desc: "Resumen del Formulario 2083 del período (ventas, compras y operaciones que no generan crédito fiscal), para cotejar contra el Libro de IVA Digital." });
+    }
   }
   if (!esIva && client.iibbLocal.enabled) sections.push({ sheet: "DDJJ IIBB Local", desc: "Liquidación mensual de Ingresos Brutos, jurisdicción local." });
   if (!esIva && client.iibbCM.enabled) sections.push({ sheet: "Liquidación CM / Detalle CM / Base y Coeficientes CM", desc: "Ingresos Brutos Convenio Multilateral: monto imponible por actividad, coeficientes de distribución y liquidación por jurisdicción." });
@@ -3885,8 +3890,8 @@ function exportClientToExcel(client, which) {
   // hojas se arman en el orden del cálculo (porque las fórmulas se referencian
   // entre sí), así que acá se reordenan; lo que no figura en la lista queda
   // al final, en su orden original.
-  const ordenPestanias = ["Índice", "DDJJ IVA", "DDJJ IIBB Local", "IIBB Local Activ.", "Liquidación CM", "Detalle CM", "Base y Coeficientes CM"];
-  const posicion = (n) => { const i = ordenPestanias.indexOf(n); return i === -1 ? ordenPestanias.length : i; };
+  const ordenPestanias = ["Índice", "DDJJ IVA", "IVA ", "Ventas x Actividad", "F2083", "DDJJ IIBB Local", "IIBB Local Activ.", "Liquidación CM", "Detalle CM", "Base y Coeficientes CM"];
+  const posicion = (n) => { const i = ordenPestanias.findIndex((pre) => n.startsWith(pre)); return i === -1 ? ordenPestanias.length : i; };
   wb.SheetNames = wb.SheetNames.map((n, i) => ({ n, i })).sort((a, b) => posicion(a.n) - posicion(b.n) || a.i - b.i).map((x) => x.n);
 
   const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
@@ -3904,6 +3909,92 @@ function exportClientToExcel(client, which) {
     a.download = filename;
     a.click();
   }
+}
+
+// ---- Hoja "Ventas x Actividad": la apertura de ventas por actividad del
+// período (mismo contenido que el modal "Apertura de Otros Conceptos"), una
+// fila por actividad. Sólo si el cliente tiene actividades de IVA cargadas.
+function buildIvaActividadesSheet(wb, client, p, r) {
+  const activities = client.iva.activities || [];
+  if (!activities.length) return;
+  const porActividad = (r.doc && r.doc.porActividad) || {};
+  const NCOLS = 12;
+  const rows = [["Ventas por actividad — " + periodLabel(p) + " — " + client.name]];
+  const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: NCOLS - 1 } }];
+  const formulas = new Map();
+  rows.push([]);
+  rows.push(["", "1. Ventas gravadas", "", "", "", "2. Ventas exentas o no gravadas", "", "3. N.C. emitidas (restitución de crédito fiscal)", "", "", "", ""]);
+  merges.push({ s: { r: 2, c: 1 }, e: { r: 2, c: 4 } }, { s: { r: 2, c: 5 }, e: { r: 2, c: 6 } }, { s: { r: 2, c: 7 }, e: { r: 2, c: 10 } });
+  rows.push(["Actividad", "R.I. y Monotributistas 10,5%", "Cons. Finales y Exentos 10,5%", "R.I. y Monotributistas 21%", "Cons. Finales y Exentos 21%",
+    "Ventas exentas o no gravadas", "N.C. de venta exentas / no gravadas",
+    "N.C. a R.I. y Monotrib. 10,5%", "N.C. a Cons. Finales y Exentos 10,5%", "N.C. a R.I. y Monotrib. 21%", "N.C. a Cons. Finales y Exentos 21%", "Ventas netas"]);
+  const headerRow = rows.length - 1;
+  const g = (pa, path) => num(getDeep(pa, path, 0));
+  const first = rows.length;
+  activities.forEach((a) => {
+    const pa = porActividad[a.code] || {};
+    const v = [
+      g(pa, "debito.ri105"), g(pa, "debito.cf105"), g(pa, "debito.ri21"), g(pa, "debito.cf21"),
+      num(pa.exento), num(pa.exentoNC),
+      g(pa, "restCredito.ncEmit105RI"), g(pa, "restCredito.ncEmit105CF"), g(pa, "restCredito.ncEmit21RI"), g(pa, "restCredito.ncEmit21CF"),
+    ];
+    const netas = round2(v[0] + v[1] + v[2] + v[3] - (v[6] + v[7] + v[8] + v[9]) + v[4] - v[5]);
+    const R = rows.length;
+    formulas.set(R + ":11", `SUM(B${R + 1}:E${R + 1})-SUM(H${R + 1}:K${R + 1})+F${R + 1}-G${R + 1}`);
+    rows.push([(a.code ? a.code + " — " : "") + (a.desc || ""), ...v, netas]);
+  });
+  const last = rows.length - 1;
+  const totalRow = rows.length;
+  const tot = ["TOTAL"];
+  for (let c = 1; c < NCOLS; c++) {
+    const col = String.fromCharCode(65 + c);
+    formulas.set(totalRow + ":" + c, `SUM(${col}${first + 1}:${col}${last + 1})`);
+    tot.push(round2(rows.slice(first, last + 1).reduce((s2, row) => s2 + num(row[c]), 0)));
+  }
+  rows.push(tot);
+
+  const sheetName = ("Ventas x Actividad " + p.slice(5, 7) + "-" + p.slice(0, 4)).slice(0, 31);
+  XLSX.utils.book_append_sheet(wb, newSheet(rows, {
+    colWidths: [46, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 19],
+    merges, skipCols: [0], formulas, headerRows: [headerRow], freezeHeaderRow: 4,
+  }), sheetName);
+}
+
+// ---- Hoja "F2083": resumen del Formulario 2083 del período (mismo
+// contenido que el modal), para cotejar contra el Libro de IVA Digital.
+function buildIvaF2083Sheet(wb, client, p, r) {
+  const sumNeto = (arr) => round2(arr.reduce((s, b) => s + b.neto, 0));
+  // Igual que el modal: para Ventas y Compras se toma el importe "s/Portal IVA"
+  // (declarado) y, si no hay, el calculado.
+  const sumPortal = (arr) => round2(arr.reduce((s, b) => s + (b.portal ? b.portal : b.calculado), 0));
+  const rows = [["Formulario 2083 — " + periodLabel(p) + " — " + client.name]];
+  const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
+  const headerRows = [];
+  const section = (titulo, impuestoLabel, filas) => {
+    rows.push([]);
+    rows.push([titulo]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 3 } });
+    rows.push(["Concepto", "Neto Gravado", "Exento o no Gravado", impuestoLabel]);
+    headerRows.push(rows.length - 1);
+    filas.forEach((f) => rows.push(f));
+  };
+  section("Ventas", "Débito Fiscal", [
+    ["Operaciones de Venta", sumNeto(r.debitoBrackets), num(r.exento.ventas), sumPortal(r.debitoBrackets)],
+    ["Notas de Crédito de Venta", sumNeto(r.restCreditoBrackets), num(r.exento.ncVentas), sumPortal(r.restCreditoBrackets)],
+    ["Operaciones de Exportación (no se releva — completar a mano)", 0, 0, 0],
+  ]);
+  section("Compras", "Crédito Fiscal", [
+    ["Operaciones de Compra", sumNeto(r.creditoBrackets), num(r.exento.compras), sumPortal(r.creditoBrackets)],
+    ["Notas de Crédito de Compra", sumNeto(r.restDebitoBrackets), num(r.exento.ncCompras), sumPortal(r.restDebitoBrackets)],
+  ]);
+  rows.push([]);
+  rows.push(["Operaciones que no generan Crédito Fiscal", "", "", num(r.exento.operacionesNoCredito)]);
+
+  const sheetName = ("F2083 " + p.slice(5, 7) + "-" + p.slice(0, 4)).slice(0, 31);
+  XLSX.utils.book_append_sheet(wb, newSheet(rows, {
+    colWidths: [56, 20, 22, 20],
+    merges, skipCols: [0], headerRows,
+  }), sheetName);
 }
 
 function buildIvaSheets(wb, client) {
@@ -4037,6 +4128,8 @@ function buildIvaSheets(wb, client) {
       headerRows: headerRowsIdx,
       formats,
     }), sheetName);
+    buildIvaActividadesSheet(wb, client, p, r);
+    buildIvaF2083Sheet(wb, client, p, r);
   });
 
   // ---- 2) Hoja DDJJ: un bloque por período, con fórmulas que referencian
