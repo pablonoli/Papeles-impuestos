@@ -1743,7 +1743,8 @@ function renderMain() {
           <span class="label">${periodLabel(state.currentPeriod)}</span>
           <button data-action="period-next" title="Período siguiente">›</button>
         </div>
-        <button class="btn btn-accent" data-action="export-excel">⬇ Exportar a Excel</button>
+        ${client.iva.enabled ? `<button class="btn btn-accent" data-action="export-excel-iva" title="Excel con la DDJJ de IVA, el detalle del período y el prorrateo (si corresponde)">⬇ Exportar IVA</button>` : ""}
+        ${client.iibbLocal.enabled || client.iibbCM.enabled ? `<button class="btn btn-accent" data-action="export-excel-iibb" title="Excel con la liquidación de Ingresos Brutos">⬇ Exportar IIBB</button>` : ""}
       </div>
     </div>
     <div class="tabs">${tabsHtml}</div>
@@ -2675,7 +2676,8 @@ document.addEventListener("click", (e) => {
   else if (action === "period-next") { state.currentPeriod = addMonths(state.currentPeriod, 1); state.selectedCoefDesde = null; render(); }
   else if (action === "open-add-client") { openAddClientModal(); }
   else if (action === "delete-client") { if (confirm("¿Eliminar este cliente y todos sus períodos cargados?")) deleteClient(currentClient().id); }
-  else if (action === "export-excel") { exportClientToExcel(currentClient()); }
+  else if (action === "export-excel-iva") { exportClientToExcel(currentClient(), "iva"); }
+  else if (action === "export-excel-iibb") { exportClientToExcel(currentClient(), "iibb"); }
   else if (action === "open-pdf-preview") { openPdfPreviewModal(currentClient()); }
   else if (action === "pdf-scope") { state.pdfScope = btn.dataset.scope; openPdfPreviewModal(currentClient(), btn.dataset.scope); }
   else if (action === "pdf-print") { window.print(); }
@@ -3821,7 +3823,7 @@ function sectionMerge(rows, ncols) {
   return ncols > 1 ? { s: { r, c: 0 }, e: { r, c: ncols - 1 } } : null;
 }
 
-function buildIndexSheet(wb, client, sections) {
+function buildIndexSheet(wb, client, sections, which) {
   const rows = [];
   const plainRows = new Set();
   const headerRows = [];
@@ -3842,7 +3844,9 @@ function buildIndexSheet(wb, client, sections) {
   rows.push(["Término", "Significado"]);
   headerRows.push(rows.length - 1);
   rows.push(["Según Libros", "Importe registrado en la contabilidad del contribuyente."]);
-  rows.push(["Según Portal", "Importe que figura en el portal de ARCA (IVA) o en el portal de la jurisdicción / SIFERE (IIBB)."]);
+  rows.push(["Según Portal", which === "iva"
+    ? "Importe que figura en el portal de ARCA (Portal IVA)."
+    : "Importe que figura en el portal de la jurisdicción / SIFERE."]);
   rows.push(["Calculado", "Importe que resulta de aplicar la alícuota al monto según libros."]);
   rows.push(["Diferencia", "Según Portal menos Calculado. Si supera $1 en valor absoluto, se marca \"REVISAR\"."]);
   const merges = [
@@ -3854,24 +3858,40 @@ function buildIndexSheet(wb, client, sections) {
   XLSX.utils.book_append_sheet(wb, ws, "Índice");
 }
 
-function exportClientToExcel(client) {
+// `which`: "iva" | "iibb" — cada impuesto sale en su propio archivo, con su
+// propio Índice (las hojas de IVA y de IIBB no se referencian entre sí).
+function exportClientToExcel(client, which) {
   if (!client) return;
+  const esIva = which === "iva";
   const wb = XLSX.utils.book_new();
-  wb.Props = { Title: `Papeles de trabajo — ${client.name}`, Author: "Papeles de Trabajo Fiscales", CreatedDate: new Date() };
+  wb.Props = { Title: `Papeles de trabajo ${esIva ? "IVA" : "IIBB"} — ${client.name}`, Author: "Papeles de Trabajo Fiscales", CreatedDate: new Date() };
 
   const sections = [];
-  if (client.iva.enabled) sections.push({ sheet: "DDJJ IVA / MM-AAAA", desc: "Declaración jurada de IVA por período y detalle de débito/crédito fiscal con origen de cada importe." });
-  if (client.iibbLocal.enabled) sections.push({ sheet: "DDJJ IIBB Local", desc: "Liquidación mensual de Ingresos Brutos, jurisdicción local." });
-  if (client.iibbCM.enabled) sections.push({ sheet: "Coeficientes / Actividades / Liquidacion CM", desc: "Ingresos Brutos Convenio Multilateral: coeficientes de distribución, montos por actividad y liquidación por jurisdicción." });
-  buildIndexSheet(wb, client, sections);
+  if (esIva && client.iva.enabled) {
+    const conProrrateo = listPeriodsWithTax(client.id, "iva").includes(state.currentPeriod) && calcIvaFor(client, state.currentPeriod).prorrateoExentoEnabled;
+    sections.push({ sheet: "DDJJ IVA", desc: "Declaración jurada de IVA de todos los períodos cargados, con arrastre de saldos." });
+    sections.push({ sheet: "IVA MM-AAAA", desc: "Detalle del período que se está viendo: débito y crédito fiscal con origen de cada importe" + (conProrrateo ? ", y prorrateo del crédito fiscal (ventas gravadas y exentas, coeficiente, CF computable y no computable)." : ".") });
+  }
+  if (!esIva && client.iibbLocal.enabled) sections.push({ sheet: "DDJJ IIBB Local", desc: "Liquidación mensual de Ingresos Brutos, jurisdicción local." });
+  if (!esIva && client.iibbCM.enabled) sections.push({ sheet: "Liquidación CM / Detalle CM / Base y Coeficientes CM", desc: "Ingresos Brutos Convenio Multilateral: monto imponible por actividad, coeficientes de distribución y liquidación por jurisdicción." });
+  buildIndexSheet(wb, client, sections, esIva ? "iva" : "iibb");
 
-  if (client.iva.enabled) buildIvaSheets(wb, client);
-  if (client.iibbLocal.enabled) buildIibbLocalSheet(wb, client);
-  if (client.iibbCM.enabled) buildIibbCMSheets(wb, client);
+  if (esIva && client.iva.enabled) buildIvaSheets(wb, client);
+  if (!esIva && client.iibbLocal.enabled) buildIibbLocalSheet(wb, client);
+  if (!esIva && client.iibbCM.enabled) buildIibbCMSheets(wb, client);
+
+  // Orden de las pestañas: primero el resultado (la DDJJ / la liquidación) y
+  // después las hojas de respaldo que explican de dónde sale cada número. Las
+  // hojas se arman en el orden del cálculo (porque las fórmulas se referencian
+  // entre sí), así que acá se reordenan; lo que no figura en la lista queda
+  // al final, en su orden original.
+  const ordenPestanias = ["Índice", "DDJJ IVA", "DDJJ IIBB Local", "IIBB Local Activ.", "Liquidación CM", "Detalle CM", "Base y Coeficientes CM"];
+  const posicion = (n) => { const i = ordenPestanias.indexOf(n); return i === -1 ? ordenPestanias.length : i; };
+  wb.SheetNames = wb.SheetNames.map((n, i) => ({ n, i })).sort((a, b) => posicion(a.n) - posicion(b.n) || a.i - b.i).map((x) => x.n);
 
   const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const filename = `${client.name.replace(/[^a-z0-9]+/gi, "_")}_papeles_de_trabajo.xlsx`;
+  const filename = `${client.name.replace(/[^a-z0-9]+/gi, "_")}_${esIva ? "IVA" : "IIBB"}.xlsx`;
 
   if (state.downloads) {
     state.downloads.save({ filename, data: blob }).then(() => showToast("Excel descargado")).catch((err) => {
@@ -3945,6 +3965,61 @@ function buildIvaSheets(wb, client) {
     formulas.set(totalCreditoRow + ":3", `SUM(D${creditoOnlyStart + 1}:D${restCreditoEnd + 1})+C${decreto814Row + 1}${turIvaRow != null ? `+C${turIvaRow + 1}` : ""}`);
     rows.push(["TOTAL CRÉDITO FISCAL (según portal)", "", "", r.creditoFiscal, "", ""]);
 
+    // ---- Prorrateo del crédito fiscal (sólo si está activo en este período):
+    // mismo contenido que el modal "⚡ Prorrateo" del dashboard. ----
+    const headerRowsIdx = [debitoHeaderRow, creditoHeaderRow];
+    const formats = new Map();
+    if (r.prorrateoExentoEnabled) {
+      const pm = (r.doc && r.doc.prorrateoManual) || {};
+      const porAl = pm.porAlicuota || {};
+      const coef = r.coefProrrateo;
+      rows.push([]);
+      rows.push(["PRORRATEO DE CRÉDITO FISCAL"]);
+      merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 5 } });
+      rows.push(["Concepto", "Importe"]);
+      headerRowsIdx.push(rows.length - 1);
+      const gravR = rows.length;
+      rows.push(["Ventas gravadas (netas de N.C.)", r.ventasNetasGravadas]);
+      const exeR = rows.length;
+      rows.push(["Ventas exentas o no gravadas (netas de N.C.)", r.ventasExentasNetas]);
+      const totVR = rows.length;
+      formulas.set(totVR + ":1", `B${gravR + 1}+B${exeR + 1}`);
+      rows.push(["TOTAL VENTAS NETAS", round2(r.ventasNetasGravadas + r.ventasExentasNetas)]);
+      const coefR = rows.length;
+      formulas.set(coefR + ":1", `IF(B${totVR + 1}>0,B${gravR + 1}/B${totVR + 1},1)`);
+      formats.set(coefR + ":1", "0.0000%");
+      rows.push(["Coeficiente de prorrateo", coef]);
+      const cfTotR = rows.length;
+      rows.push(["CF total del período (cargado a mano)", num(pm.cfTotal)]);
+      const cfCompR = rows.length;
+      formulas.set(cfCompR + ":1", `ROUND(B${cfTotR + 1}*B${coefR + 1},2)`);
+      rows.push(["CF computable (prorrateado)", round2(num(pm.cfTotal) * coef)]);
+      const cfNoCompR = rows.length;
+      formulas.set(cfNoCompR + ":1", `B${cfTotR + 1}-B${cfCompR + 1}`);
+      rows.push(["CF no computable", round2(num(pm.cfTotal) - round2(num(pm.cfTotal) * coef))]);
+
+      // Desglose por alícuota: sólo si se cargó algo en el modal.
+      const hayDesglose = PRORRATEO_ALICUOTAS.some(({ key }) => num(porAl[key]) !== 0);
+      if (hayDesglose) {
+        rows.push([]);
+        rows.push(["Alícuota", "CF original (total)", "CF prorrateado"]);
+        headerRowsIdx.push(rows.length - 1);
+        const alStart = rows.length;
+        PRORRATEO_ALICUOTAS.forEach(({ key, rate }) => {
+          const R = rows.length;
+          formulas.set(R + ":2", `ROUND(B${R + 1}*$B$${coefR + 1},2)`);
+          rows.push(["CF " + fmtPct(rate), num(porAl[key]), round2(num(porAl[key]) * coef)]);
+        });
+        const alEnd = rows.length - 1;
+        const totAlR = rows.length;
+        formulas.set(totAlR + ":1", `SUM(B${alStart + 1}:B${alEnd + 1})`);
+        formulas.set(totAlR + ":2", `SUM(C${alStart + 1}:C${alEnd + 1})`);
+        rows.push(["TOTAL CF por alícuota",
+          round2(PRORRATEO_ALICUOTAS.reduce((s, { key }) => s + num(porAl[key]), 0)),
+          round2(PRORRATEO_ALICUOTAS.reduce((s, { key }) => s + round2(num(porAl[key]) * coef), 0))]);
+      }
+    }
+
     const sheetName = ("IVA " + p.slice(5, 7) + "-" + p.slice(0, 4)).slice(0, 31);
     sheetMeta[p] = {
       sheetName,
@@ -3959,7 +4034,8 @@ function buildIvaSheets(wb, client) {
       skipCols: [0, 5],
       formulas,
       freezeHeaderRow: 4,
-      headerRows: [debitoHeaderRow, creditoHeaderRow],
+      headerRows: headerRowsIdx,
+      formats,
     }), sheetName);
   });
 
@@ -4305,7 +4381,7 @@ function buildIibbCMSheets(wb, client) {
     headerRows: detHeaderRows,
     innerDividerRows: detDividers,
     wrapCols: [0, 1],
-  }), "CM Detalle");
+  }), "Detalle CM");
 
   // ---- 4) Liquidación: una fila por jurisdicción y período, con Base e
   // Impuesto sumados desde "CM Detalle" y el saldo a favor arrastrado desde
@@ -4329,8 +4405,8 @@ function buildIibbCMSheets(wb, client) {
       const R = liqRows.length;
       const meta = detMeta[p] && detMeta[p][j.jurisdiccion];
       if (meta) {
-        liqFormulas.set(R + ":1", `SUM('CM Detalle'!F${meta.start + 1}:F${meta.end + 1})`);
-        liqFormulas.set(R + ":2", `SUM('CM Detalle'!H${meta.start + 1}:H${meta.end + 1})`);
+        liqFormulas.set(R + ":1", `SUM('Detalle CM'!F${meta.start + 1}:F${meta.end + 1})`);
+        liqFormulas.set(R + ":2", `SUM('Detalle CM'!H${meta.start + 1}:H${meta.end + 1})`);
       }
       if (prevAFavorRow[j.jurisdiccion] != null) liqFormulas.set(R + ":6", `I${prevAFavorRow[j.jurisdiccion] + 1}`);
       liqFormulas.set(R + ":7", `MAX(C${R + 1}-D${R + 1}-E${R + 1}-F${R + 1}-G${R + 1},0)`);
@@ -4359,7 +4435,7 @@ function buildIibbCMSheets(wb, client) {
     formulas: liqFormulas,
     headerRows: liqHeaderRows,
     highlightCells: liqHighlights,
-  }), "Liquidacion");
+  }), "Liquidación CM");
 }
 
 // ---------------------------------------------------------------------
