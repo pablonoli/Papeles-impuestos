@@ -4275,7 +4275,9 @@ function buildIibbLocalSheet(wb, client) {
   const periods = listPeriodsWithTax(client.id, "iibbLocal");
   const title = client.iibbLocal.jurisdiccion || "IIBB Local (jurisdicción sin cargar)";
   const activities = client.iibbLocal.activities || [];
-  const ordenVisual = periodosOrdenVisual(periods);
+  // IIBB Local: orden cronológico (Enero → último período); el período
+  // actual sólo se marca en dorado.
+  const ordenVisual = periods.slice().sort();
   const resaltarActual = periods.length > 1 && periods.includes(state.currentPeriod);
 
   // ---- 1) Hoja de actividades: Base (dato cargado) x Alícuota (=Base x
@@ -4374,6 +4376,20 @@ function buildIibbLocalSheet(wb, client) {
     rows.push([periodLabel(p), r.baseImponible, alicuotaEfectiva, r.impuesto, r.retenciones, r.percepciones, r.recaudacionesBancarias, r.saldoAnterior, r.saldoAPagar > 0 ? r.saldoAPagar : -r.saldoAFavor]);
     if (resaltarActual && p === state.currentPeriod) mainHighlights.set(R, COLOR_ACTUAL);
   });
+  // Fila de TOTAL (acumulado del ejercicio). La alícuota efectiva, el saldo
+  // del período anterior y el saldo a pagar / (a favor) no se suman: cada mes ya arrastra el saldo
+  // del anterior, así que sumarlos contaría dos veces lo mismo.
+  if (periods.length) {
+    const dataRows = rows.slice(mainStart);
+    const tR = rows.length;
+    const sumCol = (c) => round2(dataRows.reduce((acc, row) => acc + num(row[c]), 0));
+    [1, 3, 4, 5, 6].forEach((c) => {
+      const L = XLSX.utils.encode_col(c);
+      formulas.set(tR + ":" + c, `SUM(${L}${mainStart + 1}:${L}${tR})`);
+    });
+    // La alícuota efectiva no se totaliza (no tiene sentido sumarla).
+    rows.push(["TOTAL", sumCol(1), "", sumCol(3), sumCol(4), sumCol(5), sumCol(6), "", ""]);
+  }
   XLSX.utils.book_append_sheet(wb, newSheet(rows, {
     colWidths: [14, 22, 12, 18, 16, 16, 18, 18, 20],
     merges: merges.filter(Boolean),
