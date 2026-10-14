@@ -148,10 +148,10 @@
 
   .main{ flex:1; min-width:0; padding:26px 34px 60px; display:flex; flex-direction:column; gap:20px; }
   .topbar{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; }
-  .client-title{ display:flex; flex-direction:column; gap:3px; }
+  .client-title{ display:flex; flex-direction:column; gap:3px; flex:1 1 240px; min-width:0; }
   .client-title h1{ font-size:26px; }
   .client-title .meta{ font-size:12.5px; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap; }
-  .topbar-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .topbar-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; flex:0 0 auto; max-width:100%; }
 
   .period-nav{ display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border); border-radius:99px; padding:5px 6px; }
   .period-nav .label{ font-family:'IBM Plex Mono', monospace; font-size:13px; min-width:118px; text-align:center; text-transform:capitalize; }
@@ -2020,6 +2020,26 @@ function openPdfPreviewModal(client, scope) {
   wireModalBackdropClose();
 }
 
+// Alerta: hay ventas exentas o no gravadas en el período pero el prorrateo
+// de crédito fiscal no está activado (puede ser a propósito, si todas las
+// compras son atribuibles a operaciones gravadas; en ese caso se descarta
+// la alerta para ese período). Se muestra arriba de la pestaña IVA y también
+// dentro de "Apertura de Otros Conceptos", que es donde se cargan esas ventas.
+function prorrateoAlertaHtml(client, period, enModal) {
+  const r = calcIvaFor(client, period);
+  const doc = getDoc(client.id, period);
+  if (r.prorrateoExentoEnabled || !(r.ventasExentasNetas > 0)) return "";
+  if (doc && doc.iva && doc.iva.prorrateoAlertaDescartada) return "";
+  const reopen = enModal ? ` data-reopen="iva-actividades"` : "";
+  return `<div class="warn-banner">
+      <div class="wb-text">⚠ <b>Este período tiene ventas exentas o no gravadas (${fmtMoney(r.ventasExentasNetas)}) y el prorrateo de crédito fiscal no está activado.</b> Si parte de las compras no se puede atribuir directamente a ventas gravadas, el crédito fiscal computable tiene que prorratearse.</div>
+      <div class="wb-actions">
+        <button class="btn btn-sm btn-accent" data-action="activar-prorrateo" data-clientid="${client.id}" data-period="${period}"${reopen}>Activar prorrateo en este período</button>
+        <button class="btn btn-sm" data-action="descartar-alerta-prorrateo" data-clientid="${client.id}" data-period="${period}"${reopen} title="Todas las compras son atribuibles a operaciones gravadas">No corresponde</button>
+      </div>
+    </div>`;
+}
+
 // ---- IVA (papel de trabajo) ----
 function bracketRows(client, period, groupKey, brackets, netoReadonly) {
   return brackets.map((b) => {
@@ -2040,19 +2060,7 @@ function renderIvaTab(client) {
   const r = calcIvaFor(client, period);
   const doc = getDoc(client.id, period);
 
-  // Alerta: hay ventas exentas o no gravadas en el período pero el prorrateo
-  // de crédito fiscal no está activado (puede ser a propósito, si todas las
-  // compras son atribuibles a operaciones gravadas; en ese caso se descarta
-  // la alerta para ese período).
-  const alertaProrrateo = !r.prorrateoExentoEnabled && r.ventasExentasNetas > 0 && !(doc && doc.iva && doc.iva.prorrateoAlertaDescartada)
-    ? `<div class="warn-banner">
-        <div class="wb-text">⚠ <b>Este período tiene ventas exentas o no gravadas (${fmtMoney(r.ventasExentasNetas)}) y el prorrateo de crédito fiscal no está activado.</b> Si parte de las compras no se puede atribuir directamente a ventas gravadas, el crédito fiscal computable tiene que prorratearse.</div>
-        <div class="wb-actions">
-          <button class="btn btn-sm btn-accent" data-action="activar-prorrateo" data-clientid="${client.id}" data-period="${period}">Activar prorrateo en este período</button>
-          <button class="btn btn-sm" data-action="descartar-alerta-prorrateo" data-clientid="${client.id}" data-period="${period}" title="Todas las compras son atribuibles a operaciones gravadas">No corresponde</button>
-        </div>
-      </div>`
-    : "";
+  const alertaProrrateo = prorrateoAlertaHtml(client, period, false);
 
   return `
     <div style="display:flex;flex-direction:column;gap:16px;">
@@ -2716,8 +2724,12 @@ document.addEventListener("click", (e) => {
   else if (action === "open-activity-picker-cm") { openActivityPickerModal("iibbCM"); }
   else if (action === "open-activity-picker-iva") { openActivityPickerModal("iva"); }
   else if (action === "open-decreto814-modal") { renderDecreto814Modal(btn.dataset.clientid, btn.dataset.period); }
-  else if (action === "activar-prorrateo") { touchDoc(btn.dataset.clientid, btn.dataset.period, (doc) => setDeep(doc, "iva.prorrateoExento", true)); render(); }
-  else if (action === "descartar-alerta-prorrateo") { touchDoc(btn.dataset.clientid, btn.dataset.period, (doc) => setDeep(doc, "iva.prorrateoAlertaDescartada", true)); render(); }
+  else if (action === "activar-prorrateo" || action === "descartar-alerta-prorrateo") {
+    const path = action === "activar-prorrateo" ? "iva.prorrateoExento" : "iva.prorrateoAlertaDescartada";
+    touchDoc(btn.dataset.clientid, btn.dataset.period, (doc) => setDeep(doc, path, true));
+    const rf = MODAL_REFRESHERS[btn.dataset.reopen];
+    if (rf) rf(btn.dataset.clientid, btn.dataset.period); else render();
+  }
   else if (action === "open-prorrateo-modal") { prorrateoModalShowDesglose = false; renderProrrateoModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "toggle-prorrateo-desglose") { prorrateoModalShowDesglose = true; renderProrrateoModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "open-date-picker") { openDatePickerFor(btn); }
@@ -3164,6 +3176,7 @@ document.getElementById("modal-root").addEventListener("click", (e) => {
 function renderIvaActividadesModal(clientId, period) {
   const client = state.clients.find((c) => c.id === clientId);
   if (!client) return;
+  const alertaProrrateoModal = prorrateoAlertaHtml(client, period, true);
   const doc = getDoc(clientId, period);
   const porActividad = (doc && doc.iva && doc.iva.porActividad) || {};
   const activities = client.iva.activities || [];
@@ -3233,6 +3246,7 @@ function renderIvaActividadesModal(clientId, period) {
       <div class="modal" style="max-width:680px;">
         <div class="modal-head"><h3>Apertura de Otros Conceptos — ${periodLabel(period)}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
         <div class="modal-body">
+          ${alertaProrrateoModal}
           <div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border);">
             <label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">
               📂 Importar comprobantes de ventas (ARCA, .xlsx)
