@@ -222,6 +222,9 @@
   table.f2083-table th:first-child, table.f2083-table td:first-child{ width:150px; min-width:150px; }
   td.diff-cell{ font-weight:600; }
   td.diff-cell.flag{ color:var(--diff); background:var(--diff-soft); border-radius:5px; }
+  .warn-banner{ display:flex; align-items:center; justify-content:space-between; gap:12px 16px; flex-wrap:wrap; background:var(--diff-soft); color:var(--diff); border:1px solid var(--diff); border-radius:12px; padding:12px 14px; font-size:13px; line-height:1.45; }
+  .warn-banner .wb-text{ flex:1 1 320px; }
+  .warn-banner .wb-actions{ display:flex; gap:8px; flex-wrap:wrap; }
   td.readonly{ color:var(--muted); }
   .foot-note{ font-size:11.5px; color:var(--muted); padding:2px 18px 14px; }
   /* Sufijo visual "%" para inputs de alícuotas/coeficientes: el valor
@@ -2037,8 +2040,23 @@ function renderIvaTab(client) {
   const r = calcIvaFor(client, period);
   const doc = getDoc(client.id, period);
 
+  // Alerta: hay ventas exentas o no gravadas en el período pero el prorrateo
+  // de crédito fiscal no está activado (puede ser a propósito, si todas las
+  // compras son atribuibles a operaciones gravadas; en ese caso se descarta
+  // la alerta para ese período).
+  const alertaProrrateo = !r.prorrateoExentoEnabled && r.ventasExentasNetas > 0 && !(doc && doc.iva && doc.iva.prorrateoAlertaDescartada)
+    ? `<div class="warn-banner">
+        <div class="wb-text">⚠ <b>Este período tiene ventas exentas o no gravadas (${fmtMoney(r.ventasExentasNetas)}) y el prorrateo de crédito fiscal no está activado.</b> Si parte de las compras no se puede atribuir directamente a ventas gravadas, el crédito fiscal computable tiene que prorratearse.</div>
+        <div class="wb-actions">
+          <button class="btn btn-sm btn-accent" data-action="activar-prorrateo" data-clientid="${client.id}" data-period="${period}">Activar prorrateo en este período</button>
+          <button class="btn btn-sm" data-action="descartar-alerta-prorrateo" data-clientid="${client.id}" data-period="${period}" title="Todas las compras son atribuibles a operaciones gravadas">No corresponde</button>
+        </div>
+      </div>`
+    : "";
+
   return `
     <div style="display:flex;flex-direction:column;gap:16px;">
+      ${alertaProrrateo}
       <div class="card">
         <div class="card-head">
           <h3>Débito Fiscal — Papel de trabajo</h3>
@@ -2698,6 +2716,8 @@ document.addEventListener("click", (e) => {
   else if (action === "open-activity-picker-cm") { openActivityPickerModal("iibbCM"); }
   else if (action === "open-activity-picker-iva") { openActivityPickerModal("iva"); }
   else if (action === "open-decreto814-modal") { renderDecreto814Modal(btn.dataset.clientid, btn.dataset.period); }
+  else if (action === "activar-prorrateo") { touchDoc(btn.dataset.clientid, btn.dataset.period, (doc) => setDeep(doc, "iva.prorrateoExento", true)); render(); }
+  else if (action === "descartar-alerta-prorrateo") { touchDoc(btn.dataset.clientid, btn.dataset.period, (doc) => setDeep(doc, "iva.prorrateoAlertaDescartada", true)); render(); }
   else if (action === "open-prorrateo-modal") { prorrateoModalShowDesglose = false; renderProrrateoModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "toggle-prorrateo-desglose") { prorrateoModalShowDesglose = true; renderProrrateoModal(btn.dataset.clientid, btn.dataset.period); }
   else if (action === "open-date-picker") { openDatePickerFor(btn); }
