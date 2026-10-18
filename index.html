@@ -2105,7 +2105,7 @@ function exencionesDelPeriodo(client, period) {
   return (client.iva.activities || []).map((a) => {
     const x = pa[a.code] || {};
     const monto = round2(num(x.exento) - num(x.exentoNC));
-    return { code: a.code, desc: a.desc, monto, hay: num(x.exento) !== 0 || num(x.exentoNC) !== 0, key: x.exentoFund || "", ok: !!x.exentoOk };
+    return { code: a.code, desc: a.desc, monto, hay: num(x.exento) !== 0 || num(x.exentoNC) !== 0, key: x.exentoFund || "" };
   }).filter((x) => x.hay || x.key);
 }
 // Panel de control que acompaña a "Ventas exentas o no gravadas" de cada
@@ -2117,7 +2117,6 @@ function exencionPanelHtml(clientId, period, code, pa) {
   const opts = `<option value="">— Elegí el fundamento —</option>` + EXENCIONES_GRUPOS.map((gr) =>
     `<optgroup label="${escapeHtml(gr.g)}">${gr.ids.map((id) => `<option value="${id}" ${key === id ? "selected" : ""}>${escapeHtml(EXENCIONES[id].corto)} — ${escapeHtml(EXENCIONES[id].ley)}</option>`).join("")}</optgroup>`).join("");
   const hayMonto = num(pa.exento) !== 0 || num(pa.exentoNC) !== 0;
-  const aviso = `<div style="font-size:11.5px;line-height:1.45;background:var(--diff-soft);color:var(--diff);border:1px solid var(--diff);border-radius:8px;padding:8px 10px;">⚠ <b>Ojo con las ventas al Estado:</b> la exención del Art. 7 inc. h) ap. 1) es para lo que <u>vende</u> el Estado. Si tu cliente le <u>vende al</u> Estado, la operación es <b>gravada</b>. Tampoco alcanza con que el cliente haya facturado "exento": hay que verificar que el supuesto realmente corresponda.</div>`;
   let detalle = "";
   if (e) {
     detalle = `
@@ -2126,13 +2125,12 @@ function exencionPanelHtml(clientId, period, code, pa) {
         <div><b>Qué alcanza:</b> ${escapeHtml(e.que)}</div>
         <div><b>Verificá antes de declararla:</b><ul style="margin:4px 0 0 18px;padding:0;">${e.verificar.map((v) => `<li>${escapeHtml(v)}</li>`).join("")}</ul></div>
       </div>
-      <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;cursor:pointer;"><input type="checkbox" ${pa.exentoOk ? "checked" : ""} data-action="field-checkbox" data-path="iva.porActividad.${code}.exentoOk" data-clientid="${clientId}" data-period="${period}" data-reopen="iva-actividades" style="margin-top:2px;"> Verifiqué los comprobantes exentos de esta actividad y corresponden a este supuesto.</label>`;
+`;
   } else if (hayMonto) {
     detalle = `<div style="font-size:12px;color:var(--diff);">⚠ Cargaste ventas exentas sin indicar el fundamento. Elegí en qué supuesto de la ley encuadran (así queda documentado en el Excel y en el F. 2083).</div>`;
   }
   return `<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
       <div class="field"><label>Fundamento de la exención</label><select data-action="field" data-path="iva.porActividad.${code}.exentoFund" data-clientid="${clientId}" data-period="${period}" data-reopen="iva-actividades">${opts}</select></div>
-      ${hayMonto ? aviso : ""}
       ${detalle}
     </div>`;
 }
@@ -3708,7 +3706,7 @@ function renderFormulario2083Modal(clientId, period) {
             ${(() => {
               const ex = exencionesDelPeriodo(client, period);
               if (!ex.length) return "";
-              return `<div class="foot-note" style="padding:8px 2px 0;"><b>Fundamento de lo exento o no gravado:</b>${ex.map((x) => `<br>• ${escapeHtml(x.code)} — ${fmtMoney(x.monto)}: ${x.key ? escapeHtml(exencionLabel(x.key)) + (x.ok ? " ✓ verificado" : " (sin verificar)") : "<b>sin fundamento indicado</b>"}`).join("")}</div>`;
+              return `<div class="foot-note" style="padding:8px 2px 0;"><b>Fundamento de lo exento o no gravado:</b>${ex.map((x) => `<br>• ${escapeHtml(x.code)} — ${fmtMoney(x.monto)}: ${x.key ? escapeHtml(exencionLabel(x.key)) : "<b>sin fundamento indicado</b>"}`).join("")}</div>`;
             })()}
             <div class="foot-note" style="padding:6px 2px 0;">Operaciones de Exportación: <b class="mono">${fmtMoney(0)}</b> — la herramienta todavía no releva exportaciones; completalo manualmente si corresponde.</div>
           </div>
@@ -4168,7 +4166,6 @@ function buildIvaActividadesSheet(wb, client, p, r) {
     rows.push(["Fundamento de las exenciones"]);
     merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: NCOLS - 1 } });
     rows.push(["Fundamento legal", ...activities.map((a) => { const x = exMap[a.code]; return x ? (x.key ? exencionLabel(x.key) : "Sin fundamento indicado") : "—"; }), ""]);
-    rows.push(["Verificado por el contador", ...activities.map((a) => { const x = exMap[a.code]; return x ? (x.key ? (x.ok ? "Sí" : "No") : "—") : "—"; }), ""]);
   }
 
   XLSX.utils.book_append_sheet(wb, newSheet(rows, {
@@ -4213,14 +4210,18 @@ function buildIvaF2083Sheet(wb, client, p, r) {
     rows.push([]);
     rows.push(["Fundamento de lo exento o no gravado (por actividad)"]);
     merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 3 } });
-    rows.push(["Actividad", "Monto neto", "Verificado", "Fundamento legal"]);
+    rows.push(["Actividad", "Monto neto", "Fundamento legal", ""]);
     headerRows.push(rows.length - 1);
-    exFund.forEach((x) => rows.push([x.code + " — " + x.desc, x.monto, x.key ? (x.ok ? "Sí" : "No") : "—", x.key ? exencionLabel(x.key) : "Sin fundamento indicado"]));
+    merges.push({ s: { r: rows.length - 1, c: 2 }, e: { r: rows.length - 1, c: 3 } });
+    exFund.forEach((x) => {
+      rows.push([x.code + " — " + x.desc, x.monto, x.key ? exencionLabel(x.key) : "Sin fundamento indicado", ""]);
+      merges.push({ s: { r: rows.length - 1, c: 2 }, e: { r: rows.length - 1, c: 3 } });
+    });
   }
 
   const sheetName = "F2083";
   XLSX.utils.book_append_sheet(wb, newSheet(rows, {
-    colWidths: [56, 20, 22, exFund.length ? 62 : 20],
+    colWidths: [56, 20, 22, 20],
     merges, skipCols: [0], headerRows,
   }), sheetName);
 }
