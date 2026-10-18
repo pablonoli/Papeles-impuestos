@@ -2276,10 +2276,10 @@ const CM_ENCUADRES = [
   { art: 7, reparto: { sede: 20, donde: 80, ls: "Jurisdicción de la administración o sede central", ld: "Jurisdicción donde están los bienes o las personas" }, nombre: "Seguros, capitalización y ahorro", pref: ["651", "652"],
     regla: "80% a la jurisdicción donde están los bienes o las personas, y 20% a la jurisdicción de la administración o sede central.",
     cuando: "Si la sede central está en una jurisdicción y contrata operaciones sobre bienes o personas de otras. Las entidades financieras de la ley 21.526 van por el Art. 8." },
-  { art: 8, nombre: "Entidades financieras", pref: ["641"],
+  { art: 8, montos: { txt: "Cargá, por jurisdicción con casa o filial habilitada, la suma de ingresos + intereses pasivos + actualizaciones pasivas. El porcentaje se calcula sobre el total del país. Si hay operaciones en jurisdicciones sin casa o filial, van enteras a la jurisdicción donde se hicieron: sumalas a esa jurisdicción." }, nombre: "Entidades financieras", pref: ["641"],
     regla: "Cada jurisdicción grava en proporción a los ingresos, intereses pasivos y actualizaciones pasivas de sus casas o filiales habilitadas, respecto del total del país.",
     cuando: "Si es una entidad regida por la ley de Entidades Financieras. El reparto es proporcional, así que se carga el porcentaje ya calculado." },
-  { art: 9, nombre: "Transporte de pasajeros o cargas", pref: ["4911", "4912", "4921", "4922", "501", "502", "511", "512"],
+  { art: 9, montos: { txt: "Cargá, por jurisdicción, los ingresos por pasajes y fletes de viajes con origen en esa jurisdicción. El porcentaje se calcula sobre el total." }, nombre: "Transporte de pasajeros o cargas", pref: ["4911", "4912", "4921", "4922", "501", "502", "511", "512"],
     regla: "Cada jurisdicción grava la parte de los ingresos por pasajes y fletes percibidos o devengados en el lugar de origen del viaje.",
     cuando: "Si la empresa de transporte desarrolla su actividad en varias jurisdicciones." },
   { art: 10, reparto: { sede: 20, donde: 80, ls: "Jurisdicción del estudio, consultorio u oficina", ld: "Jurisdicción donde se realiza la actividad profesional" }, nombre: "Profesiones liberales y consultoras", pref: ["691", "692", "711", "7020", "6202", "862", "750"],
@@ -2291,7 +2291,7 @@ const CM_ENCUADRES = [
   { art: 12, reparto: { sede: 20, donde: 80, ls: "Jurisdicción del domicilio del prestamista", ld: "Jurisdicción donde está el bien en garantía" }, nombre: "Prestamistas hipotecarios o prendarios", pref: ["649290"],
     regla: "80% a la jurisdicción donde está el bien en garantía, y 20% a la del domicilio del prestamista.",
     cuando: "Solo para prestamistas hipotecarios o prendarios que no estén organizados en forma de empresa." },
-  { art: 13, nombre: "Productos primarios, vitivinícolas y azucareras", pref: ["011", "012", "013", "014", "021", "022", "031", "032", "05", "06", "07", "08", "1072", "1102", "1200"],
+  { art: 13, art13: true, nombre: "Productos primarios, vitivinícolas y azucareras", pref: ["011", "012", "013", "014", "021", "022", "031", "032", "05", "06", "07", "08", "1072", "1102", "1200"],
     regla: "El monto imponible de la jurisdicción productora es el precio mayorista, oficial o corriente en plaza (o el 85% del precio de venta si no se puede establecer). La diferencia se reparte por el régimen general (Art. 2).",
     cuando: "Si despacha su producción sin facturar para venderla fuera de la jurisdicción productora, o si compra productos primarios para industrializarlos o venderlos fuera. Si vende facturando desde la jurisdicción de origen, normalmente va por el Art. 2." },
 ];
@@ -3219,6 +3219,26 @@ function renderActivityRegimenModal(clientId, code) {
                 <select id="regimen-donde"><option value="">Elegir…</option>${jurs.map((j) => `<option value="${escapeHtml(j.name)}" ${a.especialDonde === j.name ? "selected" : ""}>${escapeHtml(j.name)}</option>`).join("")}</select></div>
               <span id="regimen-reparto-hint" style="font-size:10.5px;color:var(--muted-soft);"></span>
             </div>
+            <div id="regimen-montos-block" style="display:none;flex-direction:column;gap:8px;">
+              <p id="regimen-montos-txt" style="font-size:11.5px;color:var(--muted);margin:0;"></p>
+              ${jurs.map((j) => `
+                <div class="field" style="flex-direction:row;align-items:center;justify-content:space-between;gap:8px;">
+                  <label style="margin:0;">${escapeHtml(j.name)}</label>
+                  <input type="text" inputmode="decimal" data-kind="money" data-montojur="${escapeHtml(j.name)}" value="${rawOrBlank(a.especialMontos && a.especialMontos[j.name], "money")}" placeholder="—" style="width:150px;text-align:right;">
+                </div>`).join("")}
+              <span id="regimen-montos-total" style="font-size:11.5px;color:var(--muted);"></span>
+            </div>
+            <div id="regimen-art13-block" style="display:none;flex-direction:column;gap:8px;">
+              <p style="font-size:11.5px;color:var(--muted);margin:0;">La jurisdicción productora toma como base el precio mayorista, oficial o corriente en plaza al despachar (o el 85% del precio de venta si no se puede establecer). El resto del ingreso se reparte entre las jurisdicciones con el coeficiente general (Art. 2) vigente al período que estás viendo.</p>
+              <div class="field"><label>Jurisdicción productora</label>
+                <select id="regimen-prod"><option value="">Elegir…</option>${jurs.map((j) => `<option value="${escapeHtml(j.name)}" ${a.especial13 && a.especial13.prod === j.name ? "selected" : ""}>${escapeHtml(j.name)}</option>`).join("")}</select></div>
+              <div class="field"><label>Ingreso bruto total de la actividad</label>
+                <input type="text" inputmode="decimal" data-kind="money" id="regimen-total13" value="${rawOrBlank(a.especial13 && a.especial13.total, "money")}" placeholder="—"></div>
+              <div class="field"><label>Base de la jurisdicción productora</label>
+                <input type="text" inputmode="decimal" data-kind="money" id="regimen-base13" value="${rawOrBlank(a.especial13 && a.especial13.base, "money")}" placeholder="—">
+                <button type="button" class="btn btn-ghost btn-sm" id="regimen-85" style="align-self:flex-start;">Usar el 85% del ingreso total</button></div>
+              <span id="regimen-art13-res" style="font-size:11.5px;color:var(--muted);"></span>
+            </div>
             <p style="font-size:11.5px;color:var(--muted);margin:0;">Repartí el 100% de esta actividad entre las jurisdicciones que ya cargaste. Queda fijo — si en algún momento cambia (otra obra, otro contrato), lo volvés a editar acá.</p>
             ${jurs.length ? jurs.map((j) => `
               <div class="field" style="flex-direction:row;align-items:center;justify-content:space-between;gap:8px;">
@@ -3250,6 +3270,9 @@ function renderActivityRegimenModal(clientId, code) {
     const v = Number(document.getElementById("regimen-especial-art").value);
     const e2 = CM_ENCUADRES.find((x) => x.art === v);
     const blk = document.getElementById("regimen-reparto-block");
+    document.getElementById("regimen-montos-block").style.display = e2 && e2.montos ? "flex" : "none";
+    document.getElementById("regimen-art13-block").style.display = e2 && e2.art13 ? "flex" : "none";
+    if (e2 && e2.montos) document.getElementById("regimen-montos-txt").textContent = e2.montos.txt;
     if (!e2 || !e2.reparto) { blk.style.display = "none"; return; }
     blk.style.display = "flex";
     document.getElementById("regimen-sede-label").textContent = e2.reparto.ls;
@@ -3268,6 +3291,42 @@ function renderActivityRegimenModal(clientId, code) {
     document.getElementById("regimen-especial-regla").textContent = e2 ? e2.regla : "";
     aplicarReparto(completar === true);
   };
+  const llenarPct = (map) => {
+    document.querySelectorAll("#regimen-especial-block input[data-jur]").forEach((inp) => { inp.value = map[inp.dataset.jur] ? fmtPctRaw(map[inp.dataset.jur]) : ""; });
+  };
+  // Arts. 8 y 9: porcentaje = importe de la jurisdicción / total.
+  const calcMontos = () => {
+    const ins = [...document.querySelectorAll("#regimen-montos-block input[data-montojur]")];
+    const total = ins.reduce((acc, i) => acc + num(i.value), 0);
+    document.getElementById("regimen-montos-total").textContent = total ? `Total: ${fmtMoney(total)}` : "";
+    if (!total) return;
+    const map = {};
+    ins.forEach((i) => { const v = num(i.value); if (v) map[i.dataset.montojur] = (v / total) * 100; });
+    llenarPct(map);
+  };
+  document.querySelectorAll("#regimen-montos-block input[data-montojur]").forEach((i) => i.addEventListener("input", calcMontos));
+  // Art. 13: la productora toma la base; el resto se reparte por el coeficiente general.
+  const calc13 = () => {
+    const prod = document.getElementById("regimen-prod").value;
+    const total = num(document.getElementById("regimen-total13").value);
+    const base = num(document.getElementById("regimen-base13").value);
+    const res = document.getElementById("regimen-art13-res");
+    if (!prod || !total) { res.textContent = ""; return; }
+    const pr = Math.max(0, Math.min(1, base / total));
+    const map = {};
+    jurs.forEach((j) => { map[j.name] = (1 - pr) * getCoef(client, j.name, state.currentPeriod) * 100; });
+    map[prod] = (map[prod] || 0) + pr * 100;
+    llenarPct(map);
+    const suma = Object.values(map).reduce((x, y) => x + y, 0);
+    res.textContent = `La productora toma ${fmtPct(pr)} por la base y el resto se reparte por coeficiente. Suma del reparto: ${fmtPct(suma / 100)}.` + (Math.abs(suma - 100) > 0.01 ? " Revisá que los coeficientes sumen 100%." : "");
+  };
+  ["regimen-prod", "regimen-total13", "regimen-base13"].forEach((id) => document.getElementById(id).addEventListener(id === "regimen-prod" ? "change" : "input", calc13));
+  document.getElementById("regimen-85").addEventListener("click", () => {
+    const total = num(document.getElementById("regimen-total13").value);
+    if (!total) { showToast("Cargá primero el ingreso bruto total"); return; }
+    document.getElementById("regimen-base13").value = fmtMoneyRaw(total * 0.85);
+    calc13();
+  });
   document.getElementById("regimen-especial-art").addEventListener("change", () => actualizarRegla(true));
   document.getElementById("regimen-sede").addEventListener("change", () => aplicarReparto(true));
   document.getElementById("regimen-donde").addEventListener("change", () => aplicarReparto(true));
@@ -3511,6 +3570,10 @@ document.getElementById("modal-root").addEventListener("click", (e) => {
       if (!a) return;
       a.regimen = regimen === "general" ? undefined : regimen;
       a.especialArt = regimen === "especial" ? (Number(document.getElementById("regimen-especial-art") && document.getElementById("regimen-especial-art").value) || undefined) : undefined;
+      const montosEl = [...document.querySelectorAll("#regimen-montos-block input[data-montojur]")];
+      const artSel = Number(document.getElementById("regimen-especial-art").value);
+      a.especialMontos = regimen === "especial" && (artSel === 8 || artSel === 9) ? Object.fromEntries(montosEl.filter((i) => num(i.value)).map((i) => [i.dataset.montojur, num(i.value)])) : undefined;
+      a.especial13 = regimen === "especial" && artSel === 13 ? { prod: document.getElementById("regimen-prod").value, total: num(document.getElementById("regimen-total13").value), base: num(document.getElementById("regimen-base13").value) } : undefined;
       a.especialSede = regimen === "especial" ? (document.getElementById("regimen-sede").value || undefined) : undefined;
       a.especialDonde = regimen === "especial" ? (document.getElementById("regimen-donde").value || undefined) : undefined;
       if (regimen === "general") a.regimenAvisoOk = true; // ya lo revisó y lo dejó en general
