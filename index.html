@@ -388,6 +388,61 @@
     .main{ padding:20px 16px 48px; }
     table{ min-width:560px; }
   }
+  /* ---- Funciones nuevas: panel, calendario, evolución, Monotributo ---- */
+  :root{ --ev1:#2a78d6; --ev2:#eb6834; }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --ev1:#3987e5; --ev2:#d95926; } }
+  :root[data-theme="dark"]{ --ev1:#3987e5; --ev2:#d95926; }
+  .nav-side{ display:flex; flex-direction:column; gap:4px; }
+  .nav-btn{ text-align:left; background:transparent; border:1px solid transparent; border-radius:10px; padding:8px 10px; font:inherit; font-size:13px; color:var(--ink); cursor:pointer; }
+  .nav-btn:hover{ background:var(--surface-3); }
+  .nav-btn.active{ background:var(--accent-soft); color:var(--accent-strong); font-weight:600; }
+  .linklike{ background:none; border:none; padding:0; font:inherit; color:var(--ink); cursor:pointer; text-align:left; }
+  .linklike:hover{ color:var(--accent); text-decoration:underline; }
+  .panel-table{ min-width:760px; }
+  .panel-table td{ vertical-align:top; padding:10px 8px; border-bottom:1px solid var(--border); }
+  .ests{ display:flex; flex-wrap:wrap; gap:5px; }
+  .est{ font:inherit; font-size:11.5px; font-weight:600; padding:3px 9px; border-radius:99px; border:1px solid transparent; cursor:pointer; white-space:nowrap; }
+  .est-ok{ background:var(--favor-soft); color:var(--favor); }
+  .est-parcial{ background:var(--diff-soft); color:var(--diff); }
+  .est-falta{ background:var(--surface-3); color:var(--muted); border-color:var(--border); }
+  .est:hover{ filter:brightness(.96); }
+  .saldo-l{ font-size:12px; white-space:nowrap; }
+  .evo-t-pagar{ color:var(--pagar); font-weight:600; font-variant-numeric:tabular-nums; }
+  .evo-t-favor{ color:var(--favor); font-weight:600; font-variant-numeric:tabular-nums; }
+  .u-vencido,.u-urgente{ color:var(--pagar); } .u-pronto{ color:var(--diff); } .u-ok,.u-na{ color:var(--muted); }
+  .al{ font-size:12px; margin-bottom:2px; } .al-warn{ color:var(--diff); } .al-bad{ color:var(--pagar); font-weight:600; }
+  .bar{ height:10px; background:var(--surface-3); border-radius:99px; overflow:hidden; }
+  .bar > i{ display:block; height:100%; border-radius:99px; }
+  .seg{ display:inline-flex; background:var(--surface-3); border-radius:10px; padding:2px; gap:2px; }
+  .seg button{ border:none; background:transparent; font:inherit; font-size:12px; padding:5px 10px; border-radius:8px; color:var(--muted); cursor:pointer; }
+  .seg button.on{ background:var(--surface); color:var(--ink); font-weight:600; box-shadow:0 1px 2px var(--shadow); }
+  .cal-dia{ display:flex; gap:16px; padding:10px 0; border-bottom:1px solid var(--border); }
+  .cal-fecha{ flex:0 0 120px; display:flex; flex-direction:column; font-size:13px; }
+  .cal-fecha span{ font-size:11.5px; }
+  .cal-items{ flex:1; display:flex; flex-direction:column; gap:6px; }
+  .cal-item{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; }
+  .evo-ctrl{ display:flex; gap:14px; align-items:center; flex-wrap:wrap; font-size:12.5px; }
+  .evo-ctrl label{ display:flex; gap:6px; align-items:center; color:var(--muted); }
+  .evo{ position:relative; }
+  .evo svg{ width:100%; height:auto; display:block; }
+  .evo-legend{ display:flex; gap:16px; font-size:12px; margin-bottom:4px; color:var(--ink); }
+  .evo-leg{ display:inline-flex; align-items:center; gap:6px; }
+  .evo-sw{ width:12px; height:3px; border-radius:2px; display:inline-block; }
+  .evo-grid{ stroke:var(--border); stroke-width:1; }
+  .evo-zero{ stroke:var(--muted-soft); stroke-width:1; }
+  .evo-ax{ fill:var(--muted); font-size:11px; font-family:inherit; }
+  .evo-end{ fill:var(--ink); font-size:11px; font-weight:600; font-family:inherit; }
+  .evo-line{ stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+  .evo-s1{ stroke:var(--ev1); } .evo-s2{ stroke:var(--ev2); }
+  .evo-dot{ stroke:var(--surface); stroke-width:2; } .evo-f1{ fill:var(--ev1); } .evo-f2{ fill:var(--ev2); }
+  .evo-bar-pagar{ fill:var(--pagar); } .evo-bar-favor{ fill:var(--favor); }
+  .evo-cross{ stroke:var(--muted-soft); stroke-width:1; stroke-dasharray:3 3; }
+  .evo-hit{ fill:transparent; cursor:crosshair; }
+  .evo-tip{ position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px 10px; font-size:12px; box-shadow:0 6px 20px var(--shadow); z-index:5; white-space:nowrap; }
+  .evo-tip b{ display:block; margin-bottom:2px; }
+  .evo-empty{ color:var(--muted); font-size:13px; padding:18px 0; }
+  .modal-body p.hint-sm{ font-size:11.5px; color:var(--muted); line-height:1.4; }
+  #mono-summary .kpi .k-value, .panel-kpis .k-value{ font-size:17px; }
 </style>
 
 <div class="app" id="app">
@@ -825,6 +880,7 @@ const state = {
   editingBaseImponible: null, // "jurName|code" de la celda de Base Imponible (CM) en edición manual, o null
   activityPickerTarget: null, // "iibbCM" | "iibbLocal" | "iva" — destino del buscador de actividades AFIP
   clientSearch: "", // filtro de texto de la lista de clientes en la barra lateral
+  extras: {}, // datos globales: vencimientos manuales de IIBB Local, escala de Monotributo
 };
 
 function getClient(id) { return state.clients.find((c) => c.id === id); }
@@ -863,7 +919,7 @@ function loadLocalStore() {
 }
 function saveLocalStore() {
   try {
-    localStorage.setItem(LOCAL_STORE_KEY, JSON.stringify({ clients: state.clients, periods: state.periods }));
+    localStorage.setItem(LOCAL_STORE_KEY, JSON.stringify({ clients: state.clients, periods: state.periods, extras: state.extras }));
   } catch (e) { showToast("No se pudo guardar localmente (¿memoria del navegador llena?)"); }
 }
 function loadSyncConfig() {
@@ -883,6 +939,7 @@ async function initApp() {
   if (local) {
     state.clients = local.clients || [];
     state.periods = local.periods || {};
+    state.extras = local.extras || {};
   } else {
     loadSeedIntoMemory();
     saveLocalStore();
@@ -1025,7 +1082,7 @@ async function attemptAutoGistPush() {
     const res = await fetchGithub(`https://api.github.com/gists/${cfg.gistId}`, {
       method: "PATCH",
       headers: { "Authorization": `Bearer ${cfg.token}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
-      body: JSON.stringify({ files: { [GIST_FILENAME]: { content: JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() }) } } }),
+      body: JSON.stringify({ files: { [GIST_FILENAME]: { content: JSON.stringify({ clients: state.clients, periods: state.periods, extras: state.extras, savedAt: new Date().toISOString() }) } } }),
     });
     gistPushInFlight = false;
     if (!res.ok) {
@@ -1101,7 +1158,7 @@ async function gistPush() {
   clearTimeout(gistRetryTimer);
   gistPushInFlight = true;
   state.syncStatus = "syncing"; renderSidebar();
-  const payload = JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() }, null, 0);
+  const payload = JSON.stringify({ clients: state.clients, periods: state.periods, extras: state.extras, savedAt: new Date().toISOString() }, null, 0);
   try {
     const res = await fetchGithub(`https://api.github.com/gists/${cfg.gistId}`, {
       method: "PATCH",
@@ -1155,6 +1212,7 @@ async function gistPull() {
     if (parsed && Array.isArray(parsed.clients)) {
       state.clients = parsed.clients;
       state.periods = parsed.periods || {};
+      state.extras = parsed.extras || state.extras || {};
       saveLocalStore();
     }
     state.lastSync = new Date();
@@ -1171,7 +1229,7 @@ async function gistPull() {
 // Crea un Gist privado nuevo con el estado actual (para cuando todavía no
 // hay uno configurado) y guarda su ID.
 async function gistCreate(token) {
-  const payload = JSON.stringify({ clients: state.clients, periods: state.periods, savedAt: new Date().toISOString() });
+  const payload = JSON.stringify({ clients: state.clients, periods: state.periods, extras: state.extras, savedAt: new Date().toISOString() });
   try {
     const res = await fetchGithub("https://api.github.com/gists", {
       method: "POST",
@@ -1556,6 +1614,7 @@ function addClient(name, cuit) {
   state.clients.push(c);
   state.clients.sort((a, b) => a.name.localeCompare(b.name, "es"));
   persistClient(c);
+  state.view = "client";
   state.currentClientId = c.id;
   pickDefaultPeriod();
   render();
@@ -1669,7 +1728,7 @@ function renderSidebar() {
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name, "es"));
   const items = visibleClients.map((c) => {
-    const active = c.id === state.currentClientId ? "active" : "";
+    const active = state.view === "client" && c.id === state.currentClientId ? "active" : "";
     return `
       <button class="client-item ${active}" data-action="select-client" data-client="${c.id}">
         <span class="name">${escapeHtml(c.name)}</span>
@@ -1678,7 +1737,8 @@ function renderSidebar() {
           ${c.iva.enabled ? '<span class="chip on">IVA</span>' : ""}
           ${c.iibbLocal.enabled ? '<span class="chip on">IIBB local</span>' : ""}
           ${c.iibbCM.enabled ? '<span class="chip on">IIBB CM</span>' : ""}
-          ${!c.iva.enabled && !c.iibbLocal.enabled && !c.iibbCM.enabled ? '<span class="chip">Sin impuestos</span>' : ""}
+          ${monoEnabled(c) ? '<span class="chip on">Monotributo</span>' : ""}
+          ${!c.iva.enabled && !c.iibbLocal.enabled && !c.iibbCM.enabled && !monoEnabled(c) ? '<span class="chip">Sin impuestos</span>' : ""}
         </span>
       </button>`;
   }).join("");
@@ -1696,6 +1756,10 @@ function renderSidebar() {
         <button class="icon-btn-ghost" data-action="toggle-theme" title="${currentTheme === "dark" ? "Modo claro" : "Modo nocturno"}">${currentTheme === "dark" ? "☀️" : "🌙"}</button>
         <button class="icon-btn-ghost" data-action="open-sync-modal" title="Sincronización">🔄</button>
       </div>
+    </div>
+    <div class="side-section nav-side">
+      <button class="nav-btn ${state.view === "panel" ? "active" : ""}" data-action="nav-view" data-view="panel">📊 Panel de clientes</button>
+      <button class="nav-btn ${state.view === "calendario" ? "active" : ""}" data-action="nav-view" data-view="calendario">📅 Calendario de vencimientos</button>
     </div>
     <div class="side-section">
       <div class="side-label-row">
@@ -1725,12 +1789,16 @@ function taxTabsFor(client) {
   if (client.iva.enabled) tabs.push({ key: "iva", label: "IVA" });
   if (client.iibbLocal.enabled) tabs.push({ key: "iibbLocal", label: "IIBB Local" });
   if (client.iibbCM.enabled) tabs.push({ key: "iibbCM", label: "IIBB Conv. Multilateral" });
+  if (monoEnabled(client)) tabs.push({ key: "mono", label: "Monotributo" });
+  if (client.iva.enabled || client.iibbLocal.enabled || client.iibbCM.enabled) tabs.push({ key: "evolucion", label: "Evolución" });
   tabs.push({ key: "config", label: "Configuración" });
   return tabs;
 }
 
 function renderMain() {
   const main = document.getElementById("main");
+  if (state.view === "panel") { main.innerHTML = renderPanelView(); return; }
+  if (state.view === "calendario") { main.innerHTML = renderCalendarioView(); return; }
   const client = currentClient();
   if (!client) {
     main.innerHTML = `
@@ -1753,7 +1821,7 @@ function renderMain() {
         <div class="meta">
           <span>${escapeHtml(client.cuit || "CUIT sin cargar")}</span>
           <span>·</span>
-          <span>${[client.iva.enabled && "IVA", client.iibbLocal.enabled && "IIBB Local", client.iibbCM.enabled && "IIBB Convenio Multilateral"].filter(Boolean).join(" · ") || "Sin impuestos configurados"}</span>
+          <span>${[client.iva.enabled && "IVA", client.iibbLocal.enabled && "IIBB Local", client.iibbCM.enabled && "IIBB Convenio Multilateral", monoEnabled(client) && "Monotributo"].filter(Boolean).join(" · ") || "Sin impuestos configurados"}</span>
         </div>
       </div>
       <div class="topbar-actions">
@@ -1771,10 +1839,12 @@ function renderMain() {
   `;
 
   const body = document.getElementById("tab-body");
-  if (state.currentTab === "resumen") body.innerHTML = renderResumenTab(client);
+  if (state.currentTab === "resumen") body.innerHTML = variacionBannerHtml(client, state.currentPeriod) + renderResumenTab(client) + monoResumenHtml(client);
   else if (state.currentTab === "iva") body.innerHTML = renderIvaTab(client);
   else if (state.currentTab === "iibbLocal") body.innerHTML = renderIibbLocalTab(client);
   else if (state.currentTab === "iibbCM") body.innerHTML = renderIibbCMTab(client);
+  else if (state.currentTab === "mono") body.innerHTML = renderMonoTab(client);
+  else if (state.currentTab === "evolucion") body.innerHTML = renderEvolucionTab(client);
   else if (state.currentTab === "config") body.innerHTML = renderConfigTab(client);
 }
 
@@ -2388,6 +2458,8 @@ function renderIvaTab(client) {
           <span class="hint">Compras y restitución de débito fiscal (N.C. emitidas)${r.prorrateoExentoEnabled ? ` · <button type="button" class="pill" style="background:var(--accent-soft);color:var(--accent);border:none;cursor:pointer;font:inherit;" data-action="open-prorrateo-modal" data-clientid="${client.id}" data-period="${period}" title="Ver detalle del prorrateo">⚡ Prorrateo ${(r.coefProrrateo * 100).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</button>` : ""}</span>
         </div>
         <div class="card-body">
+          <div style="margin-bottom:10px;"><label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">📂 Importar compras (ARCA, .xlsx)<input type="file" accept=".xlsx" style="display:none;" data-action="import-compras-file" data-clientid="${client.id}" data-period="${period}"></label>
+            <span class="hint-sm" style="margin-left:8px;">Excel "Comprobantes de Compras" del portal IVA</span></div>
           <div class="table-scroll"><table>
             <tr><th>Concepto</th><th>Neto (libro)</th><th>Crédito calculado${r.prorrateoExentoEnabled ? " *" : ""}</th><th>S/ Portal ARCA</th><th>Diferencia</th></tr>
             <tr class="section-row"><td colspan="5">Compras${r.prorrateoExentoEnabled ? ` <span style="font-weight:400;color:var(--muted);">(ya incluye el coeficiente de prorrateo)</span>` : ""}</td></tr>
@@ -2719,6 +2791,14 @@ function renderConfigTab(client) {
             <div class="st"><b>Ingresos Brutos — Convenio Multilateral</b><span>Varias jurisdicciones, coeficiente de distribución</span></div>
             <label class="switch"><input type="checkbox" ${client.iibbCM.enabled ? "checked" : ""} data-cfg="toggle-iibbcm"><span class="slider"></span></label>
           </div>
+          <div class="switch-row">
+            <div class="st"><b>Monotributo</b><span>Categoría, tope de facturación y cuota mensual</span></div>
+            <label class="switch"><input type="checkbox" ${monoEnabled(client) ? "checked" : ""} data-cfg="toggle-mono"><span class="slider"></span></label>
+          </div>
+          ${monoEnabled(client) ? `<div class="form-grid" style="margin-top:8px;">
+            <div class="field"><label>Categoría</label><select data-cfg="mono-cat"><option value="">— elegir —</option>${MONO_CATS.map((k) => `<option value="${k}" ${client.mono.categoria === k ? "selected" : ""}>${k}</option>`).join("")}</select></div>
+            <div class="field"><label>Actividad</label><select data-cfg="mono-tipo"><option value="servicios" ${client.mono.tipo !== "bienes" ? "selected" : ""}>Servicios</option><option value="bienes" ${client.mono.tipo === "bienes" ? "selected" : ""}>Venta de bienes</option></select></div>
+          </div>` : ""}
         </div>
         <p class="foot-note">IVA se presenta siempre junto con IIBB (Local o Convenio Multilateral) para una misma sociedad: activá IVA y el régimen de IIBB que corresponda en este mismo cliente, no como clientes separados.</p>
       </div>
@@ -2918,6 +2998,1033 @@ function syncVentasNetasFromIvaActividad(clientId, period, path) {
   });
 }
 
+// =====================================================================
+// FUNCIONES NUEVAS: datos globales, vencimientos, panel, calendario,
+// importación de compras, alertas, evolución y Monotributo
+// =====================================================================
+
+// ---- Datos globales (no pertenecen a un cliente ni a un período) ----
+function getExtras() {
+  if (!state.extras || typeof state.extras !== "object") state.extras = {};
+  const e = state.extras;
+  if (!e.vencLocal || typeof e.vencLocal !== "object") e.vencLocal = {};
+  if (!e.monoEscala || typeof e.monoEscala !== "object") e.monoEscala = { vigencia: "", rows: [] };
+  if (!Array.isArray(e.monoEscala.rows)) e.monoEscala.rows = [];
+  if (!e.monoEscala.rows.length) {
+    e.monoEscala.rows = MONO_ESCALA_DEFAULT.map((r) => Object.assign({}, r));
+    if (!e.monoEscala.vigencia) e.monoEscala.vigencia = "desde 1/08/2026 (ARCA)";
+  }
+  return e;
+}
+// Escala vigente desde el 1/08/2026 (ARCA). tope = ingresos brutos anuales;
+// cuotas = total mensual (impuesto integrado + aportes SIPA + obra social).
+const MONO_ESCALA_DEFAULT = [
+  { cat: "A", tope: 12009410.45, cuotaServ: 49527.18, cuotaBienes: 49527.18 },
+  { cat: "B", tope: 17595182.74, cuotaServ: 56379.08, cuotaBienes: 56379.08 },
+  { cat: "C", tope: 24670494.31, cuotaServ: 66020.12, cuotaBienes: 64530.58 },
+  { cat: "D", tope: 30628651.43, cuotaServ: 84612.93, cuotaBienes: 82564.81 },
+  { cat: "E", tope: 36028231.33, cuotaServ: 119811.45, cuotaBienes: 108267.51 },
+  { cat: "F", tope: 45151659.41, cuotaServ: 150784.21, cuotaBienes: 129930.65 },
+  { cat: "G", tope: 53995798.87, cuotaServ: 230312.94, cuotaBienes: 158815.05 },
+  { cat: "H", tope: 81924660.37, cuotaServ: 522706.68, cuotaBienes: 317895.01 },
+  { cat: "I", tope: 91699761.90, cuotaServ: 963747.86, cuotaBienes: 474992.78 },
+  { cat: "J", tope: 105012519.20, cuotaServ: 1167299.76, cuotaBienes: 580793.69 },
+  { cat: "K", tope: 126610838.75, cuotaServ: 1614446.04, cuotaBienes: 702103.24 },
+];
+function persistExtras() { saveLocalStore(); scheduleGistPush(); }
+
+// ¿Hay algún importe distinto de cero cargado? (los textos sólo cuentan si
+// son numéricos: un fundamento o una fecha no son "datos cargados").
+function hasAnyValue(o) {
+  if (o == null) return false;
+  if (typeof o === "number") return o !== 0;
+  if (typeof o === "string") return /^-?[\d.,]+$/.test(o.trim()) && num(o) !== 0;
+  if (Array.isArray(o)) return o.some(hasAnyValue);
+  if (typeof o === "object") return Object.keys(o).some((k) => hasAnyValue(o[k]));
+  return false;
+}
+function fmtCompact(n) {
+  const a = Math.abs(n), s = n < 0 ? "-" : "";
+  if (a >= 1e9) return s + (a / 1e9).toLocaleString("es-AR", { maximumFractionDigits: 1 }) + " MM";
+  if (a >= 1e6) return s + (a / 1e6).toLocaleString("es-AR", { maximumFractionDigits: 1 }) + " M";
+  if (a >= 1e3) return s + Math.round(a / 1e3).toLocaleString("es-AR") + " mil";
+  return s + Math.round(a).toLocaleString("es-AR");
+}
+const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+function periodShort(p) { return `${MESES_CORTOS[periodMonth(p) - 1]} ${String(periodYear(p)).slice(2)}`; }
+
+// ---------------------------------------------------------------------
+// Calendario de vencimientos (Errepar 2026). Por mes de vencimiento
+// (enero..diciembre), según la terminación del CUIT.
+// IVA DDJJ: terminaciones 0-1, 2-3, 4-5, 6-7, 8-9
+// Convenio Multilateral: 0-2, 3-5, 6-7, 8-9
+// Monotributo: todas las terminaciones.
+// ---------------------------------------------------------------------
+const VENC_CAL = {
+  2026: {
+    iva: [[19,20,21,22,23],[18,19,20,23,24],[18,19,20,25,26],[20,21,22,23,24],[18,19,20,21,22],[18,19,22,23,24],[20,21,22,23,24],[18,19,20,21,24],[18,21,22,23,24],[19,20,21,22,23],[18,19,20,24,25],[18,21,22,23,28]],
+    cm:  [[15,16,19,20],[13,18,19,20],[13,16,17,18],[15,16,17,20],[15,18,19,20],[16,17,18,19],[15,16,17,20],[14,18,19,20],[15,16,17,18],[15,16,19,20],[13,16,17,18],[15,16,17,18]],
+    mono: [20,20,20,20,20,22,20,20,21,20,20,21],
+  },
+};
+const TAX_LABEL = { iva: "IVA", iibbLocal: "IIBB Local", iibbCM: "IIBB Conv. Mult.", mono: "Monotributo" };
+function monoEnabled(c) { return !!(c && c.mono && c.mono.enabled); }
+function impuestosActivos(c) {
+  const a = [];
+  if (c.iva.enabled) a.push("iva");
+  if (c.iibbLocal.enabled) a.push("iibbLocal");
+  if (c.iibbCM.enabled) a.push("iibbCM");
+  if (monoEnabled(c)) a.push("mono");
+  return a;
+}
+function cuitTerminal(client) {
+  const d = String(client.cuit || "").replace(/\D/g, "");
+  return d.length ? Number(d[d.length - 1]) : null;
+}
+function isoDate(y, m, d) { return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`; }
+// Vencimiento (ISO) de un impuesto para un período fiscal. null si no hay
+// dato (CUIT sin cargar, año sin calendario o IIBB local sin fecha manual).
+function vencimientoDe(client, taxKey, period) {
+  if (taxKey === "iibbLocal") return getExtras().vencLocal[client.id + "|" + period] || null;
+  const vp = addMonths(period, 1), y = periodYear(vp), m = periodMonth(vp);
+  const t = VENC_CAL[y];
+  if (!t) return null;
+  if (taxKey === "mono") return isoDate(y, m, t.mono[m - 1]);
+  const term = cuitTerminal(client);
+  if (term == null) return null;
+  if (taxKey === "iva") return isoDate(y, m, t.iva[m - 1][Math.floor(term / 2)]);
+  if (taxKey === "iibbCM") return isoDate(y, m, t.cm[m - 1][term <= 2 ? 0 : term <= 5 ? 1 : term <= 7 ? 2 : 3]);
+  return null;
+}
+function diasHasta(iso) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  const hoy = new Date();
+  return Math.round((new Date(y, m - 1, d) - new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())) / 86400000);
+}
+function urgenciaDe(dias) {
+  if (dias == null) return "na";
+  if (dias < 0) return "vencido";
+  if (dias <= 3) return "urgente";
+  if (dias <= 7) return "pronto";
+  return "ok";
+}
+const URG_ICON = { vencido: "⛔", urgente: "⏰", pronto: "⏳", ok: "", na: "" };
+function fmtFechaCorta(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("es-AR", { weekday: "short", day: "2-digit", month: "2-digit" }).replace(".", "");
+}
+function diasTexto(dias) {
+  if (dias == null) return "";
+  if (dias < 0) return `vencido hace ${-dias} d`;
+  if (dias === 0) return "vence hoy";
+  if (dias === 1) return "vence mañana";
+  return `en ${dias} días`;
+}
+
+// ---------------------------------------------------------------------
+// Estado de cada impuesto en un período (para el panel de clientes)
+// ---------------------------------------------------------------------
+function saldoDe(aPagar, aFavor) {
+  if (aPagar > 0) return { tipo: "pagar", monto: aPagar };
+  if (aFavor > 0) return { tipo: "favor", monto: aFavor };
+  return { tipo: "cero", monto: 0 };
+}
+function estadoImpuesto(client, taxKey, period) {
+  try {
+    const doc = getDoc(client.id, period);
+    if (taxKey === "iva") {
+      if (!(doc && hasAnyValue(doc.iva))) return { status: "falta" };
+      const r = calcIvaFor(client, period);
+      const ventas = r.debitoBrackets.reduce((s, b) => s + b.neto, 0) + r.exento.ventas;
+      const compras = r.creditoBrackets.reduce((s, b) => s + b.neto, 0);
+      return { status: ventas > 0 && compras > 0 ? "ok" : "parcial", saldo: saldoDe(r.saldoAPagar, round2(r.saldoTecnicoFavorContribuyente + r.saldoLibreDisponibilidad)), nota: ventas > 0 && compras > 0 ? "" : (ventas > 0 ? "sin compras" : "sin ventas") };
+    }
+    if (taxKey === "iibbLocal") {
+      if (!(doc && hasAnyValue(doc.iibbLocal))) return { status: "falta" };
+      const r = calcIibbLocalFor(client, period);
+      return { status: r.baseImponible > 0 ? "ok" : "parcial", saldo: saldoDe(r.saldoAPagar, r.saldoAFavor), nota: r.baseImponible > 0 ? "" : "sin base" };
+    }
+    if (taxKey === "iibbCM") {
+      if (!(doc && hasAnyValue(doc.iibbCM))) return { status: "falta" };
+      const r = calcIibbCMFor(client, period);
+      const ok = r.totales.baseTotal > 0 && !!r.coefVigencia;
+      return { status: ok ? "ok" : "parcial", saldo: saldoDe(round2(r.totales.aPagar), round2(r.totales.aFavor)), nota: ok ? "" : (r.coefVigencia ? "sin base" : "sin coeficientes") };
+    }
+    if (taxKey === "mono") {
+      const raw = doc && doc.mono && doc.mono.facturacion;
+      const cargado = raw !== undefined && raw !== null && String(raw).trim() !== "";
+      return { status: cargado ? "ok" : "falta", mono: monoCalc(client, period) };
+    }
+  } catch (e) { /* un cliente con datos raros no debe romper el panel */ }
+  return { status: "falta" };
+}
+
+// ---------------------------------------------------------------------
+// Alertas por variación (ventas / compras vs. promedio de 3 meses previos)
+// ---------------------------------------------------------------------
+const VAR_UMBRAL = 0.30;
+function serieVentasCompras(client, p) {
+  const doc = getDoc(client.id, p);
+  if (!doc) return null;
+  try {
+    if (client.iva.enabled && hasAnyValue(doc.iva)) {
+      const r = calcIvaFor(client, p);
+      return { ventas: r.ventasNetasGravadas + r.ventasExentasNetas, compras: r.comprasNetasGravadas };
+    }
+    if (client.iibbLocal.enabled && hasAnyValue(doc.iibbLocal)) return { ventas: calcIibbLocalFor(client, p).baseImponible, compras: null };
+    if (client.iibbCM.enabled && hasAnyValue(doc.iibbCM)) return { ventas: calcIibbCMFor(client, p).totales.baseTotal, compras: null };
+  } catch (e) {}
+  return null;
+}
+function variacionAlertas(client, period) {
+  const cur = serieVentasCompras(client, period);
+  if (!cur) return [];
+  const prev = [];
+  for (let i = 1; i <= 8 && prev.length < 3; i++) {
+    const p = addMonths(period, -i);
+    if (p < MIN_PERIOD) break;
+    const v = serieVentasCompras(client, p);
+    if (v) prev.push(v);
+  }
+  if (prev.length < 2) return [];
+  const out = [];
+  ["ventas", "compras"].forEach((k) => {
+    if (cur[k] == null) return;
+    const vals = prev.map((x) => x[k]).filter((x) => x != null);
+    if (vals.length < 2) return;
+    const prom = vals.reduce((s, x) => s + x, 0) / vals.length;
+    if (prom <= 0) return;
+    const pct = (cur[k] - prom) / prom;
+    if (Math.abs(pct) >= VAR_UMBRAL) out.push({ tipo: k, actual: cur[k], promedio: prom, pct, n: vals.length });
+  });
+  return out;
+}
+function variacionTexto(a) {
+  const nombre = a.tipo === "ventas" ? "Ventas netas" : "Compras netas";
+  const signo = a.pct > 0 ? "+" : "";
+  const sug = a.tipo === "ventas"
+    ? (a.pct < 0 ? "¿Faltan facturas por cargar?" : "¿Hay comprobantes duplicados o una operación extraordinaria?")
+    : (a.pct < 0 ? "¿Falta importar las compras del período?" : "¿Hay comprobantes duplicados o una compra extraordinaria (bien de uso)?");
+  return `<b>${nombre}:</b> ${fmtMoney(a.actual)} (${signo}${Math.round(a.pct * 100)}% vs. promedio de ${a.n} meses previos: ${fmtMoney(a.promedio)}). ${sug}`;
+}
+function variacionBannerHtml(client, period) {
+  const al = variacionAlertas(client, period);
+  if (!al.length) return "";
+  return `<div class="warn-banner" style="margin-bottom:12px;"><div class="wb-text"><b>⚠ Variación inusual en ${periodLabel(period)}</b> (más de ${Math.round(VAR_UMBRAL * 100)}% respecto de los meses previos)<br>${al.map(variacionTexto).join("<br>")}</div></div>`;
+}
+function alertasCliente(client, period) {
+  const out = [];
+  variacionAlertas(client, period).forEach((a) => out.push({ nivel: "warn", texto: `${a.tipo === "ventas" ? "Ventas" : "Compras"} ${a.pct > 0 ? "+" : ""}${Math.round(a.pct * 100)}% vs. prom.` }));
+  if (monoEnabled(client)) {
+    const m = monoCalc(client, period);
+    if (m.pctMax != null && m.pctMax >= 1) out.push({ nivel: "bad", texto: "Monotributo: superó el tope máximo (exclusión)" });
+    else if (m.pctMax != null && m.pctMax >= 0.85) out.push({ nivel: "bad", texto: `Monotributo: cerca de la exclusión (faltan ${fmtCompact(m.faltaExclusion)})` });
+    if (m.nivel === "excede") out.push({ nivel: "bad", texto: `Monotributo: superó el tope${m.sugerida ? " — pasa a cat. " + m.sugerida : ""}` });
+    else if (m.nivel === "cerca") out.push({ nivel: "warn", texto: `Monotributo: faltan ${fmtCompact(m.faltaSubir)} para subir${m.siguiente ? " a " + m.siguiente : ""}` });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------
+// Monotributo
+// ---------------------------------------------------------------------
+const MONO_CATS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
+function monoRow(cat) { return getExtras().monoEscala.rows.find((r) => r.cat === cat) || null; }
+function monoEscalaCargada() { return getExtras().monoEscala.rows.some((r) => num(r.tope) > 0); }
+function monoCalc(client, period) {
+  const m = client.mono || {};
+  const meses = [];
+  for (let i = 11; i >= 0; i--) {
+    const p = addMonths(period, -i);
+    const doc = getDoc(client.id, p);
+    const raw = doc && doc.mono && doc.mono.facturacion;
+    meses.push({ period: p, valor: num(raw), cargado: raw !== undefined && raw !== null && String(raw).trim() !== "" });
+  }
+  const total = round2(meses.reduce((s, x) => s + x.valor, 0));
+  const row = m.categoria ? monoRow(m.categoria) : null;
+  const tope = row ? num(row.tope) : 0;
+  const pct = tope > 0 ? total / tope : null;
+  const cuota = row ? num(m.tipo === "bienes" ? row.cuotaBienes : row.cuotaServ) : 0;
+  let sugerida = null, excedeMax = false;
+  if (monoEscalaCargada()) {
+    const cands = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0 && (m.tipo === "bienes" || "ABCDEFGH".indexOf(c) !== -1); });
+    sugerida = cands.find((c) => total <= num(monoRow(c).tope)) || null;
+    excedeMax = !sugerida && cands.length > 0;
+  }
+  const nivel = pct == null ? "na" : pct >= 1 ? "excede" : pct >= 0.85 ? "cerca" : "ok";
+  // Márgenes: hasta la categoría siguiente y hasta la exclusión (tope máximo)
+  const permitidas = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0 && (m.tipo === "bienes" || "ABCDEFGH".indexOf(c) !== -1); });
+  const maxCat = permitidas.length ? permitidas[permitidas.length - 1] : null;
+  const maxTope = maxCat ? num(monoRow(maxCat).tope) : 0;
+  const idx = permitidas.indexOf(m.categoria);
+  const siguiente = idx !== -1 && idx < permitidas.length - 1 ? permitidas[idx + 1] : null;
+  const faltaSubir = tope > 0 ? round2(tope - total) : null;
+  const faltaExclusion = maxTope > 0 ? round2(maxTope - total) : null;
+  const pctMax = maxTope > 0 ? total / maxTope : null;
+  const cargadosN = meses.filter((x) => x.cargado).length;
+  const promedio = cargadosN >= 3 ? round2(total / cargadosN) : 0;
+  const mesesAlTope = promedio > 0 && faltaSubir != null && faltaSubir > 0 ? Math.ceil(faltaSubir / promedio) : null;
+  return { meses, total, tope, pct, cuota, sugerida, excedeMax, nivel, row, cargados: cargadosN, maxCat, maxTope, siguiente, faltaSubir, faltaExclusion, pctMax, promedio, mesesAlTope };
+}
+function monoBarHtml(c) {
+  if (c.pct == null) return "";
+  const w = Math.min(100, Math.round(c.pct * 100));
+  const col = c.nivel === "excede" ? "var(--pagar)" : c.nivel === "cerca" ? "var(--diff)" : "var(--favor)";
+  return `<div class="bar" role="img" aria-label="${Math.round(c.pct * 100)}% del tope"><i style="width:${w}%;background:${col};"></i></div>`;
+}
+function monoMargenHtml(c, m) {
+  if (c.tope <= 0 && c.maxTope <= 0) return "";
+  const fila = (ico, titulo, detalle, color) => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border);"><span>${ico}</span><div style="flex:1;"><b style="color:${color};">${titulo}</b><div class="hint-sm" style="font-size:12px;">${detalle}</div></div></div>`;
+  let f1 = "", f2 = "", f3 = "";
+  if (c.tope > 0) {
+    if (c.faltaSubir < 0) f1 = fila("⛔", `Superaste el tope de la categoría ${escapeHtml(m.categoria)} por ${fmtMoney(-c.faltaSubir)}`, c.sugerida ? `Te corresponde la categoría ${c.sugerida} en la próxima recategorización (enero / julio).` : "", "var(--pagar)");
+    else if (c.siguiente) {
+      const cerca = c.pct >= 0.85;
+      f1 = fila(cerca ? "⚠" : "↗", `Para subir a la categoría ${c.siguiente} faltan ${fmtMoney(c.faltaSubir)}`, `Tope de la ${escapeHtml(m.categoria)}: ${fmtMoney(c.tope)} · usaste ${Math.round(c.pct * 100)}%.${cerca ? " Estás cerca: conviene planificar la facturación." : ""}`, cerca ? "var(--diff)" : "var(--ink)");
+    } else f1 = fila("ℹ", `Estás en la categoría máxima (${escapeHtml(m.categoria)})`, `Faltan ${fmtMoney(c.faltaSubir)} para el tope.`, "var(--ink)");
+  }
+  if (c.maxTope > 0) {
+    const cercaE = c.pctMax >= 0.85, excl = c.pctMax >= 1;
+    f2 = fila(excl ? "⛔" : cercaE ? "⚠" : "🛡", excl ? `Superaste el tope máximo del Monotributo (cat. ${c.maxCat}) por ${fmtMoney(-c.faltaExclusion)}` : `Para la exclusión del Monotributo faltan ${fmtMoney(c.faltaExclusion)}`,
+      excl ? "Corresponde la exclusión: pasar al Régimen General (responsable inscripto)." : `Tope máximo ${m.tipo === "bienes" ? "(venta de bienes)" : "(servicios)"}: categoría ${c.maxCat}, ${fmtMoney(c.maxTope)} · usaste ${Math.round(c.pctMax * 100)}%.${cercaE ? " ¡Riesgo de exclusión!" : ""}`, excl || cercaE ? "var(--pagar)" : "var(--ink)");
+  }
+  if (c.mesesAlTope != null && c.faltaSubir > 0) f3 = fila("📈", `Al ritmo actual (${fmtMoney(c.promedio)} por mes) alcanzarías el tope de tu categoría en unos ${c.mesesAlTope} ${c.mesesAlTope === 1 ? "mes" : "meses"}`, "Estimación con el promedio de los meses cargados; los meses viejos salen de la ventana de 12 meses, así que es aproximado.", "var(--ink)");
+  return `<div class="card" style="margin-top:12px;"><div class="card-head"><h3>Margen de facturación</h3></div><div class="card-body" style="gap:0;padding-top:0;">${f1}${f2}${f3}</div></div>`;
+}
+function monoNivelHtml(c) {
+  if (c.nivel === "excede") return `<span class="pill pagar">⛔ Superó el tope</span>`;
+  if (c.nivel === "cerca") return `<span class="pill" style="background:var(--diff-soft);color:var(--diff);">⚠ Cerca del tope</span>`;
+  if (c.nivel === "ok") return `<span class="pill favor">✓ Dentro del tope</span>`;
+  return "";
+}
+function renderMonoTab(client) {
+  const period = state.currentPeriod;
+  const c = monoCalc(client, period);
+  const m = client.mono || {};
+  const escalaOk = monoEscalaCargada();
+  const vto = vencimientoDe(client, "mono", period);
+  const dias = diasHasta(vto);
+  const aviso = !escalaOk
+    ? `<div class="warn-banner"><div class="wb-text"><b>Falta cargar la escala vigente de Monotributo.</b> Sin la escala no se puede calcular el tope, la cuota ni la categoría que corresponde.</div><div class="wb-actions"><button class="btn btn-sm" data-action="mono-escala-abrir">Cargar escala</button></div></div>`
+    : !m.categoria ? `<div class="warn-banner"><div class="wb-text"><b>Este cliente no tiene categoría asignada.</b> Elegila en Configuración → Impuestos activos → Monotributo.</div></div>` : "";
+  let reco = "";
+  if (escalaOk && c.cargados >= 1) {
+    if (c.excedeMax) reco = `<div class="warn-banner" style="border-color:var(--pagar);color:var(--pagar);background:var(--pagar-soft);"><div class="wb-text"><b>⛔ La facturación de 12 meses supera el máximo de la escala${m.tipo === "bienes" ? "" : " para servicios"}.</b> Corresponde la salida del Monotributo (Régimen General).</div></div>`;
+    else if (c.sugerida && m.categoria && c.sugerida !== m.categoria) reco = `<div class="warn-banner"><div class="wb-text"><b>Categoría sugerida: ${c.sugerida}</b> (hoy: ${escapeHtml(m.categoria)}). Con ${fmtMoney(c.total)} facturados en 12 meses, ${MONO_CATS.indexOf(c.sugerida) > MONO_CATS.indexOf(m.categoria) ? "correspondería recategorizar hacia arriba" : "podría recategorizar hacia abajo"} en la próxima recategorización semestral (enero / julio).</div></div>`;
+  }
+  const filas = c.meses.slice().reverse().map((x) => `
+    <tr>
+      <td style="text-align:left;">${periodLabel(x.period)}</td>
+      <td><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(getDeep(getDoc(client.id, x.period) || {}, "mono.facturacion", ""), "money")}" data-action="mono-fact" data-clientid="${client.id}" data-period="${x.period}"></td>
+    </tr>`).join("");
+  return `
+    <div id="mono-wrap" style="display:flex;flex-direction:column;gap:16px;max-width:900px;">
+      ${aviso}${reco}
+      <div id="mono-summary">${monoSummaryHtml(client, period)}</div>
+      <div class="card">
+        <div class="card-head"><h3>Facturación mes a mes</h3><span class="hint">Últimos 12 meses hasta ${periodLabel(period)} · cargá el total facturado de cada mes</span></div>
+        <div class="card-body">
+          <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Mes</th><th>Facturado</th></tr>${filas}</table></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+            <label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">📂 Importar ventas del año (Excel)<input type="file" accept=".xlsx,.xls,.csv" style="display:none;" data-action="import-mono-file" data-clientid="${client.id}" data-period="${period}"></label>
+            <button class="btn btn-sm" data-action="mono-escala-abrir">⚙ Escala vigente${getExtras().monoEscala.vigencia ? " (" + escapeHtml(getExtras().monoEscala.vigencia) + ")" : ""}</button>
+            <span class="hint-sm">Cuota vence el ${vto ? fmtFechaCorta(vto) : "—"} ${vto ? `<span class="u-${urgenciaDe(dias)}">${URG_ICON[urgenciaDe(dias)]} ${diasTexto(dias)}</span>` : ""}</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+function monoSummaryHtml(client, period) {
+  const c = monoCalc(client, period);
+  const m = client.mono || {};
+  return `
+    <div class="kpi-row">
+      <div class="kpi"><span class="k-label">Categoría</span><span class="k-value">${m.categoria ? escapeHtml(m.categoria) : "—"}</span><span class="k-sub">${m.tipo === "bienes" ? "Venta de bienes" : "Prestación de servicios"}</span></div>
+      <div class="kpi"><span class="k-label">Facturado — 12 meses</span><span class="k-value">${fmtMoney(c.total)}</span><span class="k-sub">${c.cargados} de 12 meses cargados</span></div>
+      <div class="kpi"><span class="k-label">Tope de la categoría</span><span class="k-value">${c.tope > 0 ? fmtMoney(c.tope) : "—"}</span><span class="k-sub">${c.tope > 0 ? (c.total <= c.tope ? "Margen: " + fmtMoney(c.tope - c.total) : "Excedido en " + fmtMoney(c.total - c.tope)) : "Sin escala o categoría"}</span></div>
+      <div class="kpi"><span class="k-label">Cuota mensual</span><span class="k-value">${c.cuota > 0 ? fmtMoney(c.cuota) : "—"}</span><span class="k-sub">Integrado + SIPA + obra social</span></div>
+    </div>
+    ${c.pct != null ? `<div class="card" style="margin-top:12px;"><div class="card-body" style="gap:8px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><b>${Math.round(c.pct * 100)}% del tope utilizado</b>${monoNivelHtml(c)}</div>${monoBarHtml(c)}</div></div>` : ""}
+    ${monoMargenHtml(c, m)}`;
+}
+function monoResumenHtml(client) {
+  if (!monoEnabled(client)) return "";
+  return `<div style="margin-top:16px;"><div class="card"><div class="card-head"><h3>Monotributo</h3><button class="btn btn-sm" data-action="select-tab" data-tab="mono">Abrir</button></div><div class="card-body">${monoSummaryHtml(client, state.currentPeriod)}</div></div></div>`;
+}
+function renderMonoEscalaModal() {
+  const e = getExtras().monoEscala;
+  const filas = MONO_CATS.map((cat) => {
+    const r = e.rows.find((x) => x.cat === cat) || {};
+    const inp = (f) => `<input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(r[f], "money")}" data-action="mono-escala" data-cat="${cat}" data-field="${f}" style="width:100%;">`;
+    return `<tr><td style="text-align:left;font-weight:700;">${cat}</td><td>${inp("tope")}</td><td>${inp("cuotaServ")}</td><td>${inp("cuotaBienes")}</td></tr>`;
+  }).join("");
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal" style="max-width:640px;">
+        <div class="modal-head"><h3>Escala vigente de Monotributo</h3><button class="btn btn-ghost" data-action="mono-escala-cerrar">✕</button></div>
+        <div class="modal-body">
+          <div class="field"><label>Vigencia (texto libre, ej. "desde agosto 2026")</label><input type="text" value="${escapeHtml(e.vigencia || "")}" data-action="mono-escala-vigencia"></div>
+          <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Cat.</th><th>Ingresos brutos (12 m)</th><th>Cuota total servicios</th><th>Cuota total bienes</th></tr>${filas}</table></div>
+          <p class="hint-sm">Se guarda al escribir. La escala es global: vale para todos los clientes. La cuota es el total mensual (impuesto integrado + aportes SIPA + obra social, sin adherentes ni exenciones). Las categorías I, J y K sólo aplican a venta de bienes.</p>
+        </div>
+        <div class="modal-foot"><button class="btn btn-accent" data-action="mono-escala-cerrar">Listo</button></div>
+      </div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------
+// Evolución (gráficos)
+// ---------------------------------------------------------------------
+state.evoRange = 12; state.evoTax = "iva"; state.evoView = "grafico";
+function evoNiceStep(range, n) {
+  const raw = range / n, exp = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / exp;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * exp;
+}
+function evoScale(minV, maxV) {
+  minV = Math.min(0, minV); maxV = Math.max(0, maxV);
+  if (maxV === minV) maxV = 1;
+  const step = evoNiceStep(maxV - minV, 4);
+  return { min: Math.floor(minV / step) * step, max: Math.ceil(maxV / step) * step, step };
+}
+function evoDatos(client, endPeriod, n) {
+  const periods = [];
+  for (let i = n - 1; i >= 0; i--) { const p = addMonths(endPeriod, -i); if (p >= MIN_PERIOD) periods.push(p); }
+  const sum = (arr, k) => arr.reduce((s, b) => s + b[k], 0);
+  return periods.map((p) => {
+    const o = { period: p, ventasNetas: null, ventasTotales: null, comprasNetas: null, comprasTotales: null, saldo: null };
+    const doc = getDoc(client.id, p);
+    try {
+      if (client.iva.enabled && doc && hasAnyValue(doc.iva)) {
+        const r = calcIvaFor(client, p);
+        o.ventasNetas = round2(r.ventasNetasGravadas + r.ventasExentasNetas);
+        o.ventasTotales = round2(o.ventasNetas + sum(r.debitoBrackets, "calculado") - sum(r.restCreditoBrackets, "calculado"));
+        o.comprasNetas = round2(r.comprasNetasGravadas + r.exento.compras - r.exento.ncCompras);
+        o.comprasTotales = round2(o.comprasNetas + sum(r.creditoBrackets, "calculado") - sum(r.restDebitoBrackets, "calculado"));
+        if (state.evoTax === "iva") o.saldo = r.saldoAPagar > 0 ? r.saldoAPagar : -round2(r.saldoTecnicoFavorContribuyente + r.saldoLibreDisponibilidad);
+      }
+      if (state.evoTax === "iibbLocal" && client.iibbLocal.enabled && doc && hasAnyValue(doc.iibbLocal)) {
+        const r = calcIibbLocalFor(client, p); o.saldo = r.saldoAPagar > 0 ? r.saldoAPagar : -r.saldoAFavor;
+      }
+      if (state.evoTax === "iibbCM" && client.iibbCM.enabled && doc && hasAnyValue(doc.iibbCM)) {
+        const r = calcIibbCMFor(client, p); o.saldo = round2(r.totales.aPagar - r.totales.aFavor);
+      }
+    } catch (e) {}
+    return o;
+  });
+}
+// Gráfico SVG. tipo "line" (varias series) o "bar" (una serie con signo).
+function evoChartSvg(opt) {
+  const n = opt.labels.length;
+  const W = 760, H = 250, ml = 62, mr = 74, mt = 14, mb = 30, pw = W - ml - mr, ph = H - mt - mb;
+  const vals = [];
+  opt.series.forEach((s) => s.values.forEach((v) => { if (v != null) vals.push(v); }));
+  if (!vals.length) return `<div class="evo-empty">Sin datos cargados en este rango.</div>`;
+  const sc = evoScale(Math.min(...vals), Math.max(...vals));
+  const x = (i) => ml + pw * (i + 0.5) / n;
+  const y = (v) => mt + ph * (1 - (v - sc.min) / (sc.max - sc.min));
+  let g = "";
+  for (let k = Math.round(sc.min / sc.step); k <= Math.round(sc.max / sc.step); k++) {
+    const v = k * sc.step, yy = y(v).toFixed(1);
+    g += `<line x1="${ml}" x2="${W - mr}" y1="${yy}" y2="${yy}" class="${v === 0 ? "evo-zero" : "evo-grid"}"/><text x="${ml - 8}" y="${(+yy + 3.5).toFixed(1)}" text-anchor="end" class="evo-ax">${fmtCompact(v)}</text>`;
+  }
+  const every = Math.ceil(n / 12);
+  opt.labels.forEach((l, i) => { if (i % every === 0 || i === n - 1) g += `<text x="${x(i).toFixed(1)}" y="${H - 9}" text-anchor="middle" class="evo-ax">${escapeHtml(l)}</text>`; });
+  let marks = "";
+  if (opt.tipo === "bar") {
+    const s = opt.series[0], bw = Math.min(34, pw / n * 0.55), y0 = y(0);
+    s.values.forEach((v, i) => {
+      if (v == null || v === 0) return;
+      const up = v > 0, yy = y(v), h = Math.abs(yy - y0), r = Math.min(4, h), x0 = x(i) - bw / 2;
+      const d = up
+        ? `M${x0},${y0} V${yy + r} Q${x0},${yy} ${x0 + r},${yy} H${x0 + bw - r} Q${x0 + bw},${yy} ${x0 + bw},${yy + r} V${y0} Z`
+        : `M${x0},${y0} V${yy - r} Q${x0},${yy} ${x0 + r},${yy} H${x0 + bw - r} Q${x0 + bw},${yy} ${x0 + bw},${yy - r} V${y0} Z`;
+      marks += `<path d="${d}" class="${up ? "evo-bar-pagar" : "evo-bar-favor"}"/>`;
+    });
+    const li = s.values.map((v, i) => (v != null ? i : -1)).filter((i) => i >= 0).pop();
+    if (li != null && li >= 0 && s.values[li] !== 0) marks += `<text x="${(x(li) + 0).toFixed(1)}" y="${(s.values[li] > 0 ? y(s.values[li]) - 6 : y(s.values[li]) + 14).toFixed(1)}" text-anchor="middle" class="evo-end">${fmtCompact(Math.abs(s.values[li]))}</text>`;
+  } else {
+    opt.series.forEach((s, si) => {
+      let d = "", pen = false;
+      s.values.forEach((v, i) => { if (v == null) { pen = false; return; } d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)} `; pen = true; });
+      marks += `<path d="${d}" class="evo-line evo-s${si + 1}" fill="none"/>`;
+      s.values.forEach((v, i) => { if (v != null) marks += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="4" class="evo-dot evo-f${si + 1}"/>`; });
+      const li = s.values.map((v, i) => (v != null ? i : -1)).filter((i) => i >= 0).pop();
+      if (li != null && li >= 0) marks += `<text x="${(x(li) + 9).toFixed(1)}" y="${(y(s.values[li]) + 3.5).toFixed(1)}" class="evo-end">${fmtCompact(s.values[li])}</text>`;
+    });
+  }
+  let hits = "";
+  opt.labels.forEach((l, i) => {
+    const lines = [l];
+    opt.series.forEach((s) => {
+      const v = s.values[i];
+      if (opt.tipo === "bar") lines.push(v == null ? "Sin datos" : v > 0 ? `A pagar: ${fmtMoney(v)}` : v < 0 ? `A favor: ${fmtMoney(-v)}` : "Saldo cero");
+      else lines.push(`${s.name}: ${v == null ? "sin datos" : fmtMoney(v)}`);
+    });
+    hits += `<rect class="evo-hit" x="${(ml + pw * i / n).toFixed(1)}" y="${mt}" width="${(pw / n).toFixed(1)}" height="${ph}" data-x="${x(i).toFixed(1)}" data-tip="${escapeHtml(lines.join("\n"))}"/>`;
+  });
+  const legend = opt.tipo === "bar"
+    ? `<span class="evo-leg"><i class="evo-sw" style="background:var(--pagar)"></i>▲ A pagar</span><span class="evo-leg"><i class="evo-sw" style="background:var(--favor)"></i>▼ A favor</span>`
+    : opt.series.map((s, si) => `<span class="evo-leg"><i class="evo-sw" style="background:var(--ev${si + 1})"></i>${escapeHtml(s.name)}</span>`).join("");
+  return `<div class="evo"><div class="evo-legend">${legend}</div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(opt.title)}">${g}${marks}<line class="evo-cross" x1="0" x2="0" y1="${mt}" y2="${mt + ph}" style="display:none"/>${hits}</svg>
+    <div class="evo-tip" hidden></div></div>`;
+}
+function renderEvolucionTab(client) {
+  const end = state.currentPeriod;
+  const taxes = [];
+  if (client.iva.enabled) taxes.push(["iva", "IVA"]);
+  if (client.iibbLocal.enabled) taxes.push(["iibbLocal", "IIBB Local"]);
+  if (client.iibbCM.enabled) taxes.push(["iibbCM", "IIBB Conv. Mult."]);
+  if (!taxes.some((t) => t[0] === state.evoTax)) state.evoTax = taxes.length ? taxes[0][0] : "iva";
+  const datos = evoDatos(client, end, state.evoRange);
+  const labels = datos.map((d) => periodShort(d.period));
+  const col = (k) => datos.map((d) => d[k]);
+  const ctrl = `
+    <div class="evo-ctrl">
+      <label>Rango <select data-action="evo-range">${[6, 12, 18, 24].map((n) => `<option value="${n}" ${state.evoRange === n ? "selected" : ""}>${n} meses</option>`).join("")}</select></label>
+      <label>Saldo de <select data-action="evo-tax">${taxes.map((t) => `<option value="${t[0]}" ${state.evoTax === t[0] ? "selected" : ""}>${t[1]}</option>`).join("")}</select></label>
+      <span class="hint-sm">hasta ${periodLabel(end)}</span>
+      <span style="flex:1"></span>
+      <div class="seg"><button class="${state.evoView === "grafico" ? "on" : ""}" data-action="evo-view" data-view="grafico">📈 Gráfico</button><button class="${state.evoView === "tabla" ? "on" : ""}" data-action="evo-view" data-view="tabla">🔢 Tabla</button></div>
+    </div>`;
+  const ivaOn = client.iva.enabled;
+  let body;
+  if (state.evoView === "tabla") {
+    const f = (v) => (v == null ? `<span class="hint-sm">—</span>` : fmtMoney(v));
+    const sal = (v) => (v == null ? `<span class="hint-sm">—</span>` : v > 0 ? `<span class="evo-t-pagar">▲ ${fmtMoney(v)} a pagar</span>` : v < 0 ? `<span class="evo-t-favor">▼ ${fmtMoney(-v)} a favor</span>` : "Saldo cero");
+    body = `<div class="card"><div class="card-body"><div class="table-scroll"><table style="min-width:720px;"><tr><th style="text-align:left;">Período</th>${ivaOn ? "<th>Ventas netas</th><th>Ventas totales</th><th>Compras netas</th><th>Compras totales</th>" : ""}<th>Saldo ${escapeHtml((taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1])}</th></tr>
+      ${datos.slice().reverse().map((d) => `<tr><td style="text-align:left;">${periodLabel(d.period)}</td>${ivaOn ? `<td class="num">${f(d.ventasNetas)}</td><td class="num">${f(d.ventasTotales)}</td><td class="num">${f(d.comprasNetas)}</td><td class="num">${f(d.comprasTotales)}</td>` : ""}<td class="num">${sal(d.saldo)}</td></tr>`).join("")}
+    </table></div></div></div>`;
+  } else {
+    const card = (titulo, hint, svg) => `<div class="card"><div class="card-head"><h3>${titulo}</h3><span class="hint">${hint}</span></div><div class="card-body">${svg}</div></div>`;
+    body = (ivaOn ? card("Ventas", "Netas de IVA y totales (neto + IVA), netas de notas de crédito", evoChartSvg({ tipo: "line", title: "Ventas", labels, series: [{ name: "Netas", values: col("ventasNetas") }, { name: "Totales", values: col("ventasTotales") }] }))
+      + card("Compras", "Netas de IVA y totales (neto + IVA), netas de notas de crédito", evoChartSvg({ tipo: "line", title: "Compras", labels, series: [{ name: "Netas", values: col("comprasNetas") }, { name: "Totales", values: col("comprasTotales") }] })) : "")
+      + card(`Saldo ${(taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1]}`, "Barras hacia arriba: a pagar · hacia abajo: a favor del contribuyente", evoChartSvg({ tipo: "bar", title: "Saldo", labels, series: [{ name: "Saldo", values: col("saldo") }] }));
+  }
+  return `<div style="display:flex;flex-direction:column;gap:16px;max-width:960px;">${ctrl}${body}</div>`;
+}
+
+// ---------------------------------------------------------------------
+// Panel de clientes
+// ---------------------------------------------------------------------
+state.view = "panel";
+state.panelPeriod = addMonths(todayPeriod(), -1) < MIN_PERIOD ? MIN_PERIOD : addMonths(todayPeriod(), -1);
+state.panelFiltro = "todos";
+state.calMonth = todayPeriod();
+
+function panelFilas(period) {
+  return state.clients.slice().sort((a, b) => a.name.localeCompare(b.name, "es")).map((c) => {
+    const taxes = impuestosActivos(c).map((k) => {
+      const est = estadoImpuesto(c, k, period);
+      const vto = vencimientoDe(c, k, period);
+      return Object.assign({ key: k, vto, dias: diasHasta(vto) }, est);
+    });
+    const pend = taxes.filter((t) => t.status !== "ok" && t.vto).sort((a, b) => a.vto.localeCompare(b.vto));
+    return { client: c, taxes, proximo: pend[0] || null, alertas: alertasCliente(c, period), faltan: taxes.some((t) => t.status !== "ok") };
+  });
+}
+function chipEstadoHtml(t, clientId) {
+  const ico = t.status === "ok" ? "✓" : t.status === "parcial" ? "◐" : "○";
+  const extra = t.key === "mono" && t.mono && t.mono.pct != null ? ` ${Math.round(t.mono.pct * 100)}%` : "";
+  const tip = t.status === "ok" ? "Cargado" : t.status === "parcial" ? "Carga parcial" + (t.nota ? " — " + t.nota : "") : "Falta cargar";
+  return `<button type="button" class="est est-${t.status}" title="${tip}" data-action="panel-abrir" data-client="${clientId}" data-tab="${t.key === "mono" ? "mono" : t.key}">${ico} ${TAX_LABEL[t.key]}${extra}</button>`;
+}
+function saldoCeldaHtml(t) {
+  if (!t.saldo || t.key === "mono") return "";
+  const s = t.saldo;
+  const txt = s.tipo === "pagar" ? `<span class="evo-t-pagar">▲ ${fmtMoney(s.monto)}</span>` : s.tipo === "favor" ? `<span class="evo-t-favor">▼ ${fmtMoney(s.monto)}</span>` : `<span class="hint-sm">$ 0</span>`;
+  return `<div class="saldo-l"><span class="hint-sm">${TAX_LABEL[t.key]}</span> ${txt}</div>`;
+}
+function renderPanelView() {
+  const period = state.panelPeriod;
+  const q = normalizeSearch(state.clientSearch || "");
+  let filas = panelFilas(period).filter((f) => !q || normalizeSearch(f.client.name).includes(q) || normalizeSearch(f.client.cuit || "").includes(q));
+  const todasTax = filas.flatMap((f) => f.taxes);
+  const completas = todasTax.filter((t) => t.status === "ok").length;
+  const urgentes = todasTax.filter((t) => t.status !== "ok" && t.dias != null && t.dias <= 7).length;
+  const conAlertas = filas.filter((f) => f.alertas.length).length;
+  const pctComp = todasTax.length ? Math.round(completas / todasTax.length * 100) : 0;
+  const filtro = state.panelFiltro;
+  if (filtro === "faltan") filas = filas.filter((f) => f.faltan);
+  else if (filtro === "pronto") filas = filas.filter((f) => f.taxes.some((t) => t.status !== "ok" && t.dias != null && t.dias <= 7));
+  else if (filtro === "alertas") filas = filas.filter((f) => f.alertas.length);
+  const pill = (k, l) => `<button class="${filtro === k ? "on" : ""}" data-action="panel-filtro" data-filtro="${k}">${l}</button>`;
+  const vp = addMonths(period, 1);
+  const rows = filas.map((f) => {
+    const c = f.client;
+    const prox = f.proximo
+      ? `<span class="u-${urgenciaDe(f.proximo.dias)}"><b>${URG_ICON[urgenciaDe(f.proximo.dias)]} ${fmtFechaCorta(f.proximo.vto)}</b></span><div class="hint-sm">${TAX_LABEL[f.proximo.key]} · ${diasTexto(f.proximo.dias)}</div>`
+      : (f.taxes.length && !f.faltan ? `<span class="evo-t-favor">✓ Todo cargado</span>` : (f.taxes.some((t) => t.status !== "ok") ? `<span class="hint-sm">Sin fecha de vencimiento</span>` : `<span class="hint-sm">—</span>`));
+    const alertas = f.alertas.map((a) => `<div class="al al-${a.nivel}">${a.nivel === "bad" ? "⛔" : "⚠"} ${escapeHtml(a.texto)}</div>`).join("");
+    return `<tr>
+      <td style="text-align:left;"><button type="button" class="linklike" data-action="panel-abrir" data-client="${c.id}" data-tab="resumen"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div></td>
+      <td style="text-align:left;"><div class="ests">${f.taxes.map((t) => chipEstadoHtml(t, c.id)).join("") || `<span class="hint-sm">Sin impuestos</span>`}</div></td>
+      <td style="text-align:left;">${f.taxes.map(saldoCeldaHtml).join("") || ""}</td>
+      <td style="text-align:left;">${prox}</td>
+      <td style="text-align:left;">${alertas}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">${state.clients.length ? "Ningún cliente cumple el filtro." : "Todavía no cargaste clientes."}</td></tr>`;
+  return `
+    <div class="topbar"><div class="client-title"><h1>Panel de clientes</h1><div class="meta"><span>Período fiscal ${periodLabel(period)}</span><span>·</span><span>vencimientos de ${MESES[periodMonth(vp) - 1].toLowerCase()} ${periodYear(vp)}</span></div></div>
+      <div class="topbar-actions"><div class="period-nav"><button data-action="panel-prev" ${period <= MIN_PERIOD ? "disabled" : ""}>‹</button><span class="label">${periodLabel(period)}</span><button data-action="panel-next">›</button></div></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="kpi-row">
+        <div class="kpi"><span class="k-label">Clientes</span><span class="k-value">${filas.length === state.clients.length ? state.clients.length : filas.length + " / " + state.clients.length}</span><span class="k-sub">${todasTax.length} declaraciones en total</span></div>
+        <div class="kpi"><span class="k-label">Declaraciones cargadas</span><span class="k-value">${completas} / ${todasTax.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pctComp}%;background:var(--favor);"></i></div><span class="k-sub">${pctComp}% completo</span></div>
+        <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Vencen en ≤ 7 días o vencidas</span><span class="k-value">${urgentes}</span><span class="k-sub">sin cargar todavía</span></div>
+        <div class="kpi"><span class="k-label">Con alertas</span><span class="k-value">${conAlertas}</span><span class="k-sub">variaciones y Monotributo</span></div>
+      </div>
+      <div class="card"><div class="card-head"><h3>Estado por cliente</h3><div class="seg">${pill("todos", "Todos")}${pill("faltan", "Con faltantes")}${pill("pronto", "Vencen pronto")}${pill("alertas", "Con alertas")}</div></div>
+        <div class="card-body"><div class="table-scroll"><table class="panel-table"><tr><th style="text-align:left;">Cliente</th><th style="text-align:left;">Estado del período</th><th style="text-align:left;">Saldos</th><th style="text-align:left;">Próximo vencimiento</th><th style="text-align:left;">Alertas</th></tr>${rows}</table></div></div>
+        <p class="foot-note">✓ cargado · ◐ carga parcial · ○ falta cargar. Los vencimientos de IVA y Convenio Multilateral salen del calendario según la terminación del CUIT; los de IIBB Local se cargan a mano en Calendario.</p>
+      </div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------
+// Calendario de vencimientos
+// ---------------------------------------------------------------------
+function renderCalendarioView() {
+  const vm = state.calMonth, fp = addMonths(vm, -1), y = periodYear(vm);
+  const sinCal = !VENC_CAL[y];
+  const items = [];
+  state.clients.forEach((c) => {
+    impuestosActivos(c).forEach((k) => {
+      const per = fp; // período fiscal que vence en este mes (Monotributo: cuota del propio mes)
+      const iso = vencimientoDe(c, k, per);
+      if (!iso || iso.slice(0, 7) !== vm) return;
+      const est = estadoImpuesto(c, k, per);
+      items.push({ c, k, iso, per, est });
+    });
+  });
+  items.sort((a, b) => a.iso.localeCompare(b.iso) || a.c.name.localeCompare(b.c.name, "es"));
+  const grupos = {};
+  items.forEach((i) => { (grupos[i.iso] = grupos[i.iso] || []).push(i); });
+  const listado = Object.keys(grupos).sort().map((iso) => {
+    const dias = diasHasta(iso), u = urgenciaDe(dias);
+    return `<div class="cal-dia"><div class="cal-fecha u-${u}"><b>${fmtFechaCorta(iso)}</b><span>${URG_ICON[u]} ${diasTexto(dias)}</span></div><div class="cal-items">${grupos[iso].map((i) => `
+      <div class="cal-item"><button type="button" class="linklike" data-action="panel-abrir" data-client="${i.c.id}" data-tab="${i.k}" data-period="${i.per}"><b>${escapeHtml(i.c.name)}</b></button>
+        <span class="chip on">${TAX_LABEL[i.k]}</span><span class="hint-sm">período ${periodLabel(i.per)}</span>
+        <span class="est est-${i.est.status}" style="margin-left:auto;cursor:default;">${i.est.status === "ok" ? "✓ Cargado" : i.est.status === "parcial" ? "◐ Parcial" : "○ Falta cargar"}</span></div>`).join("")}</div></div>`;
+  }).join("") || `<p style="color:var(--muted);font-size:13px;padding:8px 0;">${sinCal ? `El calendario de ${y} todavía no está cargado.` : "No hay vencimientos de tus clientes en este mes."}</p>`;
+  const locales = state.clients.filter((c) => c.iibbLocal.enabled);
+  const localesHtml = locales.length ? `
+    <div class="card"><div class="card-head"><h3>IIBB Local — vencimientos de ${periodLabel(fp)}</h3><span class="hint">No hay tabla general: cargá la fecha de cada cliente</span></div>
+      <div class="card-body"><div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Cliente</th><th style="text-align:left;">Jurisdicción</th><th style="text-align:left;">Vence el</th><th></th></tr>
+      ${locales.map((c) => `<tr><td style="text-align:left;">${escapeHtml(c.name)}</td><td style="text-align:left;">${escapeHtml(c.iibbLocal.jurisdiccion || "—")}</td>
+        <td style="text-align:left;"><input type="date" value="${escapeHtml(getExtras().vencLocal[c.id + "|" + fp] || "")}" data-action="venc-local" data-client="${c.id}" data-period="${fp}"></td>
+        <td style="text-align:left;"><button class="btn btn-ghost btn-sm" data-action="venc-local-copiar" data-client="${c.id}" data-period="${fp}" title="Copia esta fecha a los demás clientes de la misma jurisdicción">Aplicar a toda la jurisdicción</button></td></tr>`).join("")}
+      </table></div></div></div>` : "";
+  return `
+    <div class="topbar"><div class="client-title"><h1>Calendario de vencimientos</h1><div class="meta"><span>Vencen en ${MESES[periodMonth(vm) - 1].toLowerCase()} ${y}</span><span>·</span><span>período fiscal ${periodLabel(fp)}</span></div></div>
+      <div class="topbar-actions"><div class="period-nav"><button data-action="cal-prev">‹</button><span class="label">${periodLabel(vm)}</span><button data-action="cal-next">›</button></div></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;max-width:960px;">
+      <div class="card"><div class="card-head"><h3>Vencimientos del mes</h3><span class="hint">IVA y Convenio Multilateral por terminación de CUIT (calendario Errepar ${Object.keys(VENC_CAL).join(", ")}) · Monotributo cuota mensual</span></div>
+        <div class="card-body">${sinCal ? `<div class="warn-banner"><div class="wb-text"><b>Falta el calendario de ${y}.</b> Mandame la tabla y la sumo.</div></div>` : ""}${listado}</div></div>
+      ${localesHtml}
+    </div>`;
+}
+
+// ---------------------------------------------------------------------
+// Importar compras (Excel "Comprobantes de Compras" del portal IVA de ARCA)
+// ---------------------------------------------------------------------
+const COMPRA_CONC21 = [
+  { key: "bienes21", label: "Bienes de cambio / servicios" },
+  { key: "bienesUso", label: "Bienes de uso" },
+  { key: "locaciones", label: "Locaciones" },
+  { key: "bienesExterior", label: "Bienes del exterior" },
+];
+function fechaDeCelda(v) {
+  if (typeof v === "number" && v > 30000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 86400000)); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() }; }
+  return parseArcaFecha(v);
+}
+// Reparte el neto gravado entre 10,5 / 21 / 27 según el IVA que figura.
+// Comprobantes con varias alícuotas (ej. un banco) salen con IVA entre dos
+// alícuotas: se resuelve el sistema neto = a + b, iva = a·t1 + b·t2.
+function dividirAlicuotas(neto, iva) {
+  const z = { a105: 0, a21: 0, a27: 0, a0: 0, sin: 0, mixto: false };
+  if (neto <= 0.005) return z;
+  const tol = Math.max(1.5, neto * 0.0006);
+  if (iva < 0.5) { z.a0 = neto; return z; }
+  const rates = [[0.105, "a105"], [0.21, "a21"], [0.27, "a27"]];
+  for (const [t, k] of rates) if (Math.abs(iva - neto * t) <= tol) { z[k] = neto; return z; }
+  const mezcla = (t1, k1, t2, k2) => {
+    const b = (iva - neto * t1) / (t2 - t1);
+    if (b < -tol / t2 || b > neto + tol / t2) return false;
+    const bb = Math.min(neto, Math.max(0, b));
+    z[k2] = round2(bb); z[k1] = round2(neto - bb); z.mixto = true; return true;
+  };
+  if (iva > neto * 0.105 && iva < neto * 0.21 && mezcla(0.105, "a105", 0.21, "a21")) return z;
+  if (iva > neto * 0.21 && iva < neto * 0.27 && mezcla(0.21, "a21", 0.27, "a27")) return z;
+  z.sin = neto;
+  return z;
+}
+function importarComprasArca(clientId, period, file) {
+  const client = getClient(clientId);
+  if (!client) return;
+  const [ty, tm] = period.split("-").map(Number);
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let wb;
+    try { wb = XLSX.read(e.target.result, { type: "array" }); }
+    catch (err) { alert("No pude leer el archivo. ¿Es el Excel \"Comprobantes de Compras\" exportado de ARCA?"); return; }
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+    const norm = (s) => String(s || "").trim().toLowerCase();
+    let hi = -1; const col = {};
+    for (let r = 0; r < Math.min(rows.length, 10); r++) {
+      const names = rows[r].map(norm);
+      if (names.includes("fecha") && names.some((n) => n.indexOf("neto gravado") !== -1)) {
+        hi = r;
+        names.forEach((n, i) => {
+          if (n === "fecha") col.fecha = i;
+          else if (n === "tipo") col.tipo = i;
+          else if (n.indexOf("punto de venta") !== -1) col.pv = i;
+          else if (n.indexOf("número desde") !== -1 || n.indexOf("numero desde") !== -1) col.num = i;
+          else if (n.indexOf("nro. doc") !== -1) col.cuit = i;
+          else if (n.indexOf("denominación") !== -1 || n.indexOf("denominacion") !== -1) col.nombre = i;
+          else if (n.indexOf("neto gravado") !== -1) col.neto = i;
+          else if (n === "no gravado") col.nog = i;
+          else if (n === "exento") col.exento = i;
+          else if (n === "iva") col.iva = i;
+          else if (n === "total") col.total = i;
+          else if (n.indexOf("tipo cambio") !== -1) col.tc = i;
+        });
+        break;
+      }
+    }
+    if (hi === -1 || col.fecha == null || col.tipo == null || col.neto == null || col.iva == null) {
+      alert("No reconocí las columnas. Tiene que ser el Excel \"Comprobantes de Compras\" tal como lo exporta el portal IVA de ARCA.");
+      return;
+    }
+    const comp = [];
+    let fuera = 0;
+    for (let r = hi + 1; r < rows.length; r++) {
+      const row = rows[r];
+      const f = fechaDeCelda(row[col.fecha]);
+      if (!f) continue;
+      if (f.y !== ty || f.m !== tm) { fuera++; continue; }
+      const tipo = String(row[col.tipo] || "").trim();
+      const tc = col.tc != null && num(row[col.tc]) > 0 ? num(row[col.tc]) : 1;
+      const g = (c) => (c == null ? 0 : Math.abs(num(row[c])) * tc);
+      const neto = round2(g(col.neto)), iva = round2(g(col.iva)), exe = round2(g(col.exento)), total = round2(g(col.total));
+      let nog = round2(g(col.nog));
+      // Factura C / comprobantes sin discriminar: todo el importe va como no gravado.
+      if (neto === 0 && iva === 0 && nog === 0 && exe === 0 && total > 0) nog = total;
+      const esNC = /Nota de Cr[eé]dito/i.test(tipo);
+      const esND = /Nota de D[eé]bito/i.test(tipo);
+      const sp = dividirAlicuotas(neto, iva);
+      comp.push({
+        fecha: `${String(f.d).padStart(2, "0")}/${String(f.m).padStart(2, "0")}/${f.y}`, tipo, esNC, esND,
+        pv: String(row[col.pv] || "").trim(), nro: String(row[col.num] || "").trim(),
+        cuit: String(row[col.cuit] || "").trim(), nombre: String(row[col.nombre] || "").trim() || "(sin nombre)",
+        neto, iva, nog, exe, total, otros: total > 0 ? round2(total - neto - iva - nog - exe) : 0, sp,
+      });
+    }
+    if (!comp.length) { alert(`No encontré comprobantes de ${periodLabel(period)} en este archivo (¿es el período correcto?).`); return; }
+    state.comprasImp = { clientId, period, comp, fuera, conceptos: Object.assign({}, (client.iva && client.iva.compraConceptos) || {}) };
+    renderComprasImportModal();
+  };
+  reader.onerror = () => alert("No pude leer el archivo.");
+  reader.readAsArrayBuffer(file);
+}
+// Totales por casillero del papel de trabajo, según el concepto elegido por proveedor.
+function comprasImpTotales() {
+  const s = state.comprasImp;
+  const t = { credito: { prest105: 0, bienes21: 0, bienesUso: 0, locaciones: 0, bienesExterior: 0, prest27: 0 }, restDebito: { ncRecLocaciones: 0, ncRecLocal21: 0, ncRecBienesUso: 0, ncRecServicios: 0 }, exentoC: 0, exentoNC: 0, otros: 0, sin: 0, cant: s.comp.length, cantNC: 0 };
+  s.comp.forEach((c) => {
+    const conc = s.conceptos[c.cuit] || "bienes21";
+    const sp = c.sp;
+    if (c.esND) { /* las N.D. se tratan como facturas */ }
+    if (c.esNC) {
+      t.cantNC++;
+      t.restDebito.ncRecLocaciones += sp.a105;
+      if (conc === "bienesUso") t.restDebito.ncRecBienesUso += sp.a21; else t.restDebito.ncRecLocal21 += sp.a21;
+      t.restDebito.ncRecServicios += sp.a27;
+      t.exentoNC += c.nog + c.exe + sp.a0;
+      t.otros -= c.otros;
+    } else {
+      t.credito.prest105 += sp.a105;
+      t.credito[conc] = (t.credito[conc] || 0) + sp.a21;
+      t.credito.prest27 += sp.a27;
+      t.exentoC += c.nog + c.exe + sp.a0;
+      t.otros += c.otros;
+    }
+    t.sin += sp.sin;
+  });
+  ["credito", "restDebito"].forEach((g) => Object.keys(t[g]).forEach((k) => (t[g][k] = round2(t[g][k]))));
+  t.exentoC = round2(t.exentoC); t.exentoNC = round2(t.exentoNC); t.otros = round2(t.otros); t.sin = round2(t.sin);
+  return t;
+}
+function renderComprasImportModal() {
+  const s = state.comprasImp;
+  if (!s) return;
+  const t = comprasImpTotales();
+  const prov = {};
+  s.comp.forEach((c) => {
+    const p = prov[c.cuit] = prov[c.cuit] || { cuit: c.cuit, nombre: c.nombre, n: 0, neto: 0, iva: 0, a21: 0 };
+    const sg = c.esNC ? -1 : 1;
+    p.n++; p.neto += sg * c.neto; p.iva += sg * c.iva; p.a21 += c.sp.a21;
+  });
+  const provRows = Object.values(prov).sort((a, b) => b.neto - a.neto).map((p) => {
+    const conc = s.conceptos[p.cuit] || "bienes21";
+    const sel = p.a21 > 0
+      ? `<select data-action="compras-concepto" data-cuit="${escapeHtml(p.cuit)}" style="max-width:240px;">${COMPRA_CONC21.map((o) => `<option value="${o.key}" ${conc === o.key ? "selected" : ""}>${o.label}</option>`).join("")}</select>`
+      : `<span class="hint-sm">—</span>`;
+    return `<tr><td style="text-align:left;"><b>${escapeHtml(p.nombre)}</b><div class="hint-sm">${escapeHtml(p.cuit)} · ${p.n} comprobante${p.n > 1 ? "s" : ""}</div></td><td class="num">${fmtMoney(round2(p.neto))}</td><td class="num">${fmtMoney(round2(p.iva))}</td><td style="text-align:left;">${sel}</td></tr>`;
+  }).join("");
+  const labelCr = { prest105: "Prestaciones de servicios 10,5%", bienes21: "Bienes de cambio / servicios 21%", bienesUso: "Bienes de uso 21%", locaciones: "Locaciones 21%", bienesExterior: "Bienes del exterior 21%", prest27: "Prestaciones de servicios 27%" };
+  const labelNC = { ncRecLocaciones: "N.C. recibidas 10,5%", ncRecLocal21: "N.C. recibidas — bienes de cambio 21%", ncRecBienesUso: "N.C. recibidas — bienes de uso 21%", ncRecServicios: "N.C. recibidas 27%" };
+  const totRows = [].concat(
+    Object.keys(labelCr).filter((k) => t.credito[k]).map((k) => `<tr><td style="text-align:left;">${labelCr[k]}</td><td class="num">${fmtMoney(t.credito[k])}</td></tr>`),
+    Object.keys(labelNC).filter((k) => t.restDebito[k]).map((k) => `<tr><td style="text-align:left;">${labelNC[k]}</td><td class="num">${fmtMoney(t.restDebito[k])}</td></tr>`),
+    t.exentoC ? [`<tr><td style="text-align:left;">Compras exentas / no gravadas</td><td class="num">${fmtMoney(t.exentoC)}</td></tr>`] : [],
+    t.exentoNC ? [`<tr><td style="text-align:left;">N.C. de compra exentas / no gravadas</td><td class="num">${fmtMoney(t.exentoNC)}</td></tr>`] : []
+  ).join("");
+  const mixtos = s.comp.filter((c) => c.sp.mixto).length;
+  const avisos = [];
+  if (t.sin > 0) avisos.push(`<b>${fmtMoney(t.sin)}</b> de neto tienen una alícuota que no pude identificar (10,5 / 21 / 27%): quedan <b>sin cargar</b>, revisalos a mano.`);
+  if (mixtos > 0) avisos.push(`${mixtos} comprobante${mixtos > 1 ? "s tienen" : " tiene"} más de una alícuota: repartí el neto entre 10,5% y 21% (o 21% y 27%) según el IVA facturado.`);
+  if (Math.abs(t.otros) > 1) avisos.push(`<b>${fmtMoney(t.otros)}</b> de diferencia entre el total y neto + IVA: son percepciones, impuestos internos u otros tributos. <b>No se cargan solos</b>: si son percepciones de IVA, cargalas en "Percepciones sufridas".`);
+  if (s.fuera > 0) avisos.push(`Se ignoraron ${s.fuera} comprobante${s.fuera > 1 ? "s" : ""} del archivo por no pertenecer a ${periodLabel(s.period)}.`);
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal" style="max-width:760px;">
+        <div class="modal-head"><h3>Importar compras — ${periodLabel(s.period)}</h3><button class="btn btn-ghost" data-action="compras-cancelar">✕</button></div>
+        <div class="modal-body">
+          <p class="hint-sm" style="margin:0;">${t.cant} comprobantes (${t.cantNC} N.C.). Para los proveedores con IVA 21% elegí a qué casillero va su compra; se recuerda para la próxima vez.</p>
+          <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Proveedor</th><th>Neto</th><th>IVA</th><th style="text-align:left;">Concepto del 21%</th></tr>${provRows}</table></div>
+          <div style="font-weight:700;font-size:13px;">Se va a cargar en el papel de trabajo (Neto libro)</div>
+          <div class="table-scroll"><table style="min-width:0;">${totRows || `<tr><td>Nada para cargar</td></tr>`}</table></div>
+          ${avisos.length ? `<div class="warn-banner"><div class="wb-text">${avisos.join("<br>")}</div></div>` : ""}
+          <p class="hint-sm" style="margin:0;">Reemplaza el neto de compras (y las exentas de compra) que ya hubiera cargado en este período. No toca la columna "S/ Portal ARCA".</p>
+        </div>
+        <div class="modal-foot"><button class="btn" data-action="compras-cancelar">Cancelar</button><button class="btn btn-accent" data-action="compras-aplicar">Cargar en el período</button></div>
+      </div>
+    </div>`;
+}
+function aplicarComprasImport() {
+  const s = state.comprasImp;
+  if (!s) return;
+  const t = comprasImpTotales();
+  const client = getClient(s.clientId);
+  touchDoc(s.clientId, s.period, (doc) => {
+    Object.keys(t.credito).forEach((k) => setDeep(doc, `iva.credito.${k}.neto`, t.credito[k]));
+    Object.keys(t.restDebito).forEach((k) => setDeep(doc, `iva.restDebito.${k}.neto`, t.restDebito[k]));
+    setDeep(doc, "iva.exento.compras", t.exentoC);
+    setDeep(doc, "iva.exento.ncCompras", t.exentoNC);
+  });
+  mutateClient(s.clientId, (c) => {
+    const prev = Object.assign({}, c.iva.compraConceptos || {});
+    Object.keys(s.conceptos).forEach((cuit) => { if (s.conceptos[cuit] && s.conceptos[cuit] !== "bienes21") prev[cuit] = s.conceptos[cuit]; else delete prev[cuit]; });
+    c.iva.compraConceptos = prev;
+  });
+  state.comprasImp = null;
+  document.getElementById("modal-root").innerHTML = "";
+  render();
+  showToast(`Compras de ${periodLabel(s.period)} cargadas (${t.cant} comprobantes).`);
+}
+
+// ---------------------------------------------------------------------
+// Eventos de las funciones nuevas
+// ---------------------------------------------------------------------
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const a = btn.dataset.action;
+  if (a === "nav-view") { state.view = btn.dataset.view; render(); }
+  else if (a === "panel-abrir") {
+    state.view = "client"; state.currentClientId = btn.dataset.client;
+    state.currentPeriod = btn.dataset.period || state.panelPeriod;
+    state.currentTab = btn.dataset.tab || "resumen"; render();
+  }
+  else if (a === "panel-prev") { if (state.panelPeriod > MIN_PERIOD) { state.panelPeriod = addMonths(state.panelPeriod, -1); render(); } }
+  else if (a === "panel-next") { state.panelPeriod = addMonths(state.panelPeriod, 1); render(); }
+  else if (a === "panel-filtro") { state.panelFiltro = btn.dataset.filtro; render(); }
+  else if (a === "cal-prev") { state.calMonth = addMonths(state.calMonth, -1); render(); }
+  else if (a === "cal-next") { state.calMonth = addMonths(state.calMonth, 1); render(); }
+  else if (a === "venc-local-copiar") {
+    const c = getClient(btn.dataset.client), ev = getExtras().vencLocal, k = c.id + "|" + btn.dataset.period, v = ev[k];
+    if (!v) { showToast("Primero cargá la fecha de este cliente."); return; }
+    state.clients.filter((x) => x.iibbLocal.enabled && x.iibbLocal.jurisdiccion === c.iibbLocal.jurisdiccion).forEach((x) => { ev[x.id + "|" + btn.dataset.period] = v; });
+    persistExtras(); render(); showToast("Fecha aplicada a los clientes de " + (c.iibbLocal.jurisdiccion || "la misma jurisdicción") + ".");
+  }
+  else if (a === "evo-view") { state.evoView = btn.dataset.view; render(); }
+  else if (a === "mono-escala-abrir") renderMonoEscalaModal();
+  else if (a === "mono-escala-cerrar") { document.getElementById("modal-root").innerHTML = ""; render(); }
+  else if (a === "compras-cancelar") { state.comprasImp = null; document.getElementById("modal-root").innerHTML = ""; }
+  else if (a === "compras-aplicar") aplicarComprasImport();
+});
+document.addEventListener("change", (e) => {
+  const t = e.target, a = t.dataset && t.dataset.action;
+  if (!a) return;
+  if (a === "import-compras-file") {
+    const file = t.files && t.files[0];
+    const { clientid, period } = t.dataset;
+    t.value = "";
+    if (file) importarComprasArca(clientid, period, file);
+  } else if (a === "compras-concepto") {
+    state.comprasImp.conceptos[t.dataset.cuit] = t.value;
+    const sc = document.querySelector("#modal-root .modal");
+    const top = sc ? sc.scrollTop : 0;
+    renderComprasImportModal();
+    const sc2 = document.querySelector("#modal-root .modal"); if (sc2) sc2.scrollTop = top;
+  } else if (a === "venc-local") {
+    const ev = getExtras().vencLocal, k = t.dataset.client + "|" + t.dataset.period;
+    if (t.value) ev[k] = t.value; else delete ev[k];
+    persistExtras(); render();
+  } else if (a === "evo-range") { state.evoRange = Number(t.value); render(); }
+  else if (a === "evo-tax") { state.evoTax = t.value; render(); }
+});
+document.addEventListener("input", (e) => {
+  const t = e.target, a = t.dataset && t.dataset.action;
+  if (a === "mono-fact") {
+    touchDoc(t.dataset.clientid, t.dataset.period, (doc) => setDeep(doc, "mono.facturacion", t.value));
+    const el = document.getElementById("mono-summary"), c = getClient(t.dataset.clientid);
+    if (el && c) el.innerHTML = monoSummaryHtml(c, state.currentPeriod);
+  } else if (a === "mono-escala") {
+    const e2 = getExtras().monoEscala;
+    let r = e2.rows.find((x) => x.cat === t.dataset.cat);
+    if (!r) { r = { cat: t.dataset.cat }; e2.rows.push(r); }
+    r[t.dataset.field] = t.value; persistExtras();
+  } else if (a === "mono-escala-vigencia") { getExtras().monoEscala.vigencia = t.value; persistExtras(); }
+});
+// Reformatear montos al salir del campo (Monotributo)
+document.addEventListener("focusout", (e) => {
+  const t = e.target, a = t && t.dataset && t.dataset.action;
+  if (a !== "mono-fact" && a !== "mono-escala") return;
+  const raw = String(t.value || "").trim();
+  if (raw === "") return;
+  const f = fmtMoneyRaw(num(raw));
+  if (f === raw) return;
+  t.value = f;
+  if (a === "mono-fact") { touchDoc(t.dataset.clientid, t.dataset.period, (doc) => setDeep(doc, "mono.facturacion", f)); }
+  else { const e2 = getExtras().monoEscala; const r = e2.rows.find((x) => x.cat === t.dataset.cat); if (r) { r[t.dataset.field] = f; persistExtras(); } }
+}, true);
+
+// ---------------------------------------------------------------------
+// Monotributo: importar las ventas del último año y ordenarlas por mes
+// (Excel de "Mis Comprobantes — Emitidos" o "Comprobantes de Ventas")
+// ---------------------------------------------------------------------
+function fechaAnyToYM(v) {
+  if (typeof v === "number" && v > 30000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 86400000)); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 }; }
+  const t = String(v || "").trim();
+  let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return { y: Number(m[3]), m: Number(m[2]) };
+  m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return { y: Number(m[1]), m: Number(m[2]) };
+  return null;
+}
+function importarVentasMono(clientId, period, file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let wb;
+    try { wb = XLSX.read(e.target.result, { type: "array" }); }
+    catch (err) { alert("No pude leer el archivo. ¿Es el Excel de comprobantes emitidos de ARCA?"); return; }
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+    const norm = (x) => String(x || "").trim().toLowerCase();
+    let hi = -1; const col = {};
+    for (let r = 0; r < Math.min(rows.length, 15); r++) {
+      const names = rows[r].map(norm);
+      const iF = names.findIndex((n) => n.indexOf("fecha") === 0);
+      const iT = names.findIndex((n) => n === "imp. total" || n === "importe total" || n === "total" || n === "imp total");
+      if (iF !== -1 && iT !== -1) {
+        hi = r; col.fecha = iF; col.total = iT;
+        names.forEach((n, i) => {
+          if (n === "tipo" || n === "tipo de comprobante") col.tipo = i;
+          else if (n.indexOf("tipo cambio") !== -1 || n.indexOf("tipo de cambio") !== -1) col.tc = i;
+        });
+        break;
+      }
+    }
+    if (hi === -1 || col.tipo == null) { alert("No reconocí las columnas. Necesito una columna de fecha, una de tipo de comprobante y una de importe total (Excel de \"Mis Comprobantes\" emitidos o de \"Comprobantes de Ventas\")."); return; }
+    const meses = {}; let recibos = 0, leidos = 0;
+    for (let r = hi + 1; r < rows.length; r++) {
+      const row = rows[r], f = fechaAnyToYM(row[col.fecha]);
+      if (!f) continue;
+      const tipo = String(row[col.tipo] || "").trim();
+      if (/recibo/i.test(tipo)) { recibos++; continue; }
+      const tc = col.tc != null && num(row[col.tc]) > 0 ? num(row[col.tc]) : 1;
+      let monto = Math.abs(num(row[col.total])) * tc;
+      if (/Nota de Cr[eé]dito/i.test(tipo)) monto = -monto;
+      const ym = `${f.y}-${String(f.m).padStart(2, "0")}`;
+      const o = meses[ym] = meses[ym] || { total: 0, n: 0, nc: 0 };
+      o.total = round2(o.total + monto); o.n++; if (monto < 0) o.nc++;
+      leidos++;
+    }
+    if (!leidos) { alert("No encontré comprobantes con fecha en este archivo."); return; }
+    state.monoImp = { clientId, period, meses, recibos, ceros: true };
+    renderMonoImportModal();
+  };
+  reader.onerror = () => alert("No pude leer el archivo.");
+  reader.readAsArrayBuffer(file);
+}
+function monoImpVentana() {
+  const s = state.monoImp, v = [];
+  for (let i = 11; i >= 0; i--) v.push(addMonths(s.period, -i));
+  return v;
+}
+function renderMonoImportModal() {
+  const s = state.monoImp; if (!s) return;
+  const ventana = monoImpVentana();
+  const todos = Array.from(new Set(Object.keys(s.meses).concat(ventana))).sort();
+  const rowsHtml = todos.map((ym) => {
+    const o = s.meses[ym], enV = ventana.indexOf(ym) !== -1;
+    const doc = getDoc(s.clientId, ym), actual = doc && doc.mono && doc.mono.facturacion;
+    const hayActual = actual !== undefined && actual !== null && String(actual).trim() !== "";
+    return `<tr${enV ? "" : ' style="opacity:.55;"'}><td style="text-align:left;">${periodLabel(ym)}${enV ? "" : ' <span class="hint-sm">(fuera de los 12 meses)</span>'}</td><td class="num">${o ? o.n + (o.nc ? ` (${o.nc} N.C.)` : "") : "—"}</td><td class="num">${o ? fmtMoney(o.total) : `<span class="hint-sm">sin ventas</span>`}</td><td class="num">${hayActual ? fmtMoney(num(actual)) : "—"}</td></tr>`;
+  }).join("");
+  const totVent = round2(ventana.reduce((a, ym) => a + (s.meses[ym] ? s.meses[ym].total : 0), 0));
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-backdrop"><div class="modal" style="max-width:700px;">
+      <div class="modal-head"><h3>Importar ventas — Monotributo</h3><button class="btn btn-ghost" data-action="mono-imp-cancelar">✕</button></div>
+      <div class="modal-body">
+        <p class="hint-sm" style="margin:0;">Ventas agrupadas por mes de emisión, netas de notas de crédito. Total de los 12 meses hasta ${periodLabel(s.period)}: <b>${fmtMoney(totVent)}</b>.${s.recibos ? ` Se ignoraron ${s.recibos} recibos (no son ventas).` : ""}</p>
+        <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Mes</th><th>Comprobantes</th><th>Facturado (archivo)</th><th>Hoy en la app</th></tr>${rowsHtml}</table></div>
+        <label style="display:flex;gap:8px;align-items:center;font-size:13px;"><input type="checkbox" data-action="mono-imp-ceros" ${s.ceros ? "checked" : ""}> Cargar $ 0 en los meses de los 12 sin comprobantes</label>
+        <p class="hint-sm" style="margin:0;">Reemplaza lo que ya hubiera cargado en esos meses.</p>
+      </div>
+      <div class="modal-foot"><button class="btn" data-action="mono-imp-cancelar">Cancelar</button><button class="btn btn-accent" data-action="mono-imp-aplicar">Cargar facturación</button></div>
+    </div></div>`;
+}
+function aplicarMonoImport() {
+  const s = state.monoImp; if (!s) return;
+  const ventana = monoImpVentana();
+  Object.keys(s.meses).forEach((ym) => touchDoc(s.clientId, ym, (doc) => setDeep(doc, "mono.facturacion", s.meses[ym].total)));
+  if (s.ceros) ventana.forEach((ym) => { if (!s.meses[ym]) touchDoc(s.clientId, ym, (doc) => setDeep(doc, "mono.facturacion", 0)); });
+  state.monoImp = null; document.getElementById("modal-root").innerHTML = ""; render();
+  showToast("Facturación mensual cargada desde el Excel.");
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-action]"); if (!a) return;
+  if (a.dataset.action === "mono-imp-cancelar") { state.monoImp = null; document.getElementById("modal-root").innerHTML = ""; }
+  else if (a.dataset.action === "mono-imp-aplicar") aplicarMonoImport();
+});
+document.addEventListener("change", (e) => {
+  const t = e.target, a = t.dataset && t.dataset.action;
+  if (a === "import-mono-file") { const f = t.files && t.files[0]; const { clientid, period } = t.dataset; t.value = ""; if (f) importarVentasMono(clientid, period, f); }
+  else if (a === "mono-imp-ceros") { state.monoImp.ceros = t.checked; }
+});
+
+// Tooltip de los gráficos
+document.addEventListener("mousemove", (e) => {
+  const h = e.target.closest && e.target.closest(".evo-hit");
+  document.querySelectorAll(".evo-tip").forEach((tp) => { if (!h || !tp.parentNode.contains(h)) tp.hidden = true; });
+  document.querySelectorAll(".evo-cross").forEach((cr) => { if (!h || !cr.parentNode.parentNode.contains(h)) cr.style.display = "none"; });
+  if (!h) return;
+  const wrap = h.closest(".evo"), tip = wrap.querySelector(".evo-tip"), cross = wrap.querySelector(".evo-cross");
+  const lines = h.dataset.tip.split("\n");
+  tip.innerHTML = `<b>${escapeHtml(lines[0])}</b>` + lines.slice(1).map((l) => `<div>${escapeHtml(l)}</div>`).join("");
+  tip.hidden = false;
+  const r = wrap.getBoundingClientRect();
+  let left = e.clientX - r.left + 14;
+  if (left + tip.offsetWidth > r.width) left = e.clientX - r.left - tip.offsetWidth - 14;
+  tip.style.left = Math.max(0, left) + "px"; tip.style.top = Math.max(0, e.clientY - r.top - 10) + "px";
+  cross.setAttribute("x1", h.dataset.x); cross.setAttribute("x2", h.dataset.x); cross.style.display = "";
+});
+
 // ---------------------------------------------------------------------
 // Delegación de eventos
 // ---------------------------------------------------------------------
@@ -3003,7 +4110,7 @@ document.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const action = btn.dataset.action;
-  if (action === "select-client") { state.currentClientId = btn.dataset.client; pickDefaultPeriod(); state.currentTab = "resumen"; render(); }
+  if (action === "select-client") { state.view = "client"; state.currentClientId = btn.dataset.client; pickDefaultPeriod(); state.currentTab = "resumen"; render(); }
   else if (action === "select-tab") { state.currentTab = btn.dataset.tab; render(); }
   else if (action === "period-prev") { if (state.currentPeriod > MIN_PERIOD) { state.currentPeriod = addMonths(state.currentPeriod, -1); state.selectedCoefDesde = null; render(); } }
   else if (action === "period-next") { state.currentPeriod = addMonths(state.currentPeriod, 1); state.selectedCoefDesde = null; render(); }
@@ -3103,6 +4210,9 @@ function handleConfigInput(t) {
   else if (cfg === "toggle-turiva") touchDoc(c.id, state.currentPeriod, (doc) => setDeep(doc, "iva.turIvaEnabled", t.checked));
   else if (cfg === "toggle-iibblocal") mutateClient(c.id, (cl) => (cl.iibbLocal.enabled = t.checked));
   else if (cfg === "toggle-iibbcm") mutateClient(c.id, (cl) => (cl.iibbCM.enabled = t.checked));
+  else if (cfg === "toggle-mono") mutateClient(c.id, (cl) => { cl.mono = Object.assign({ categoria: "", tipo: "servicios" }, cl.mono || {}); cl.mono.enabled = t.checked; });
+  else if (cfg === "mono-cat") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.categoria = t.value; });
+  else if (cfg === "mono-tipo") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.tipo = t.value; });
   else if (cfg === "decreto814rate") mutateClient(c.id, (cl) => (cl.iva.decreto814Rate = t.value));
   else if (cfg === "iva-saldo-tecnico-inicial") mutateClient(c.id, (cl) => (cl.iva.saldosIniciales.saldoTecnicoAnterior = t.value));
   else if (cfg === "iva-saldo-libre-inicial") mutateClient(c.id, (cl) => (cl.iva.saldosIniciales.saldoLibreDisponibilidadAnterior = t.value));
