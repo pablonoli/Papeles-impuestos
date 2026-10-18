@@ -2020,6 +2020,123 @@ function openPdfPreviewModal(client, scope) {
   wireModalBackdropClose();
 }
 
+// ---------------------------------------------------------------------
+// Catálogo de exenciones (Ley de IVA t.o. 1997, Art. 7 y 8; Dec. 692/98).
+// Se usa en "Apertura de Otros Conceptos" para que cada venta exenta quede
+// con su fundamento legal y con una guía de qué verificar antes de
+// declararla (el error típico es facturar como exento algo que es gravado,
+// por ejemplo una venta AL Estado). Es una ayuda: la calificación final de
+// cada operación es del profesional.
+// ---------------------------------------------------------------------
+const EXENCIONES_GRUPOS = [
+  { g: "Bienes (Art. 7 incs. a a g)", ids: ["libros", "valores", "oro_monedas", "agua_leche_med", "aeronaves"] },
+  { g: "Prestaciones y locaciones (Art. 7 inc. h)", ids: ["estado", "educacion", "culto", "entidades", "salud", "espectaculos", "taxi", "transp_intl", "financieras", "locacion_viv", "geriatricos", "otras_h"] },
+  { g: "Exportaciones (Art. 8)", ids: ["exportacion"] },
+  { g: "Otros supuestos", ids: ["no_gravado"] },
+];
+const EXENCIONES = {
+  libros: { corto: "Libros, diarios y revistas", ley: "Art. 7 inc. a)", dr: "",
+    que: "Libros, folletos e impresos similares, diarios, revistas y publicaciones periódicas (incluidas suscripciones digitales de información en línea), en toda la cadena de comercialización y cualquiera sea el soporte.",
+    verificar: ["Que sea la obra o publicación en sí: los bienes gravados que se vendan junto con ella con precio diferenciado (regalos, accesorios) NO están exentos.", "Los servicios de distribución, reparto o devolución prestados a editoriales están excluidos de la exención."] },
+  valores: { corto: "Sellos, billetes, títulos, pólizas", ley: "Art. 7 incs. b) y c)", dr: "Art. 27",
+    que: "Sellos de correo y timbres fiscales sin obliterar, papel timbrado, billetes de banco, títulos de acciones u obligaciones; sellos y pólizas de cotización o capitalización, billetes de juegos de sorteo o apuestas autorizados.",
+    verificar: ["Que los títulos sean válidos y estén firmados.", "Quedan excluidos los talonarios de cheques y análogos."] },
+  oro_monedas: { corto: "Oro amonedado / monedas", ley: "Art. 7 incs. d) y e)", dr: "Art. 28",
+    que: "Oro amonedado o en barras de buena entrega (999/1000) que comercialicen entidades oficiales, bancos autorizados o casas de cambio autorizadas por el BCRA; monedas metálicas de curso legal o cotización oficial.",
+    verificar: ["Que el vendedor sea una entidad oficial, banco o casa de cambio autorizada (en el caso del oro).", "Que se trate de oro de 999/1000 de pureza."] },
+  agua_leche_med: { corto: "Agua, leche y medicamentos (reventa)", ley: "Art. 7 inc. f)", dr: "Art. 29",
+    que: "Agua ordinaria natural y leche fluida o en polvo sin aditivos, cuando compra un consumidor final, el Estado, comedores escolares/universitarios u obras sociales; y especialidades medicinales de uso humano en su reventa por droguerías y farmacias.",
+    verificar: ["El comprador debe ser consumidor final o uno de los entes enumerados: si le vendés a otro comerciante, es gravada.", "Medicamentos: solo la reventa, y siempre que hayan tributado IVA en la primera venta (importador o fabricante).", "La leche no debe tener aditivos."] },
+  aeronaves: { corto: "Aeronaves y embarcaciones", ley: "Art. 7 inc. g)", dr: "",
+    que: "Aeronaves para transporte de pasajeros o cargas (y las de defensa y seguridad); embarcaciones y artefactos navales cuando el adquirente es el Estado nacional o sus organismos.",
+    verificar: ["Aeronaves: que estén destinadas al transporte de pasajeros/cargas o a defensa y seguridad.", "Embarcaciones: solo si el adquirente es el Estado nacional u organismos de su dependencia."] },
+  estado: { corto: "Prestaciones realizadas POR el Estado", ley: "Art. 7 inc. h) ap. 1)", dr: "",
+    que: "Prestaciones y locaciones realizadas por el Estado nacional, las provincias, las municipalidades y la Ciudad de Buenos Aires, y por instituciones pertenecientes a ellos.",
+    verificar: ["Es una exención por quien VENDE. Si tu cliente le vende AL Estado, la operación es gravada: no corresponde cargarla como exenta.", "Quedan excluidos los organismos del Art. 1° de la Ley 22.016 que vendan a terceros a título oneroso, y las loterías y juegos de azar."] },
+  educacion: { corto: "Educación", ley: "Art. 7 inc. h) aps. 3) y 4)", dr: "",
+    que: "Servicios de establecimientos educacionales privados incorporados a la enseñanza oficial (todos los niveles y postgrado), clases particulares sobre materias de los planes oficiales, guarderías y jardines materno-infantiles; enseñanza a discapacitados.",
+    verificar: ["Que el establecimiento esté incorporado a la enseñanza oficial y reconocido por la jurisdicción.", "Clases particulares: solo sobre materias incluidas en los planes oficiales.", "Cursos o capacitaciones libres que no respondan a esos planes son gravados."] },
+  culto: { corto: "Culto", ley: "Art. 7 inc. h) ap. 5)", dr: "",
+    que: "Servicios relativos al culto o que tengan por objeto fomentarlo, prestados por instituciones religiosas comprendidas en el Art. 20 inc. e) de la Ley de Ganancias.",
+    verificar: ["Que el prestador sea una institución religiosa reconocida y exenta en Ganancias.", "Solo servicios vinculados al culto: otras actividades comerciales de la institución son gravadas."] },
+  entidades: { corto: "Obras sociales, entidades sin fines de lucro, colegios profesionales", ley: "Art. 7 inc. h) ap. 6)", dr: "",
+    que: "Servicios de obras sociales, entidades del Art. 20 incs. f), g) y m) de Ganancias, instituciones políticas sin fines de lucro y colegios y consejos profesionales, cuando se relacionan en forma directa con sus fines específicos.",
+    verificar: ["Que el prestador tenga el reconocimiento legal correspondiente.", "Que el servicio sea propio de sus fines específicos (no actividades comerciales accesorias)."] },
+  salud: { corto: "Asistencia sanitaria, médica y paramédica", ley: "Art. 7 inc. h) ap. 7)", dr: "Art. 31",
+    que: "Hospitalización en clínicas y sanatorios, servicios de médicos, bioquímicos, odontólogos, kinesiólogos, psicólogos, técnicos auxiliares, ambulancias, etc.",
+    verificar: ["La exención se limita a lo que pagan obras sociales, colegios/consejos profesionales y cajas de previsión, más el coseguro que abona el beneficiario.", "Si el paciente es particular o adherente voluntario/prepago, la prestación es gravada.", "Servicios no sanitarios (estética, venta de productos, etc.) no están exentos."] },
+  espectaculos: { corto: "Espectáculos teatrales, recitales y deportivos amateur", ley: "Art. 7 inc. h) aps. 10) y 11)", dr: "",
+    que: "Espectáculos teatrales de la Ley 24.800, entrada a conciertos o recitales musicales (solo el acceso) y espectáculos deportivos amateur.",
+    verificar: ["Recitales: solo la entrada; consumiciones y otros servicios son gravados.", "Deporte: que sea amateur en las condiciones de la reglamentación."] },
+  taxi: { corto: "Taxis y remises", ley: "Art. 7 inc. h) ap. 12)", dr: "",
+    que: "Servicios de taxímetros y remises con chofer realizados en el país, siempre que el recorrido no supere los 100 km.",
+    verificar: ["Que el recorrido no supere los 100 km: los viajes de más distancia son gravados."] },
+  transp_intl: { corto: "Transporte internacional", ley: "Art. 7 inc. h) aps. 13) y 14)", dr: "Art. 34",
+    que: "Transporte internacional de pasajeros y cargas (incluye cruce de fronteras por agua) y fletamento de buques para transporte internacional; tienen el tratamiento del Art. 43 (recupero de crédito fiscal).",
+    verificar: ["Que el transporte sea efectivamente internacional.", "Los servicios conexos (carga, estibaje, depósito, remolque) están comprendidos si sirven exclusivamente al transporte."] },
+  financieras: { corto: "Colocaciones y prestaciones financieras", ley: "Art. 7 inc. h) ap. 16)", dr: "Arts. 35 a 37",
+    que: "Depósitos en entidades de la Ley 21.526, intereses de ahorro y préstamo, intereses de cooperativas a socios, obligaciones negociables, intereses de préstamos hipotecarios para vivienda, entre otros.",
+    verificar: ["Los intereses de préstamos bancarios a Responsables Inscriptos NO están exentos: tributan al 10,5%.", "Revisar el apartado exacto aplicable (cada supuesto tiene condiciones propias)."] },
+  locacion_viv: { corto: "Locación de vivienda / inmuebles rurales", ley: "Art. 7 inc. h) ap. 22)", dr: "Art. 38",
+    que: "Locación de inmuebles destinados exclusivamente a casa habitación del locatario y su familia, de inmuebles rurales afectados a actividades agropecuarias y de inmuebles cuyo locatario es el Estado.",
+    verificar: ["Que el destino sea exclusivamente vivienda del locatario: alquileres a una empresa o para oficina son gravados.", "No aplica a locaciones temporarias en edificios con servicios asimilables a hotelería."] },
+  geriatricos: { corto: "Geriátricos", ley: "Art. 7 inc. h) ap. 25)", dr: "Art. 40",
+    que: "Servicios de establecimientos geriátricos, limitada a los importes que abonan las obras sociales.",
+    verificar: ["Solo lo que paga una obra social: lo que paga el particular es gravado."] },
+  otras_h: { corto: "Otras del inc. h) (concesiones, cooperativas, radiodifusión, etc.)", ley: "Art. 7 inc. h) (otros apartados)", dr: "Art. 39 (concesiones)",
+    que: "Servicios domésticos, directores y síndicos, cooperativas de trabajo, becarios, concesiones públicas, sepelio, aeronaves, radiodifusión, congresos y ferias, libros digitales, entre otros apartados del inc. h).",
+    verificar: ["Identificá el apartado puntual y verificá sus condiciones en el texto de la ley (cada uno tiene requisitos propios)."] },
+  exportacion: { corto: "Exportaciones", ley: "Art. 8 inc. d)", dr: "Art. 41",
+    que: "Salida del país con carácter definitivo de bienes transferidos a título oneroso; tienen tratamiento de recupero de crédito fiscal (Art. 43).",
+    verificar: ["Que exista el permiso de embarque / despacho de exportación.", "Si no hay salida definitiva del país, la venta es gravada.", "Las exportaciones permiten recuperar el crédito fiscal vinculado (Art. 43)."] },
+  no_gravado: { corto: "No gravado / fuera del objeto", ley: "Art. 1 y 3 (hecho imponible)", dr: "",
+    que: "Operaciones fuera del objeto del impuesto (no son exenciones): por ejemplo, ventas de bienes de uso no habituales de sujetos no comprendidos, o conceptos que no configuran venta, locación o prestación gravada.",
+    verificar: ["Confirmá que realmente no encuadre en el hecho imponible; si no, corresponde gravarla."] },
+};
+function exencionLabel(key) {
+  const e = EXENCIONES[key];
+  return e ? `${e.corto} — ${e.ley}` : "";
+}
+// Actividades del período con ventas exentas (o con fundamento elegido), para
+// documentarlas en el F. 2083 y en el Excel.
+function exencionesDelPeriodo(client, period) {
+  const doc = getDoc(client.id, period);
+  const pa = (doc && doc.iva && doc.iva.porActividad) || {};
+  return (client.iva.activities || []).map((a) => {
+    const x = pa[a.code] || {};
+    const monto = round2(num(x.exento) - num(x.exentoNC));
+    return { code: a.code, desc: a.desc, monto, hay: num(x.exento) !== 0 || num(x.exentoNC) !== 0, key: x.exentoFund || "", ok: !!x.exentoOk };
+  }).filter((x) => x.hay || x.key);
+}
+// Panel de control que acompaña a "Ventas exentas o no gravadas" de cada
+// actividad en la Apertura de Otros Conceptos.
+function exencionPanelHtml(clientId, period, code, pa) {
+  const monto = num(pa.exento) - num(pa.exentoNC);
+  const key = pa.exentoFund || "";
+  const e = EXENCIONES[key];
+  const opts = `<option value="">— Elegí el fundamento —</option>` + EXENCIONES_GRUPOS.map((gr) =>
+    `<optgroup label="${escapeHtml(gr.g)}">${gr.ids.map((id) => `<option value="${id}" ${key === id ? "selected" : ""}>${escapeHtml(EXENCIONES[id].corto)} — ${escapeHtml(EXENCIONES[id].ley)}</option>`).join("")}</optgroup>`).join("");
+  const hayMonto = num(pa.exento) !== 0 || num(pa.exentoNC) !== 0;
+  const aviso = `<div style="font-size:11.5px;line-height:1.45;background:var(--diff-soft);color:var(--diff);border:1px solid var(--diff);border-radius:8px;padding:8px 10px;">⚠ <b>Ojo con las ventas al Estado:</b> la exención del Art. 7 inc. h) ap. 1) es para lo que <u>vende</u> el Estado. Si tu cliente le <u>vende al</u> Estado, la operación es <b>gravada</b>. Tampoco alcanza con que el cliente haya facturado "exento": hay que verificar que el supuesto realmente corresponda.</div>`;
+  let detalle = "";
+  if (e) {
+    detalle = `
+      <div style="font-size:12px;line-height:1.5;border:1px solid var(--border);border-radius:8px;padding:9px 11px;display:flex;flex-direction:column;gap:6px;">
+        <div><b>Fundamento:</b> Ley de IVA ${escapeHtml(e.ley)}${e.dr ? ` · Dec. 692/98 ${escapeHtml(e.dr)}` : ""}</div>
+        <div><b>Qué alcanza:</b> ${escapeHtml(e.que)}</div>
+        <div><b>Verificá antes de declararla:</b><ul style="margin:4px 0 0 18px;padding:0;">${e.verificar.map((v) => `<li>${escapeHtml(v)}</li>`).join("")}</ul></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;cursor:pointer;"><input type="checkbox" ${pa.exentoOk ? "checked" : ""} data-action="field-checkbox" data-path="iva.porActividad.${code}.exentoOk" data-clientid="${clientId}" data-period="${period}" data-reopen="iva-actividades" style="margin-top:2px;"> Verifiqué los comprobantes exentos de esta actividad y corresponden a este supuesto.</label>`;
+  } else if (hayMonto) {
+    detalle = `<div style="font-size:12px;color:var(--diff);">⚠ Cargaste ventas exentas sin indicar el fundamento. Elegí en qué supuesto de la ley encuadran (así queda documentado en el Excel y en el F. 2083).</div>`;
+  }
+  return `<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
+      <div class="field"><label>Fundamento de la exención</label><select data-action="field" data-path="iva.porActividad.${code}.exentoFund" data-clientid="${clientId}" data-period="${period}" data-reopen="iva-actividades">${opts}</select></div>
+      ${hayMonto ? aviso : ""}
+      ${detalle}
+    </div>`;
+}
+
 // Alerta: hay ventas exentas o no gravadas en el período pero el prorrateo
 // de crédito fiscal no está activado (puede ser a propósito, si todas las
 // compras son atribuibles a operaciones gravadas; en ese caso se descarta
@@ -2630,7 +2747,7 @@ document.addEventListener("input", (e) => {
     touchDoc(clientid, period, (doc) => setDeep(doc, path, t.value));
     syncVentasNetasFromIvaActividad(clientid, period, path);
     const refresher = MODAL_REFRESHERS[t.dataset.reopen];
-    if (refresher && t.type === "date") refresher(clientid, period);
+    if (refresher && (t.type === "date" || t.tagName === "SELECT")) refresher(clientid, period);
     else renderPreservingFocus();
   } else if (t.dataset.action === "field-checkbox") {
     const { clientid, period, path } = t.dataset;
@@ -3213,6 +3330,7 @@ function renderIvaActividadesModal(clientId, period) {
               <div class="field"><label>Ventas exentas o no gravadas</label><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(pa.exento, "money")}" data-path="iva.porActividad.${a.code}.exento" data-action="field" data-clientid="${clientId}" data-period="${period}" data-reopen="iva-actividades"></div>
               <div class="field"><label>N.C. de venta — Exentas/No gravadas</label><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(pa.exentoNC, "money")}" data-path="iva.porActividad.${a.code}.exentoNC" data-action="field" data-clientid="${clientId}" data-period="${period}" data-reopen="iva-actividades"></div>
             </div>
+            ${exencionPanelHtml(clientId, period, a.code, pa)}
           </div>
           <div class="subsection">
             <h4 class="subhead-strong">3. N.C. emitidas <span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--muted);font-size:12px;">(restitución de crédito fiscal)</span></h4>
@@ -3587,6 +3705,11 @@ function renderFormulario2083Modal(clientId, period) {
               ${row("Operaciones de Venta", ventasNeto, ventasExento, ventasDebito)}
               ${row("Notas de Crédito de Venta", ncVentasNeto, ncVentasExento, ncVentasDebito)}
             </table></div>
+            ${(() => {
+              const ex = exencionesDelPeriodo(client, period);
+              if (!ex.length) return "";
+              return `<div class="foot-note" style="padding:8px 2px 0;"><b>Fundamento de lo exento o no gravado:</b>${ex.map((x) => `<br>• ${escapeHtml(x.code)} — ${fmtMoney(x.monto)}: ${x.key ? escapeHtml(exencionLabel(x.key)) + (x.ok ? " ✓ verificado" : " (sin verificar)") : "<b>sin fundamento indicado</b>"}`).join("")}</div>`;
+            })()}
             <div class="foot-note" style="padding:6px 2px 0;">Operaciones de Exportación: <b class="mono">${fmtMoney(0)}</b> — la herramienta todavía no releva exportaciones; completalo manualmente si corresponde.</div>
           </div>
           <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
@@ -4037,9 +4160,21 @@ function buildIvaActividadesSheet(wb, client, p, r) {
   }
   rows.push(["TOTAL VENTAS NETAS", ...netas]);
 
+  // Fundamento legal de las ventas exentas, por actividad.
+  const exMap = {};
+  exencionesDelPeriodo(client, p).forEach((x) => { exMap[x.code] = x; });
+  if (activities.some((a) => exMap[a.code])) {
+    rows.push([]);
+    rows.push(["Fundamento de las exenciones"]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: NCOLS - 1 } });
+    rows.push(["Fundamento legal", ...activities.map((a) => { const x = exMap[a.code]; return x ? (x.key ? exencionLabel(x.key) : "Sin fundamento indicado") : "—"; }), ""]);
+    rows.push(["Verificado por el contador", ...activities.map((a) => { const x = exMap[a.code]; return x ? (x.key ? (x.ok ? "Sí" : "No") : "—") : "—"; }), ""]);
+  }
+
   XLSX.utils.book_append_sheet(wb, newSheet(rows, {
     colWidths: [42, ...activities.map(() => 24), 20],
     merges, skipCols: [0], formulas, headerRows: [headerRow], freezeHeaderRow: headerRow + 1,
+    wrapCols: Array.from({ length: NCOLS }, (_, i) => i),
   }), "Ventas x Actividad");
 }
 
@@ -4073,9 +4208,19 @@ function buildIvaF2083Sheet(wb, client, p, r) {
   rows.push([]);
   rows.push(["Operaciones que no generan Crédito Fiscal", "", "", num(r.exento.operacionesNoCredito)]);
 
+  const exFund = exencionesDelPeriodo(client, p);
+  if (exFund.length) {
+    rows.push([]);
+    rows.push(["Fundamento de lo exento o no gravado (por actividad)"]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 3 } });
+    rows.push(["Actividad", "Monto neto", "Verificado", "Fundamento legal"]);
+    headerRows.push(rows.length - 1);
+    exFund.forEach((x) => rows.push([x.code + " — " + x.desc, x.monto, x.key ? (x.ok ? "Sí" : "No") : "—", x.key ? exencionLabel(x.key) : "Sin fundamento indicado"]));
+  }
+
   const sheetName = "F2083";
   XLSX.utils.book_append_sheet(wb, newSheet(rows, {
-    colWidths: [56, 20, 22, 20],
+    colWidths: [56, 20, 22, exFund.length ? 62 : 20],
     merges, skipCols: [0], headerRows,
   }), sheetName);
 }
