@@ -440,6 +440,22 @@
   .evo-hit{ fill:transparent; cursor:crosshair; }
   .evo-tip{ position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px 10px; font-size:12px; box-shadow:0 6px 20px var(--shadow); z-index:5; white-space:nowrap; }
   .evo-tip b{ display:block; margin-bottom:2px; }
+  .est-venc{ background:var(--pagar-soft); color:var(--pagar); }
+  .pres-bar{ display:flex; gap:12px; align-items:center; padding:10px 14px; border:1px solid var(--border); border-radius:12px; background:var(--surface); margin-bottom:12px; }
+  .pres-bar.on{ border-color:var(--favor); background:var(--favor-soft); }
+  .cal-grid{ display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; }
+  .cal-h{ text-align:center; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted-soft); padding:2px 0 4px; }
+  .cal-c{ min-height:84px; border:1px solid var(--border); border-radius:10px; background:var(--surface); padding:6px; display:flex; flex-direction:column; gap:3px; align-items:flex-start; text-align:left; font:inherit; color:var(--ink); cursor:pointer; }
+  .cal-c.vacio{ border:none; background:transparent; cursor:default; }
+  .cal-c.finde{ background:var(--surface-2); }
+  .cal-c:hover:not(.vacio){ border-color:var(--accent); }
+  .cal-c.hoy .cal-n{ background:var(--accent); color:var(--accent-ink); border-radius:99px; padding:0 7px; }
+  .cal-c.sel{ border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft); }
+  .cal-n{ font-size:12px; font-weight:600; }
+  .cchip{ font-size:10.5px; font-weight:600; padding:1px 6px; border-radius:99px; white-space:nowrap; }
+  .cchip-ok{ background:var(--favor-soft); color:var(--favor); } .cchip-venc{ background:var(--pagar-soft); color:var(--pagar); }
+  .cchip-urg{ background:var(--pagar-soft); color:var(--pagar); } .cchip-pron{ background:var(--diff-soft); color:var(--diff); }
+  .cchip-pend{ background:var(--surface-3); color:var(--muted); }
   .evo-empty{ color:var(--muted); font-size:13px; padding:18px 0; }
   .modal-body p.hint-sm{ font-size:11.5px; color:var(--muted); line-height:1.4; }
   #mono-summary .kpi .k-value, .panel-kpis .k-value{ font-size:17px; }
@@ -1839,13 +1855,14 @@ function renderMain() {
   `;
 
   const body = document.getElementById("tab-body");
-  if (state.currentTab === "resumen") body.innerHTML = variacionBannerHtml(client, state.currentPeriod) + renderResumenTab(client) + monoResumenHtml(client);
+  if (state.currentTab === "resumen") body.innerHTML = renderResumenTab(client) + monoResumenHtml(client);
   else if (state.currentTab === "iva") body.innerHTML = renderIvaTab(client);
   else if (state.currentTab === "iibbLocal") body.innerHTML = renderIibbLocalTab(client);
   else if (state.currentTab === "iibbCM") body.innerHTML = renderIibbCMTab(client);
   else if (state.currentTab === "mono") body.innerHTML = renderMonoTab(client);
   else if (state.currentTab === "evolucion") body.innerHTML = renderEvolucionTab(client);
   else if (state.currentTab === "config") body.innerHTML = renderConfigTab(client);
+  if (["iva", "iibbLocal", "iibbCM", "mono"].indexOf(state.currentTab) !== -1) body.insertAdjacentHTML("afterbegin", presentadoBarHtml(client, state.currentTab, state.currentPeriod));
 }
 
 // ---- Resumen ----
@@ -3067,6 +3084,23 @@ const VENC_CAL = {
     mono: [20,20,20,20,20,22,20,20,21,20,20,21],
   },
 };
+// IIBB Local — Neuquén: fecha de vencimiento por período fiscal (2026) y terminación de CUIT (0-1, 2-3, 4-5, 6-7, 8-9).
+const VENC_NQN = {
+  "2026-01": ["2026-02-20","2026-02-20","2026-02-20","2026-02-23","2026-02-24"],
+  "2026-02": ["2026-03-18","2026-03-19","2026-03-20","2026-03-23","2026-03-25"],
+  "2026-03": ["2026-04-20","2026-04-21","2026-04-22","2026-04-23","2026-04-24"],
+  "2026-04": ["2026-05-18","2026-05-19","2026-05-20","2026-05-21","2026-05-22"],
+  "2026-05": ["2026-06-18","2026-06-19","2026-06-22","2026-06-23","2026-06-24"],
+  "2026-06": ["2026-07-20","2026-07-21","2026-07-22","2026-07-23","2026-07-24"],
+  "2026-07": ["2026-08-18","2026-08-19","2026-08-20","2026-08-21","2026-08-24"],
+  "2026-08": ["2026-09-18","2026-09-21","2026-09-22","2026-09-23","2026-09-24"],
+  "2026-09": ["2026-10-19","2026-10-20","2026-10-21","2026-10-22","2026-10-23"],
+  "2026-10": ["2026-11-18","2026-11-19","2026-11-20","2026-11-24","2026-11-25"],
+  "2026-11": ["2026-12-18","2026-12-21","2026-12-22","2026-12-23","2026-12-24"],
+  "2026-12": ["2027-01-18","2027-01-19","2027-01-20","2027-01-21","2027-01-22"],
+};
+// IIBB Local — Río Negro (anticipo mensual): día de vencimiento por mes de vencimiento (2026) y terminación (0-2, 3-5, 6-7, 8-9).
+const VENC_RN = { 2:[13,18,19,20], 3:[13,16,17,18], 4:[15,16,17,20], 5:[15,18,19,20], 6:[16,17,18,19], 7:[15,16,17,20], 8:[14,18,19,20], 9:[15,16,17,18], 10:[15,16,19,20], 11:[13,16,17,18], 12:[15,16,17,18] };
 const TAX_LABEL = { iva: "IVA", iibbLocal: "IIBB Local", iibbCM: "IIBB Conv. Mult.", mono: "Monotributo" };
 function monoEnabled(c) { return !!(c && c.mono && c.mono.enabled); }
 function impuestosActivos(c) {
@@ -3085,7 +3119,17 @@ function isoDate(y, m, d) { return `${y}-${String(m).padStart(2, "0")}-${String(
 // Vencimiento (ISO) de un impuesto para un período fiscal. null si no hay
 // dato (CUIT sin cargar, año sin calendario o IIBB local sin fecha manual).
 function vencimientoDe(client, taxKey, period) {
-  if (taxKey === "iibbLocal") return getExtras().vencLocal[client.id + "|" + period] || null;
+  if (taxKey === "iibbLocal") {
+    const jur = normalizeSearch(client.iibbLocal.jurisdiccion || ""), tl = cuitTerminal(client);
+    if (tl == null) return null;
+    if (jur.indexOf("neuquen") === 0) { const r = VENC_NQN[period]; return r ? r[Math.floor(tl / 2)] : null; }
+    if (jur.indexOf("rio negro") === 0) {
+      const vp2 = addMonths(period, 1);
+      const r = periodYear(vp2) === 2026 ? VENC_RN[periodMonth(vp2)] : null;
+      return r ? isoDate(periodYear(vp2), periodMonth(vp2), r[tl <= 2 ? 0 : tl <= 5 ? 1 : tl <= 7 ? 2 : 3]) : null;
+    }
+    return null;
+  }
   const vp = addMonths(period, 1), y = periodYear(vp), m = periodMonth(vp);
   const t = VENC_CAL[y];
   if (!t) return null;
@@ -3130,7 +3174,29 @@ function saldoDe(aPagar, aFavor) {
   if (aFavor > 0) return { tipo: "favor", monto: aFavor };
   return { tipo: "cero", monto: 0 };
 }
+function hoyISO() { const d = new Date(); return isoDate(d.getFullYear(), d.getMonth() + 1, d.getDate()); }
+function presentadoDe(client, taxKey, period) { const d = getDoc(client.id, period); return !!(d && d.presentado && d.presentado[taxKey]); }
+function setPresentado(clientId, taxKey, period, on) {
+  touchDoc(clientId, period, (doc) => {
+    doc.presentado = doc.presentado || {};
+    if (on) doc.presentado[taxKey] = { fecha: hoyISO() }; else delete doc.presentado[taxKey];
+  });
+}
 function estadoImpuesto(client, taxKey, period) {
+  const e = estadoDatos(client, taxKey, period);
+  e.pres = presentadoDe(client, taxKey, period);
+  return e;
+}
+function presentadoBarHtml(client, taxKey, period) {
+  const pres = presentadoDe(client, taxKey, period);
+  const d = getDoc(client.id, period);
+  const f = pres && d.presentado[taxKey].fecha ? fmtFechaCorta(d.presentado[taxKey].fecha) : "";
+  const vto = vencimientoDe(client, taxKey, period), dias = diasHasta(vto), u = urgenciaDe(dias);
+  const nombre = taxKey === "mono" ? `Cuota de Monotributo pagada (vence en ${MESES[periodMonth(addMonths(period, 1)) - 1].toLowerCase()})` : `${TAX_LABEL[taxKey]} presentada en ARCA`;
+  return `<div class="pres-bar ${pres ? "on" : ""}"><label class="switch"><input type="checkbox" ${pres ? "checked" : ""} data-action="presentado-check" data-client="${client.id}" data-tax="${taxKey}" data-period="${period}"><span class="slider"></span></label>
+    <div><b>${nombre}</b><div class="hint-sm" style="font-size:12px;">${pres ? "Marcada el " + f : "Pendiente"}${vto ? ` · vence ${fmtFechaCorta(vto)} ${pres ? "" : `<span class="u-${u}">${URG_ICON[u]} ${diasTexto(dias)}</span>`}` : ` · <span title="Sin fecha de vencimiento cargada para esta jurisdicción o terminación de CUIT">sin fecha de vencimiento</span>`}</div></div></div>`;
+}
+function estadoDatos(client, taxKey, period) {
   try {
     const doc = getDoc(client.id, period);
     if (taxKey === "iva") {
@@ -3215,7 +3281,6 @@ function variacionBannerHtml(client, period) {
 }
 function alertasCliente(client, period) {
   const out = [];
-  variacionAlertas(client, period).forEach((a) => out.push({ nivel: "warn", texto: `${a.tipo === "ventas" ? "Ventas" : "Compras"} ${a.pct > 0 ? "+" : ""}${Math.round(a.pct * 100)}% vs. prom.` }));
   if (monoEnabled(client)) {
     const m = monoCalc(client, period);
     if (m.pctMax != null && m.pctMax >= 1) out.push({ nivel: "bad", texto: "Monotributo: superó el tope máximo (exclusión)" });
@@ -3520,15 +3585,18 @@ function panelFilas(period) {
       const vto = vencimientoDe(c, k, period);
       return Object.assign({ key: k, vto, dias: diasHasta(vto) }, est);
     });
-    const pend = taxes.filter((t) => t.status !== "ok" && t.vto).sort((a, b) => a.vto.localeCompare(b.vto));
-    return { client: c, taxes, proximo: pend[0] || null, alertas: alertasCliente(c, period), faltan: taxes.some((t) => t.status !== "ok") };
+    const pend = taxes.filter((t) => !t.pres && t.vto).sort((a, b) => a.vto.localeCompare(b.vto));
+    return { client: c, taxes, proximo: pend[0] || null, alertas: alertasCliente(c, period), faltan: taxes.some((t) => !t.pres) };
   });
 }
-function chipEstadoHtml(t, clientId) {
-  const ico = t.status === "ok" ? "✓" : t.status === "parcial" ? "◐" : "○";
+function chipEstadoHtml(t, clientId, period) {
+  const vencida = !t.pres && t.dias != null && t.dias < 0;
+  const cls = t.pres ? "est-ok" : vencida ? "est-venc" : t.status === "ok" ? "est-parcial" : "est-falta";
+  const ico = t.pres ? "✓" : vencida ? "⛔" : t.status === "ok" ? "◐" : "○";
   const extra = t.key === "mono" && t.mono && t.mono.pct != null ? ` ${Math.round(t.mono.pct * 100)}%` : "";
-  const tip = t.status === "ok" ? "Cargado" : t.status === "parcial" ? "Carga parcial" + (t.nota ? " — " + t.nota : "") : "Falta cargar";
-  return `<button type="button" class="est est-${t.status}" title="${tip}" data-action="panel-abrir" data-client="${clientId}" data-tab="${t.key === "mono" ? "mono" : t.key}">${ico} ${TAX_LABEL[t.key]}${extra}</button>`;
+  const queEs = t.key === "mono" ? "cuota pagada" : "presentada en ARCA";
+  const tip = t.pres ? `${TAX_LABEL[t.key]}: ${queEs}. Click para desmarcar.` : `${TAX_LABEL[t.key]}: pendiente (${t.status === "ok" ? "datos cargados en el panel, falta presentar" : t.status === "parcial" ? "carga parcial en el panel" : "sin datos cargados"}). Click para marcar como ${queEs}.`;
+  return `<button type="button" class="est ${cls}" title="${escapeHtml(tip)}" data-action="presentado-toggle" data-client="${clientId}" data-tax="${t.key}" data-period="${period}">${ico} ${TAX_LABEL[t.key]}${extra}</button>`;
 }
 function saldoCeldaHtml(t) {
   if (!t.saldo || t.key === "mono") return "";
@@ -3541,25 +3609,23 @@ function renderPanelView() {
   const q = normalizeSearch(state.clientSearch || "");
   let filas = panelFilas(period).filter((f) => !q || normalizeSearch(f.client.name).includes(q) || normalizeSearch(f.client.cuit || "").includes(q));
   const todasTax = filas.flatMap((f) => f.taxes);
-  const completas = todasTax.filter((t) => t.status === "ok").length;
-  const urgentes = todasTax.filter((t) => t.status !== "ok" && t.dias != null && t.dias <= 7).length;
-  const conAlertas = filas.filter((f) => f.alertas.length).length;
-  const pctComp = todasTax.length ? Math.round(completas / todasTax.length * 100) : 0;
-  const filtro = state.panelFiltro;
+  const presentadas = todasTax.filter((t) => t.pres).length;
+  const urgentes = todasTax.filter((t) => !t.pres && t.dias != null && t.dias <= 7).length;
+  const pctComp = todasTax.length ? Math.round(presentadas / todasTax.length * 100) : 0;
+  const filtro = state.panelFiltro === "alertas" ? "todos" : state.panelFiltro;
   if (filtro === "faltan") filas = filas.filter((f) => f.faltan);
-  else if (filtro === "pronto") filas = filas.filter((f) => f.taxes.some((t) => t.status !== "ok" && t.dias != null && t.dias <= 7));
-  else if (filtro === "alertas") filas = filas.filter((f) => f.alertas.length);
+  else if (filtro === "pronto") filas = filas.filter((f) => f.taxes.some((t) => !t.pres && t.dias != null && t.dias <= 7));
   const pill = (k, l) => `<button class="${filtro === k ? "on" : ""}" data-action="panel-filtro" data-filtro="${k}">${l}</button>`;
   const vp = addMonths(period, 1);
   const rows = filas.map((f) => {
     const c = f.client;
     const prox = f.proximo
       ? `<span class="u-${urgenciaDe(f.proximo.dias)}"><b>${URG_ICON[urgenciaDe(f.proximo.dias)]} ${fmtFechaCorta(f.proximo.vto)}</b></span><div class="hint-sm">${TAX_LABEL[f.proximo.key]} · ${diasTexto(f.proximo.dias)}</div>`
-      : (f.taxes.length && !f.faltan ? `<span class="evo-t-favor">✓ Todo cargado</span>` : (f.taxes.some((t) => t.status !== "ok") ? `<span class="hint-sm">Sin fecha de vencimiento</span>` : `<span class="hint-sm">—</span>`));
+      : (f.taxes.length && !f.faltan ? `<span class="evo-t-favor">✓ Todo presentado</span>` : (f.faltan ? `<span class="hint-sm">Sin fecha de vencimiento</span>` : `<span class="hint-sm">—</span>`));
     const alertas = f.alertas.map((a) => `<div class="al al-${a.nivel}">${a.nivel === "bad" ? "⛔" : "⚠"} ${escapeHtml(a.texto)}</div>`).join("");
     return `<tr>
       <td style="text-align:left;"><button type="button" class="linklike" data-action="panel-abrir" data-client="${c.id}" data-tab="resumen"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div></td>
-      <td style="text-align:left;"><div class="ests">${f.taxes.map((t) => chipEstadoHtml(t, c.id)).join("") || `<span class="hint-sm">Sin impuestos</span>`}</div></td>
+      <td style="text-align:left;"><div class="ests">${f.taxes.map((t) => chipEstadoHtml(t, c.id, period)).join("") || `<span class="hint-sm">Sin impuestos</span>`}</div></td>
       <td style="text-align:left;">${f.taxes.map(saldoCeldaHtml).join("") || ""}</td>
       <td style="text-align:left;">${prox}</td>
       <td style="text-align:left;">${alertas}</td>
@@ -3571,13 +3637,12 @@ function renderPanelView() {
     <div style="display:flex;flex-direction:column;gap:16px;">
       <div class="kpi-row">
         <div class="kpi"><span class="k-label">Clientes</span><span class="k-value">${filas.length === state.clients.length ? state.clients.length : filas.length + " / " + state.clients.length}</span><span class="k-sub">${todasTax.length} declaraciones en total</span></div>
-        <div class="kpi"><span class="k-label">Declaraciones cargadas</span><span class="k-value">${completas} / ${todasTax.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pctComp}%;background:var(--favor);"></i></div><span class="k-sub">${pctComp}% completo</span></div>
-        <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Vencen en ≤ 7 días o vencidas</span><span class="k-value">${urgentes}</span><span class="k-sub">sin cargar todavía</span></div>
-        <div class="kpi"><span class="k-label">Con alertas</span><span class="k-value">${conAlertas}</span><span class="k-sub">variaciones y Monotributo</span></div>
+        <div class="kpi"><span class="k-label">Presentadas en ARCA</span><span class="k-value">${presentadas} / ${todasTax.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pctComp}%;background:var(--favor);"></i></div><span class="k-sub">${pctComp}% presentado</span></div>
+        <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Pendientes que vencen en ≤ 7 días o vencidas</span><span class="k-value">${urgentes}</span><span class="k-sub">sin presentar todavía</span></div>
       </div>
-      <div class="card"><div class="card-head"><h3>Estado por cliente</h3><div class="seg">${pill("todos", "Todos")}${pill("faltan", "Con faltantes")}${pill("pronto", "Vencen pronto")}${pill("alertas", "Con alertas")}</div></div>
-        <div class="card-body"><div class="table-scroll"><table class="panel-table"><tr><th style="text-align:left;">Cliente</th><th style="text-align:left;">Estado del período</th><th style="text-align:left;">Saldos</th><th style="text-align:left;">Próximo vencimiento</th><th style="text-align:left;">Alertas</th></tr>${rows}</table></div></div>
-        <p class="foot-note">✓ cargado · ◐ carga parcial · ○ falta cargar. Los vencimientos de IVA y Convenio Multilateral salen del calendario según la terminación del CUIT; los de IIBB Local se cargan a mano en Calendario.</p>
+      <div class="card"><div class="card-head"><h3>Estado por cliente</h3><div class="seg">${pill("todos", "Todos")}${pill("faltan", "Pendientes")}${pill("pronto", "Vencen pronto")}</div></div>
+        <div class="card-body"><div class="table-scroll"><table class="panel-table"><tr><th style="text-align:left;">Cliente</th><th style="text-align:left;">Presentación en ARCA</th><th style="text-align:left;">Saldos</th><th style="text-align:left;">Próximo vencimiento</th><th style="text-align:left;">Monotributo</th></tr>${rows}</table></div></div>
+        <p class="foot-note">Tocá cada impuesto para marcarlo como presentado en ARCA (o la cuota como paga, en Monotributo). ✓ presentado · ◐ pendiente con datos ya cargados en el panel · ○ pendiente sin datos · ⛔ vencido sin presentar.</p>
       </div>
     </div>`;
 }
@@ -3585,44 +3650,54 @@ function renderPanelView() {
 // ---------------------------------------------------------------------
 // Calendario de vencimientos
 // ---------------------------------------------------------------------
+const TAX_CORTO = { iva: "IVA", iibbLocal: "IIBB", iibbCM: "CM", mono: "Mono" };
 function renderCalendarioView() {
-  const vm = state.calMonth, fp = addMonths(vm, -1), y = periodYear(vm);
+  const vm = state.calMonth, fp = addMonths(vm, -1), y = periodYear(vm), mo = periodMonth(vm);
   const sinCal = !VENC_CAL[y];
-  const items = [];
+  const porDia = {};
   state.clients.forEach((c) => {
     impuestosActivos(c).forEach((k) => {
-      const per = fp; // período fiscal que vence en este mes (Monotributo: cuota del propio mes)
-      const iso = vencimientoDe(c, k, per);
+      const iso = vencimientoDe(c, k, fp);
       if (!iso || iso.slice(0, 7) !== vm) return;
-      const est = estadoImpuesto(c, k, per);
-      items.push({ c, k, iso, per, est });
+      const est = estadoImpuesto(c, k, fp);
+      (porDia[iso] = porDia[iso] || []).push({ c, k, iso, est });
     });
   });
-  items.sort((a, b) => a.iso.localeCompare(b.iso) || a.c.name.localeCompare(b.c.name, "es"));
-  const grupos = {};
-  items.forEach((i) => { (grupos[i.iso] = grupos[i.iso] || []).push(i); });
-  const listado = Object.keys(grupos).sort().map((iso) => {
-    const dias = diasHasta(iso), u = urgenciaDe(dias);
-    return `<div class="cal-dia"><div class="cal-fecha u-${u}"><b>${fmtFechaCorta(iso)}</b><span>${URG_ICON[u]} ${diasTexto(dias)}</span></div><div class="cal-items">${grupos[iso].map((i) => `
-      <div class="cal-item"><button type="button" class="linklike" data-action="panel-abrir" data-client="${i.c.id}" data-tab="${i.k}" data-period="${i.per}"><b>${escapeHtml(i.c.name)}</b></button>
-        <span class="chip on">${TAX_LABEL[i.k]}</span><span class="hint-sm">período ${periodLabel(i.per)}</span>
-        <span class="est est-${i.est.status}" style="margin-left:auto;cursor:default;">${i.est.status === "ok" ? "✓ Cargado" : i.est.status === "parcial" ? "◐ Parcial" : "○ Falta cargar"}</span></div>`).join("")}</div></div>`;
-  }).join("") || `<p style="color:var(--muted);font-size:13px;padding:8px 0;">${sinCal ? `El calendario de ${y} todavía no está cargado.` : "No hay vencimientos de tus clientes en este mes."}</p>`;
-  const locales = state.clients.filter((c) => c.iibbLocal.enabled);
-  const localesHtml = locales.length ? `
-    <div class="card"><div class="card-head"><h3>IIBB Local — vencimientos de ${periodLabel(fp)}</h3><span class="hint">No hay tabla general: cargá la fecha de cada cliente</span></div>
-      <div class="card-body"><div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Cliente</th><th style="text-align:left;">Jurisdicción</th><th style="text-align:left;">Vence el</th><th></th></tr>
-      ${locales.map((c) => `<tr><td style="text-align:left;">${escapeHtml(c.name)}</td><td style="text-align:left;">${escapeHtml(c.iibbLocal.jurisdiccion || "—")}</td>
-        <td style="text-align:left;"><input type="date" value="${escapeHtml(getExtras().vencLocal[c.id + "|" + fp] || "")}" data-action="venc-local" data-client="${c.id}" data-period="${fp}"></td>
-        <td style="text-align:left;"><button class="btn btn-ghost btn-sm" data-action="venc-local-copiar" data-client="${c.id}" data-period="${fp}" title="Copia esta fecha a los demás clientes de la misma jurisdicción">Aplicar a toda la jurisdicción</button></td></tr>`).join("")}
-      </table></div></div></div>` : "";
+  const hoy = hoyISO();
+  if (!state.calDia || state.calDia.slice(0, 7) !== vm) state.calDia = hoy.slice(0, 7) === vm ? hoy : (Object.keys(porDia).sort()[0] || isoDate(y, mo, 1));
+  const primero = (new Date(y, mo - 1, 1).getDay() + 6) % 7, dias = new Date(y, mo, 0).getDate();
+  const orden = ["iva", "iibbCM", "iibbLocal", "mono"];
+  let celdas = "";
+  for (let i = 0; i < primero; i++) celdas += `<div class="cal-c vacio"></div>`;
+  for (let d = 1; d <= dias; d++) {
+    const iso = isoDate(y, mo, d), items = porDia[iso] || [], dow = (primero + d - 1) % 7;
+    const chips = orden.map((k) => {
+      const it = items.filter((x) => x.k === k); if (!it.length) return "";
+      const pres = it.filter((x) => x.est.pres).length, dd = diasHasta(iso);
+      const cls = pres === it.length ? "ok" : dd < 0 ? "venc" : dd <= 3 ? "urg" : dd <= 7 ? "pron" : "pend";
+      return `<span class="cchip cchip-${cls}" title="${TAX_LABEL[k]}: ${pres} de ${it.length} presentadas">${TAX_CORTO[k]} ${pres}/${it.length}</span>`;
+    }).join("");
+    celdas += `<button type="button" class="cal-c ${dow >= 5 ? "finde" : ""} ${iso === hoy ? "hoy" : ""} ${iso === state.calDia ? "sel" : ""}" data-action="cal-dia" data-iso="${iso}"><span class="cal-n">${d}</span>${chips}</button>`;
+  }
+  const sel = (porDia[state.calDia] || []).slice().sort((a, b) => orden.indexOf(a.k) - orden.indexOf(b.k) || a.c.name.localeCompare(b.c.name, "es"));
+  const selDias = diasHasta(state.calDia), selU = urgenciaDe(selDias);
+  const fechaLarga = (() => { const [yy, mm, dd] = state.calDia.split("-").map(Number); return new Date(yy, mm - 1, dd).toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" }); })();
+  const detalle = sel.length ? sel.map((i) => `
+      <div class="cal-item"><button type="button" class="linklike" data-action="panel-abrir" data-client="${i.c.id}" data-tab="${i.k}" data-period="${fp}"><b>${escapeHtml(i.c.name)}</b></button>
+        <span class="chip on">${TAX_LABEL[i.k]}</span>
+        <button type="button" class="est ${i.est.pres ? "est-ok" : i.est.status === "ok" ? "est-parcial" : "est-falta"}" style="margin-left:auto;" data-action="presentado-toggle" data-client="${i.c.id}" data-tax="${i.k}" data-period="${fp}" title="Click para cambiar">${i.est.pres ? "✓ " + (i.k === "mono" ? "Cuota paga" : "Presentada") : "○ Marcar como " + (i.k === "mono" ? "paga" : "presentada")}</button></div>`).join("")
+    : `<p style="color:var(--muted);font-size:13px;margin:0;">No hay vencimientos de tus clientes este día.</p>`;
   return `
-    <div class="topbar"><div class="client-title"><h1>Calendario de vencimientos</h1><div class="meta"><span>Vencen en ${MESES[periodMonth(vm) - 1].toLowerCase()} ${y}</span><span>·</span><span>período fiscal ${periodLabel(fp)}</span></div></div>
+    <div class="topbar"><div class="client-title"><h1>Calendario de vencimientos</h1><div class="meta"><span>Vencen en ${MESES[mo - 1].toLowerCase()} ${y}</span><span>·</span><span>período fiscal ${periodLabel(fp)}</span></div></div>
       <div class="topbar-actions"><div class="period-nav"><button data-action="cal-prev">‹</button><span class="label">${periodLabel(vm)}</span><button data-action="cal-next">›</button></div></div></div>
-    <div style="display:flex;flex-direction:column;gap:16px;max-width:960px;">
-      <div class="card"><div class="card-head"><h3>Vencimientos del mes</h3><span class="hint">IVA y Convenio Multilateral por terminación de CUIT (calendario Errepar ${Object.keys(VENC_CAL).join(", ")}) · Monotributo cuota mensual</span></div>
-        <div class="card-body">${sinCal ? `<div class="warn-banner"><div class="wb-text"><b>Falta el calendario de ${y}.</b> Mandame la tabla y la sumo.</div></div>` : ""}${listado}</div></div>
-      ${localesHtml}
+    <div style="display:flex;flex-direction:column;gap:16px;max-width:1000px;">
+      ${sinCal ? `<div class="warn-banner"><div class="wb-text"><b>Falta el calendario de ${y}.</b> Mandame la tabla y la sumo.</div></div>` : ""}
+      <div class="card"><div class="card-body">
+        <div class="cal-grid">${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((n) => `<div class="cal-h">${n}</div>`).join("")}${celdas}</div>
+        <p class="hint-sm" style="margin:6px 0 0;font-size:11.5px;">Cada etiqueta muestra presentadas / total: IVA, CM (Convenio Multilateral), IIBB (Local: Neuquén y Río Negro) y Mono (cuota). Verde: todo presentado · rojo: vencido · naranja: vence en ≤ 7 días.</p>
+      </div></div>
+      <div class="card"><div class="card-head"><h3 style="text-transform:capitalize;">${fechaLarga}</h3><span class="hint u-${selU}">${(porDia[state.calDia] || []).length ? URG_ICON[selU] + " " + diasTexto(selDias) : ""}</span></div>
+        <div class="card-body">${detalle}</div></div>
     </div>`;
 }
 
@@ -3842,6 +3917,8 @@ document.addEventListener("click", (e) => {
   else if (a === "panel-prev") { if (state.panelPeriod > MIN_PERIOD) { state.panelPeriod = addMonths(state.panelPeriod, -1); render(); } }
   else if (a === "panel-next") { state.panelPeriod = addMonths(state.panelPeriod, 1); render(); }
   else if (a === "panel-filtro") { state.panelFiltro = btn.dataset.filtro; render(); }
+  else if (a === "cal-dia") { state.calDia = btn.dataset.iso; render(); }
+  else if (a === "presentado-toggle") { const c = getClient(btn.dataset.client); setPresentado(btn.dataset.client, btn.dataset.tax, btn.dataset.period, !presentadoDe(c, btn.dataset.tax, btn.dataset.period)); render(); }
   else if (a === "cal-prev") { state.calMonth = addMonths(state.calMonth, -1); render(); }
   else if (a === "cal-next") { state.calMonth = addMonths(state.calMonth, 1); render(); }
   else if (a === "venc-local-copiar") {
@@ -3870,6 +3947,8 @@ document.addEventListener("change", (e) => {
     const top = sc ? sc.scrollTop : 0;
     renderComprasImportModal();
     const sc2 = document.querySelector("#modal-root .modal"); if (sc2) sc2.scrollTop = top;
+  } else if (a === "presentado-check") {
+    setPresentado(t.dataset.client, t.dataset.tax, t.dataset.period, t.checked); render();
   } else if (a === "venc-local") {
     const ev = getExtras().vencLocal, k = t.dataset.client + "|" + t.dataset.period;
     if (t.value) ev[k] = t.value; else delete ev[k];
