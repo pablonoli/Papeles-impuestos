@@ -2270,10 +2270,10 @@ function alicuotaAvisoHtml(clientId, period, a, pa) {
 // actividad en otra, etc.). Fuente: Convenio Multilateral del 18/08/77.
 // ---------------------------------------------------------------------
 const CM_ENCUADRES = [
-  { art: 6, nombre: "Construcción", pref: ["41", "42", "43"],
+  { art: 6, reparto: { sede: 10, donde: 90, ls: "Jurisdicción de la sede (escritorio, oficina o administración)", ld: "Jurisdicción donde se ejecutan las obras" }, nombre: "Construcción", pref: ["41", "42", "43"],
     regla: "10% a la jurisdicción de la sede y 90% a la jurisdicción donde se ejecutan las obras.",
     cuando: "Si tiene su escritorio, oficina, administración o dirección en una jurisdicción y ejecuta obras en otras. No se pueden discriminar honorarios de profesionales de la empresa." },
-  { art: 7, nombre: "Seguros, capitalización y ahorro", pref: ["651", "652"],
+  { art: 7, reparto: { sede: 20, donde: 80, ls: "Jurisdicción de la administración o sede central", ld: "Jurisdicción donde están los bienes o las personas" }, nombre: "Seguros, capitalización y ahorro", pref: ["651", "652"],
     regla: "80% a la jurisdicción donde están los bienes o las personas, y 20% a la jurisdicción de la administración o sede central.",
     cuando: "Si la sede central está en una jurisdicción y contrata operaciones sobre bienes o personas de otras. Las entidades financieras de la ley 21.526 van por el Art. 8." },
   { art: 8, nombre: "Entidades financieras", pref: ["641"],
@@ -2282,13 +2282,13 @@ const CM_ENCUADRES = [
   { art: 9, nombre: "Transporte de pasajeros o cargas", pref: ["4911", "4912", "4921", "4922", "501", "502", "511", "512"],
     regla: "Cada jurisdicción grava la parte de los ingresos por pasajes y fletes percibidos o devengados en el lugar de origen del viaje.",
     cuando: "Si la empresa de transporte desarrolla su actividad en varias jurisdicciones." },
-  { art: 10, nombre: "Profesiones liberales y consultoras", pref: ["691", "692", "711", "7020", "6202", "862", "750"],
+  { art: 10, reparto: { sede: 20, donde: 80, ls: "Jurisdicción del estudio, consultorio u oficina", ld: "Jurisdicción donde se realiza la actividad profesional" }, nombre: "Profesiones liberales y consultoras", pref: ["691", "692", "711", "7020", "6202", "862", "750"],
     regla: "80% a la jurisdicción donde se realiza la actividad profesional y 20% a la jurisdicción del estudio, consultorio u oficina.",
     cuando: "Si el estudio, consultorio u oficina está en una jurisdicción y se desarrollan actividades profesionales en otras. También alcanza a consultorías y empresas consultoras." },
-  { art: 11, nombre: "Rematadores, comisionistas e intermediarios", pref: ["461", "682091", "682099"],
+  { art: 11, reparto: { sede: 20, donde: 80, ls: "Jurisdicción de la oficina central", ld: "Jurisdicción donde están radicados los bienes" }, nombre: "Rematadores, comisionistas e intermediarios", pref: ["461", "682091", "682099"],
     regla: "80% a la jurisdicción donde están radicados los bienes, y 20% a la de la oficina central.",
     cuando: "Si tiene su oficina central en una jurisdicción e interviene en la venta o negociación de bienes situados en otra." },
-  { art: 12, nombre: "Prestamistas hipotecarios o prendarios", pref: ["649290"],
+  { art: 12, reparto: { sede: 20, donde: 80, ls: "Jurisdicción del domicilio del prestamista", ld: "Jurisdicción donde está el bien en garantía" }, nombre: "Prestamistas hipotecarios o prendarios", pref: ["649290"],
     regla: "80% a la jurisdicción donde está el bien en garantía, y 20% a la del domicilio del prestamista.",
     cuando: "Solo para prestamistas hipotecarios o prendarios que no estén organizados en forma de empresa." },
   { art: 13, nombre: "Productos primarios, vitivinícolas y azucareras", pref: ["011", "012", "013", "014", "021", "022", "031", "032", "05", "06", "07", "08", "1072", "1102", "1200"],
@@ -3212,6 +3212,13 @@ function renderActivityRegimenModal(clientId, code) {
               </select>
               <span class="hint-sm" id="regimen-especial-regla"></span>
             </div>
+            <div id="regimen-reparto-block" style="display:none;flex-direction:column;gap:8px;">
+              <div class="field"><label id="regimen-sede-label">Jurisdicción de la sede</label>
+                <select id="regimen-sede"><option value="">Elegir…</option>${jurs.map((j) => `<option value="${escapeHtml(j.name)}" ${a.especialSede === j.name ? "selected" : ""}>${escapeHtml(j.name)}</option>`).join("")}</select></div>
+              <div class="field"><label id="regimen-donde-label">Jurisdicción donde se realiza la actividad</label>
+                <select id="regimen-donde"><option value="">Elegir…</option>${jurs.map((j) => `<option value="${escapeHtml(j.name)}" ${a.especialDonde === j.name ? "selected" : ""}>${escapeHtml(j.name)}</option>`).join("")}</select></div>
+              <span id="regimen-reparto-hint" style="font-size:10.5px;color:var(--muted-soft);"></span>
+            </div>
             <p style="font-size:11.5px;color:var(--muted);margin:0;">Repartí el 100% de esta actividad entre las jurisdicciones que ya cargaste. Queda fijo — si en algún momento cambia (otra obra, otro contrato), lo volvés a editar acá.</p>
             ${jurs.length ? jurs.map((j) => `
               <div class="field" style="flex-direction:row;align-items:center;justify-content:space-between;gap:8px;">
@@ -3236,20 +3243,42 @@ function renderActivityRegimenModal(clientId, code) {
       </div>
     </div>`;
   wireModalBackdropClose();
-  const actualizarRegla = () => {
+  // Reparto automático (Arts. 6, 7, 10, 11 y 12): con la jurisdicción de la
+  // sede y la jurisdicción donde se hace la actividad se completan solos los
+  // porcentajes (p. ej. 80% / 20%); si ambas son la misma, 100% a esa.
+  const aplicarReparto = (completar) => {
+    const v = Number(document.getElementById("regimen-especial-art").value);
+    const e2 = CM_ENCUADRES.find((x) => x.art === v);
+    const blk = document.getElementById("regimen-reparto-block");
+    if (!e2 || !e2.reparto) { blk.style.display = "none"; return; }
+    blk.style.display = "flex";
+    document.getElementById("regimen-sede-label").textContent = e2.reparto.ls;
+    document.getElementById("regimen-donde-label").textContent = e2.reparto.ld;
+    document.getElementById("regimen-reparto-hint").textContent = `Se completa ${e2.reparto.donde}% donde corresponde a la actividad y ${e2.reparto.sede}% a la sede. Si la actividad se hace en más de una jurisdicción, ajustá los porcentajes a mano abajo.`;
+    if (!completar) return;
+    const sede = document.getElementById("regimen-sede").value, donde = document.getElementById("regimen-donde").value;
+    if (!sede || !donde) return;
+    const map = {};
+    if (sede === donde) map[sede] = 100; else { map[sede] = e2.reparto.sede; map[donde] = e2.reparto.donde; }
+    document.querySelectorAll("#regimen-especial-block input[data-jur]").forEach((inp) => { inp.value = map[inp.dataset.jur] ? fmtPctRaw(map[inp.dataset.jur]) : ""; });
+  };
+  const actualizarRegla = (completar) => {
     const v = Number(document.getElementById("regimen-especial-art").value);
     const e2 = CM_ENCUADRES.find((x) => x.art === v);
     document.getElementById("regimen-especial-regla").textContent = e2 ? e2.regla : "";
+    aplicarReparto(completar === true);
   };
-  document.getElementById("regimen-especial-art").addEventListener("change", actualizarRegla);
-  actualizarRegla();
+  document.getElementById("regimen-especial-art").addEventListener("change", () => actualizarRegla(true));
+  document.getElementById("regimen-sede").addEventListener("change", () => aplicarReparto(true));
+  document.getElementById("regimen-donde").addEventListener("change", () => aplicarReparto(true));
+  actualizarRegla(false);
   const usarBtn = document.getElementById("usar-encuadre");
   if (usarBtn) usarBtn.addEventListener("click", () => {
     document.getElementById("regimen-select").value = "especial";
     document.getElementById("regimen-especial-block").style.display = "flex";
     document.getElementById("regimen-art14-block").style.display = "none";
     document.getElementById("regimen-especial-art").value = String(enc.art);
-    actualizarRegla();
+    actualizarRegla(true);
     usarBtn.parentElement.remove();
   });
   document.getElementById("regimen-select").addEventListener("change", (e) => {
@@ -3482,6 +3511,8 @@ document.getElementById("modal-root").addEventListener("click", (e) => {
       if (!a) return;
       a.regimen = regimen === "general" ? undefined : regimen;
       a.especialArt = regimen === "especial" ? (Number(document.getElementById("regimen-especial-art") && document.getElementById("regimen-especial-art").value) || undefined) : undefined;
+      a.especialSede = regimen === "especial" ? (document.getElementById("regimen-sede").value || undefined) : undefined;
+      a.especialDonde = regimen === "especial" ? (document.getElementById("regimen-donde").value || undefined) : undefined;
       if (regimen === "general") a.regimenAvisoOk = true; // ya lo revisó y lo dejó en general
       a.distribEspecial = regimen === "especial" ? distribEspecial : undefined;
       a.art14Jur = regimen === "art14" ? art14Jur : undefined;
