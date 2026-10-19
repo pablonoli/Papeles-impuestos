@@ -3478,7 +3478,7 @@ function renderMonoEscalaModal() {
 // ---------------------------------------------------------------------
 // Evolución (gráficos)
 // ---------------------------------------------------------------------
-state.evoRange = 12; state.evoTax = "iva"; state.evoView = "grafico";
+state.evoRange = 12; state.evoTax = "iva"; state.evoView = "grafico"; state.evoBase = "neto";
 function evoNiceStep(range, n) {
   const raw = range / n, exp = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / exp;
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * exp;
@@ -3533,6 +3533,14 @@ function evoChartSvg(opt) {
   const every = Math.ceil(n / 12);
   opt.labels.forEach((l, i) => { if (i % every === 0 || i === n - 1) g += `<text x="${x(i).toFixed(1)}" y="${H - 9}" text-anchor="middle" class="evo-ax">${escapeHtml(l)}</text>`; });
   let marks = "";
+  const endY = {};
+  if (opt.tipo !== "bar") {
+    const arr = [];
+    opt.series.forEach((s, si) => { const li = s.values.map((v, i) => (v != null ? i : -1)).filter((i) => i >= 0).pop(); if (li != null && li >= 0) arr.push({ si, y: y(s.values[li]) + 3.5 }); });
+    arr.sort((a, b) => a.y - b.y);
+    for (let k = 1; k < arr.length; k++) if (arr[k].y - arr[k - 1].y < 14) arr[k].y = arr[k - 1].y + 14;
+    arr.forEach((o) => { endY[o.si] = o.y; });
+  }
   if (opt.tipo === "bar") {
     const s = opt.series[0], bw = Math.min(34, pw / n * 0.55), y0 = y(0);
     s.values.forEach((v, i) => {
@@ -3552,7 +3560,7 @@ function evoChartSvg(opt) {
       marks += `<path d="${d}" class="evo-line evo-s${si + 1}" fill="none"/>`;
       s.values.forEach((v, i) => { if (v != null) marks += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="4" class="evo-dot evo-f${si + 1}"/>`; });
       const li = s.values.map((v, i) => (v != null ? i : -1)).filter((i) => i >= 0).pop();
-      if (li != null && li >= 0) marks += `<text x="${(x(li) + 9).toFixed(1)}" y="${(y(s.values[li]) + 3.5).toFixed(1)}" class="evo-end">${fmtCompact(s.values[li])}</text>`;
+      if (li != null && li >= 0) marks += `<text x="${(x(li) + 9).toFixed(1)}" y="${(endY[si] != null ? endY[si] : y(s.values[li]) + 3.5).toFixed(1)}" class="evo-end">${fmtCompact(s.values[li])}</text>`;
     });
   }
   let hits = "";
@@ -3563,6 +3571,7 @@ function evoChartSvg(opt) {
       if (opt.tipo === "bar") lines.push(v == null ? "Sin datos" : v > 0 ? `A pagar: ${fmtMoney(v)}` : v < 0 ? `A favor: ${fmtMoney(-v)}` : "Saldo cero");
       else lines.push(`${s.name}: ${v == null ? "sin datos" : fmtMoney(v)}`);
     });
+    if (opt.extraTip) { const t = opt.extraTip(i); if (t) lines.push(t); }
     hits += `<rect class="evo-hit" x="${(ml + pw * i / n).toFixed(1)}" y="${mt}" width="${(pw / n).toFixed(1)}" height="${ph}" data-x="${x(i).toFixed(1)}" data-tip="${escapeHtml(lines.join("\n"))}"/>`;
   });
   const legend = opt.tipo === "bar"
@@ -3582,26 +3591,28 @@ function renderEvolucionTab(client) {
   const datos = evoDatos(client, end, state.evoRange);
   const labels = datos.map((d) => periodShort(d.period));
   const col = (k) => datos.map((d) => d[k]);
+  const ivaOn = client.iva.enabled;
   const ctrl = `
     <div class="evo-ctrl">
       <label>Rango <select data-action="evo-range">${[6, 12, 18, 24].map((n) => `<option value="${n}" ${state.evoRange === n ? "selected" : ""}>${n} meses</option>`).join("")}</select></label>
       <label>Saldo de <select data-action="evo-tax">${taxes.map((t) => `<option value="${t[0]}" ${state.evoTax === t[0] ? "selected" : ""}>${t[1]}</option>`).join("")}</select></label>
+      ${ivaOn && state.evoView === "grafico" ? `<div class="seg" title="Base de comparación de ventas y compras"><button class="${state.evoBase === "neto" ? "on" : ""}" data-action="evo-base" data-base="neto">Neto</button><button class="${state.evoBase === "total" ? "on" : ""}" data-action="evo-base" data-base="total">Total</button></div>` : ""}
       <span class="hint-sm">hasta ${periodLabel(end)}</span>
       <span style="flex:1"></span>
       <div class="seg"><button class="${state.evoView === "grafico" ? "on" : ""}" data-action="evo-view" data-view="grafico">📈 Gráfico</button><button class="${state.evoView === "tabla" ? "on" : ""}" data-action="evo-view" data-view="tabla">🔢 Tabla</button></div>
     </div>`;
-  const ivaOn = client.iva.enabled;
   let body;
   if (state.evoView === "tabla") {
     const f = (v) => (v == null ? `<span class="hint-sm">—</span>` : fmtMoney(v));
     const sal = (v) => (v == null ? `<span class="hint-sm">—</span>` : v > 0 ? `<span class="evo-t-pagar">▲ ${fmtMoney(v)} a pagar</span>` : v < 0 ? `<span class="evo-t-favor">▼ ${fmtMoney(-v)} a favor</span>` : "Saldo cero");
-    body = `<div class="card"><div class="card-body"><div class="table-scroll"><table style="min-width:720px;"><tr><th style="text-align:left;">Período</th>${ivaOn ? "<th>Ventas netas</th><th>Ventas totales</th><th>Compras netas</th><th>Compras totales</th>" : ""}<th>Saldo ${escapeHtml((taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1])}</th></tr>
-      ${datos.slice().reverse().map((d) => `<tr><td style="text-align:left;">${periodLabel(d.period)}</td>${ivaOn ? `<td class="num">${f(d.ventasNetas)}</td><td class="num">${f(d.ventasTotales)}</td><td class="num">${f(d.comprasNetas)}</td><td class="num">${f(d.comprasTotales)}</td>` : ""}<td class="num">${sal(d.saldo)}</td></tr>`).join("")}
+    body = `<div class="card"><div class="card-body"><div class="table-scroll"><table style="min-width:860px;"><tr><th style="text-align:left;">Período</th>${ivaOn ? "<th>Ventas netas</th><th>Ventas totales</th><th>Compras netas</th><th>Compras totales</th><th>Ventas − compras (netas)</th>" : ""}<th>Saldo ${escapeHtml((taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1])}</th></tr>
+      ${datos.slice().reverse().map((d) => `<tr><td style="text-align:left;">${periodLabel(d.period)}</td>${ivaOn ? `<td class="num">${f(d.ventasNetas)}</td><td class="num">${f(d.ventasTotales)}</td><td class="num">${f(d.comprasNetas)}</td><td class="num">${f(d.comprasTotales)}</td><td class="num">${d.ventasNetas == null || d.comprasNetas == null ? f(null) : fmtMoney(round2(d.ventasNetas - d.comprasNetas))}</td>` : ""}<td class="num">${sal(d.saldo)}</td></tr>`).join("")}
     </table></div></div></div>`;
   } else {
     const card = (titulo, hint, svg) => `<div class="card"><div class="card-head"><h3>${titulo}</h3><span class="hint">${hint}</span></div><div class="card-body">${svg}</div></div>`;
-    body = (ivaOn ? card("Ventas", "Netas de IVA y totales (neto + IVA), netas de notas de crédito", evoChartSvg({ tipo: "line", title: "Ventas", labels, series: [{ name: "Netas", values: col("ventasNetas") }, { name: "Totales", values: col("ventasTotales") }] }))
-      + card("Compras", "Netas de IVA y totales (neto + IVA), netas de notas de crédito", evoChartSvg({ tipo: "line", title: "Compras", labels, series: [{ name: "Netas", values: col("comprasNetas") }, { name: "Totales", values: col("comprasTotales") }] })) : "")
+    const kb = state.evoBase === "total" ? "Totales" : "Netas";
+    const vv = col("ventas" + kb), cc = col("compras" + kb);
+    body = (ivaOn ? card("Ventas vs Compras", state.evoBase === "total" ? "Totales (neto + IVA), netas de notas de crédito" : "Netas de IVA y de notas de crédito", evoChartSvg({ tipo: "line", title: "Ventas vs Compras", labels, series: [{ name: "Ventas", values: vv }, { name: "Compras", values: cc }], extraTip: (i) => (vv[i] != null && cc[i] != null ? `Ventas − compras: ${fmtMoney(round2(vv[i] - cc[i]))}` : "") })) : "")
       + card(`Saldo ${(taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1]}`, "Barras hacia arriba: a pagar · hacia abajo: a favor del contribuyente", evoChartSvg({ tipo: "bar", title: "Saldo", labels, series: [{ name: "Saldo", values: col("saldo") }] }));
   }
   return `<div style="display:flex;flex-direction:column;gap:16px;max-width:960px;">${ctrl}${body}</div>`;
@@ -3966,6 +3977,7 @@ document.addEventListener("click", (e) => {
     persistExtras(); render(); showToast("Fecha aplicada a los clientes de " + (c.iibbLocal.jurisdiccion || "la misma jurisdicción") + ".");
   }
   else if (a === "evo-view") { state.evoView = btn.dataset.view; render(); }
+  else if (a === "evo-base") { state.evoBase = btn.dataset.base; render(); }
   else if (a === "mono-escala-abrir") renderMonoEscalaModal();
   else if (a === "mono-escala-cerrar") { document.getElementById("modal-root").innerHTML = ""; render(); }
   else if (a === "compras-cancelar") { state.comprasImp = null; document.getElementById("modal-root").innerHTML = ""; }
