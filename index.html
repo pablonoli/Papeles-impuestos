@@ -2129,7 +2129,6 @@ const EXENCIONES_GRUPOS = [
   { g: "Bienes (Art. 7 incs. a a g)", ids: ["libros", "valores", "oro_monedas", "agua_leche_med", "aeronaves"] },
   { g: "Prestaciones y locaciones (Art. 7 inc. h)", ids: ["estado", "educacion", "culto", "entidades", "salud", "espectaculos", "taxi", "transp_intl", "financieras", "locacion_viv", "geriatricos", "otras_h"] },
   { g: "Exportaciones (Art. 8)", ids: ["exportacion"] },
-  { g: "Otros supuestos", ids: ["no_gravado"] },
 ];
 const EXENCIONES = {
   libros: { corto: "Libros, diarios y revistas", ley: "Art. 7 inc. a)", dr: "",
@@ -2190,6 +2189,33 @@ const EXENCIONES = {
     que: "Operaciones fuera del objeto del impuesto (no son exenciones): por ejemplo, ventas de bienes de uso no habituales de sujetos no comprendidos, o conceptos que no configuran venta, locación o prestación gravada.",
     verificar: ["Confirmá que realmente no encuadre en el hecho imponible; si no, corresponde gravarla."] },
 };
+// Qué exenciones tienen sentido para cada actividad (código NAES / F. 883).
+// Se busca por prefijo del código; se suman las de todas las reglas que
+// coincidan. Si ninguna coincide, se muestra el catálogo completo.
+const EXENCION_REGLAS = (() => {
+  const r = [];
+  for (let n = 1; n <= 33; n++) r.push([String(n).padStart(2, "0"), ["exportacion"]]); // agro, minería e industria: exportación de bienes
+  ["45", "46", "47"].forEach((p) => r.push([p, ["exportacion"]]));
+  return r.concat([
+    ["0141", ["agua_leche_med"]], ["1050", ["agua_leche_med"]], ["360", ["agua_leche_med"]],
+    ["471", ["agua_leche_med"]], ["472", ["agua_leche_med"]], ["4645", ["agua_leche_med"]], ["4772", ["agua_leche_med"]],
+    ["1811", ["libros"]], ["1812", ["libros"]], ["5811", ["libros"]], ["5812", ["libros"]], ["5813", ["libros"]], ["5819", ["libros"]], ["4761", ["libros"]],
+    ["3011", ["aeronaves"]], ["3030", ["aeronaves"]],
+    ["49", ["transp_intl"]], ["50", ["transp_intl"]], ["51", ["transp_intl", "aeronaves"]], ["52", ["transp_intl"]], ["4922", ["taxi"]],
+    ["60", ["otras_h"]], ["64", ["financieras", "oro_monedas", "valores"]], ["65", ["otras_h"]], ["66", ["valores"]],
+    ["68", ["locacion_viv"]],
+    ["8230", ["otras_h"]], ["84", ["estado"]], ["85", ["educacion"]], ["86", ["salud", "entidades"]], ["87", ["geriatricos", "salud"]], ["88", ["educacion", "entidades"]],
+    ["90", ["espectaculos"]], ["93", ["espectaculos"]], ["94", ["entidades"]], ["9491", ["culto"]], ["9603", ["otras_h"]], ["97", ["otras_h"]],
+  ]);
+})();
+function exencionesParaActividad(code) {
+  const c = String(code || "").replace(/\D/g, "");
+  if (!c) return null;
+  const ids = new Set();
+  EXENCION_REGLAS.forEach(([p, list]) => { if (c.indexOf(p) === 0) list.forEach((i) => ids.add(i)); });
+  if (!ids.size) return null;
+  return ids;
+}
 function exencionLabel(key) {
   const e = EXENCIONES[key];
   return e ? `${e.corto} — ${e.ley}` : "";
@@ -2211,8 +2237,18 @@ function exencionPanelHtml(clientId, period, code, pa) {
   const monto = num(pa.exento) - num(pa.exentoNC);
   const key = pa.exentoFund || "";
   const e = EXENCIONES[key];
-  const opts = `<option value="">— Elegí el fundamento —</option>` + EXENCIONES_GRUPOS.map((gr) =>
-    `<optgroup label="${escapeHtml(gr.g)}">${gr.ids.map((id) => `<option value="${id}" ${key === id ? "selected" : ""}>${escapeHtml(EXENCIONES[id].corto)} — ${escapeHtml(EXENCIONES[id].ley)}</option>`).join("")}</optgroup>`).join("");
+  const sugeridas = exencionesParaActividad(code);
+  const verTodas = !!(state.exenTodas && state.exenTodas[code]);
+  const filtrar = !!sugeridas && !verTodas;
+  const permitido = (id) => !filtrar || sugeridas.has(id) || id === key;
+  const opts = `<option value="">— Elegí el fundamento —</option>` + EXENCIONES_GRUPOS.map((gr) => {
+    const ids = gr.ids.filter(permitido);
+    return ids.length ? `<optgroup label="${escapeHtml(gr.g)}">${ids.map((id) => `<option value="${id}" ${key === id ? "selected" : ""}>${escapeHtml(EXENCIONES[id].corto)} — ${escapeHtml(EXENCIONES[id].ley)}</option>`).join("")}</optgroup>` : "";
+  }).join("");
+  const cli = getClient(clientId), act = cli && (cli.iva.activities || []).find((a) => a.code === code);
+  const filtroNota = sugeridas
+    ? `<div class="hint-sm" style="font-size:11.5px;color:var(--muted);">${filtrar ? `Muestro las exenciones que suelen corresponder a esta actividad${act && act.desc ? ` (${escapeHtml(act.desc)})` : ""}. ` : "Mostrando todas las exenciones. "}<button type="button" class="linklike" style="color:var(--accent);" data-action="exen-todas" data-code="${escapeHtml(code)}" data-clientid="${clientId}" data-period="${period}">${filtrar ? "Ver todas" : "Ver solo las de esta actividad"}</button></div>`
+    : `<div class="hint-sm" style="font-size:11.5px;color:var(--muted);">No tengo un filtro para este código de actividad: se muestran todas las exenciones.</div>`;
   const hayMonto = num(pa.exento) !== 0 || num(pa.exentoNC) !== 0;
   // El fundamento solo aparece cuando hay ventas exentas cargadas en la actividad.
   if (!hayMonto) return "";
@@ -2224,6 +2260,7 @@ function exencionPanelHtml(clientId, period, code, pa) {
   }
   return `<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
       <div class="field"><label>Fundamento de la exención</label><select data-action="field" data-path="iva.porActividad.${code}.exentoFund" data-clientid="${clientId}" data-period="${period}" data-reopen="iva-actividades">${opts}</select></div>
+      ${filtroNota}
       ${detalle}
     </div>`;
 }
@@ -3917,6 +3954,7 @@ document.addEventListener("click", (e) => {
   else if (a === "panel-prev") { if (state.panelPeriod > MIN_PERIOD) { state.panelPeriod = addMonths(state.panelPeriod, -1); render(); } }
   else if (a === "panel-next") { state.panelPeriod = addMonths(state.panelPeriod, 1); render(); }
   else if (a === "panel-filtro") { state.panelFiltro = btn.dataset.filtro; render(); }
+  else if (a === "exen-todas") { state.exenTodas = state.exenTodas || {}; state.exenTodas[btn.dataset.code] = !state.exenTodas[btn.dataset.code]; refreshIvaActividadesModal(btn.dataset.clientid, btn.dataset.period); }
   else if (a === "cal-dia") { state.calDia = btn.dataset.iso; render(); }
   else if (a === "presentado-toggle") { const c = getClient(btn.dataset.client); setPresentado(btn.dataset.client, btn.dataset.tax, btn.dataset.period, !presentadoDe(c, btn.dataset.tax, btn.dataset.period)); render(); }
   else if (a === "cal-prev") { state.calMonth = addMonths(state.calMonth, -1); render(); }
