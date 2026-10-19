@@ -3478,7 +3478,7 @@ function renderMonoEscalaModal() {
 // ---------------------------------------------------------------------
 // Evolución (gráficos)
 // ---------------------------------------------------------------------
-state.evoRange = 12; state.evoTax = "iva"; state.evoView = "grafico"; state.evoBase = "neto";
+state.evoRange = 12; state.evoTax = "iva"; state.evoView = "grafico"; state.evoBase = "neto"; state.evoForma = "barras";
 function evoNiceStep(range, n) {
   const raw = range / n, exp = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / exp;
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * exp;
@@ -3518,7 +3518,7 @@ function evoDatos(client, endPeriod, n) {
 // Gráfico SVG. tipo "line" (varias series) o "bar" (una serie con signo).
 function evoChartSvg(opt) {
   const n = opt.labels.length;
-  const W = 760, H = 250, ml = 62, mr = 74, mt = 14, mb = 30, pw = W - ml - mr, ph = H - mt - mb;
+  const W = 760, H = 250, ml = 62, mr = opt.tipo === "gbar" ? 20 : 74, mt = 14, mb = 30, pw = W - ml - mr, ph = H - mt - mb;
   const vals = [];
   opt.series.forEach((s) => s.values.forEach((v) => { if (v != null) vals.push(v); }));
   if (!vals.length) return `<div class="evo-empty">Sin datos cargados en este rango.</div>`;
@@ -3534,7 +3534,7 @@ function evoChartSvg(opt) {
   opt.labels.forEach((l, i) => { if (i % every === 0 || i === n - 1) g += `<text x="${x(i).toFixed(1)}" y="${H - 9}" text-anchor="middle" class="evo-ax">${escapeHtml(l)}</text>`; });
   let marks = "";
   const endY = {};
-  if (opt.tipo !== "bar") {
+  if (opt.tipo === "line") {
     const arr = [];
     opt.series.forEach((s, si) => { const li = s.values.map((v, i) => (v != null ? i : -1)).filter((i) => i >= 0).pop(); if (li != null && li >= 0) arr.push({ si, y: y(s.values[li]) + 3.5 }); });
     arr.sort((a, b) => a.y - b.y);
@@ -3553,6 +3553,18 @@ function evoChartSvg(opt) {
     });
     const li = s.values.map((v, i) => (v != null ? i : -1)).filter((i) => i >= 0).pop();
     if (li != null && li >= 0 && s.values[li] !== 0) marks += `<text x="${(x(li) + 0).toFixed(1)}" y="${(s.values[li] > 0 ? y(s.values[li]) - 6 : y(s.values[li]) + 14).toFixed(1)}" text-anchor="middle" class="evo-end">${fmtCompact(Math.abs(s.values[li]))}</text>`;
+  } else if (opt.tipo === "gbar") {
+    const m = opt.series.length, gw = pw / n, inner = Math.min(gw * 0.7, 26 * m), bw = (inner - 2 * (m - 1)) / m, y0 = y(0);
+    opt.series.forEach((s, si) => {
+      s.values.forEach((v, i) => {
+        if (v == null || v === 0) return;
+        const up = v > 0, yy = y(v), h = Math.abs(yy - y0), r = Math.min(4, h), x0 = x(i) - inner / 2 + si * (bw + 2);
+        const d = up
+          ? `M${x0.toFixed(1)},${y0} V${(yy + r).toFixed(1)} Q${x0.toFixed(1)},${yy.toFixed(1)} ${(x0 + r).toFixed(1)},${yy.toFixed(1)} H${(x0 + bw - r).toFixed(1)} Q${(x0 + bw).toFixed(1)},${yy.toFixed(1)} ${(x0 + bw).toFixed(1)},${(yy + r).toFixed(1)} V${y0} Z`
+          : `M${x0.toFixed(1)},${y0} V${(yy - r).toFixed(1)} Q${x0.toFixed(1)},${yy.toFixed(1)} ${(x0 + r).toFixed(1)},${yy.toFixed(1)} H${(x0 + bw - r).toFixed(1)} Q${(x0 + bw).toFixed(1)},${yy.toFixed(1)} ${(x0 + bw).toFixed(1)},${(yy - r).toFixed(1)} V${y0} Z`;
+        marks += `<path d="${d}" class="evo-f${si + 1}"/>`;
+      });
+    });
   } else {
     opt.series.forEach((s, si) => {
       let d = "", pen = false;
@@ -3596,7 +3608,7 @@ function renderEvolucionTab(client) {
     <div class="evo-ctrl">
       <label>Rango <select data-action="evo-range">${[6, 12, 18, 24].map((n) => `<option value="${n}" ${state.evoRange === n ? "selected" : ""}>${n} meses</option>`).join("")}</select></label>
       <label>Saldo de <select data-action="evo-tax">${taxes.map((t) => `<option value="${t[0]}" ${state.evoTax === t[0] ? "selected" : ""}>${t[1]}</option>`).join("")}</select></label>
-      ${ivaOn && state.evoView === "grafico" ? `<div class="seg" title="Base de comparación de ventas y compras"><button class="${state.evoBase === "neto" ? "on" : ""}" data-action="evo-base" data-base="neto">Neto</button><button class="${state.evoBase === "total" ? "on" : ""}" data-action="evo-base" data-base="total">Total</button></div>` : ""}
+      ${ivaOn && state.evoView === "grafico" ? `<div class="seg" title="Base de comparación de ventas y compras"><button class="${state.evoBase === "neto" ? "on" : ""}" data-action="evo-base" data-base="neto">Neto</button><button class="${state.evoBase === "total" ? "on" : ""}" data-action="evo-base" data-base="total">Total</button></div><div class="seg" title="Forma del gráfico"><button class="${state.evoForma === "barras" ? "on" : ""}" data-action="evo-forma" data-forma="barras">▥ Barras</button><button class="${state.evoForma === "lineas" ? "on" : ""}" data-action="evo-forma" data-forma="lineas">📈 Líneas</button></div>` : ""}
       <span class="hint-sm">hasta ${periodLabel(end)}</span>
       <span style="flex:1"></span>
       <div class="seg"><button class="${state.evoView === "grafico" ? "on" : ""}" data-action="evo-view" data-view="grafico">📈 Gráfico</button><button class="${state.evoView === "tabla" ? "on" : ""}" data-action="evo-view" data-view="tabla">🔢 Tabla</button></div>
@@ -3612,7 +3624,7 @@ function renderEvolucionTab(client) {
     const card = (titulo, hint, svg) => `<div class="card"><div class="card-head"><h3>${titulo}</h3><span class="hint">${hint}</span></div><div class="card-body">${svg}</div></div>`;
     const kb = state.evoBase === "total" ? "Totales" : "Netas";
     const vv = col("ventas" + kb), cc = col("compras" + kb);
-    body = (ivaOn ? card("Ventas vs Compras", state.evoBase === "total" ? "Totales (neto + IVA), netas de notas de crédito" : "Netas de IVA y de notas de crédito", evoChartSvg({ tipo: "line", title: "Ventas vs Compras", labels, series: [{ name: "Ventas", values: vv }, { name: "Compras", values: cc }], extraTip: (i) => (vv[i] != null && cc[i] != null ? `Ventas − compras: ${fmtMoney(round2(vv[i] - cc[i]))}` : "") })) : "")
+    body = (ivaOn ? card("Ventas vs Compras", state.evoBase === "total" ? "Totales (neto + IVA), netas de notas de crédito" : "Netas de IVA y de notas de crédito", evoChartSvg({ tipo: state.evoForma === "lineas" ? "line" : "gbar", title: "Ventas vs Compras", labels, series: [{ name: "Ventas", values: vv }, { name: "Compras", values: cc }], extraTip: (i) => (vv[i] != null && cc[i] != null ? `Ventas − compras: ${fmtMoney(round2(vv[i] - cc[i]))}` : "") })) : "")
       + card(`Saldo ${(taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1]}`, "Barras hacia arriba: a pagar · hacia abajo: a favor del contribuyente", evoChartSvg({ tipo: "bar", title: "Saldo", labels, series: [{ name: "Saldo", values: col("saldo") }] }));
   }
   return `<div style="display:flex;flex-direction:column;gap:16px;max-width:960px;">${ctrl}${body}</div>`;
@@ -3977,6 +3989,7 @@ document.addEventListener("click", (e) => {
     persistExtras(); render(); showToast("Fecha aplicada a los clientes de " + (c.iibbLocal.jurisdiccion || "la misma jurisdicción") + ".");
   }
   else if (a === "evo-view") { state.evoView = btn.dataset.view; render(); }
+  else if (a === "evo-forma") { state.evoForma = btn.dataset.forma; render(); }
   else if (a === "evo-base") { state.evoBase = btn.dataset.base; render(); }
   else if (a === "mono-escala-abrir") renderMonoEscalaModal();
   else if (a === "mono-escala-cerrar") { document.getElementById("modal-root").innerHTML = ""; render(); }
