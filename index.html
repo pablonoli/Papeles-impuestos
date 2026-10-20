@@ -3867,7 +3867,7 @@ function renderPanelView() {
   }).join("") || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">${state.clients.length ? "Ningún cliente cumple el filtro." : "Todavía no cargaste clientes."}</td></tr>`;
   return `
     <div class="topbar"><div class="client-title"><h1>Panel de clientes</h1><div class="meta"><span>Período fiscal ${periodLabel(period)}</span><span>·</span><span>vencimientos de ${MESES[periodMonth(vp) - 1].toLowerCase()} ${periodYear(vp)}</span></div></div>
-      <div class="topbar-actions"><div class="period-nav"><button data-action="panel-prev" ${period <= MIN_PERIOD ? "disabled" : ""}>‹</button><span class="label">${periodLabel(period)}</span><button data-action="panel-next">›</button></div></div></div>
+      <div class="topbar-actions">${state.clients.some((c) => monoEnabled(c)) ? `<button class="btn btn-accent" data-action="mono-recat-abrir" title="Excel con todos los monotributistas: facturación, categoría que les corresponde y cuota">⬇ Recategorización Monotributo</button>` : ""}<div class="period-nav"><button data-action="panel-prev" ${period <= MIN_PERIOD ? "disabled" : ""}>‹</button><span class="label">${periodLabel(period)}</span><button data-action="panel-next">›</button></div></div></div>
     <div style="display:flex;flex-direction:column;gap:16px;">
       <div class="kpi-row">
         <div class="kpi"><span class="k-label">Clientes</span><span class="k-value">${filas.length === state.clients.length ? state.clients.length : filas.length + " / " + state.clients.length}</span><span class="k-sub">${todasTax.length} declaraciones en total</span></div>
@@ -4539,6 +4539,9 @@ document.addEventListener("click", (e) => {
   else if (a === "evo-base") { state.evoBase = btn.dataset.base; render(); }
   else if (a === "mono-escala-abrir") renderMonoEscalaModal();
   else if (a === "mono-cred-abrir") renderMonoCredModal(btn.dataset.clientid);
+  else if (a === "mono-recat-abrir") renderMonoRecatModal();
+  else if (a === "modal-cerrar-simple") { document.getElementById("modal-root").innerHTML = ""; }
+  else if (a === "mono-recat-exportar") { const sel = document.getElementById("mono-recat-sel"); if (sel) { const [i, f, r] = sel.value.split("|"); document.getElementById("modal-root").innerHTML = ""; exportarRecategorizacion(i, f, r); } }
   else if (a === "mono-cred-reset") { mutateClient(btn.dataset.clientid, (cl) => { if (cl.mono && cl.mono.compMontos) { cl.mono.compMontos = Object.assign({}, cl.mono.compMontos); delete cl.mono.compMontos[btn.dataset.comp]; } }); renderMonoCredModal(btn.dataset.clientid); }
   else if (a === "mono-cred-cerrar") { document.getElementById("modal-root").innerHTML = ""; render(); }
   else if (a === "mono-escala-cerrar") { document.getElementById("modal-root").innerHTML = ""; render(); }
@@ -6273,6 +6276,232 @@ function exportClientToExcel(client, which) {
     a.download = filename;
     a.click();
   }
+}
+
+// ---------------------------------------------------------------------
+// Excel de recategorización de Monotributo (todos los clientes)
+// Una hoja "Resumen", una hoja "Escala" (los topes y cuotas vigentes, de los que
+// cuelgan las fórmulas) y una hoja por cliente con el detalle de su facturación,
+// la categoría que le corresponde según sus ventas y lo que pagaría.
+// ---------------------------------------------------------------------
+function monoRecatOpciones() {
+  const hoy = todayPeriod(), y = periodYear(hoy), out = [];
+  for (let a = y - 1; a <= y + 1; a++) {
+    out.push({ recat: `julio ${a}`, ini: `${a - 1}-07`, fin: `${a}-06` });
+    out.push({ recat: `enero ${a + 1}`, ini: `${a}-01`, fin: `${a}-12` });
+  }
+  const lista = out.filter((o) => o.fin >= MIN_PERIOD).sort((p, q) => p.fin.localeCompare(q.fin));
+  // por defecto: la próxima recategorización cuya ventana todavía no cerró
+  const def = lista.find((o) => o.fin >= hoy) || lista[lista.length - 1];
+  return { lista, def };
+}
+function renderMonoRecatModal() {
+  const { lista, def } = monoRecatOpciones();
+  const n = state.clients.filter((c) => monoEnabled(c)).length;
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-backdrop"><div class="modal" style="max-width:560px;">
+      <div class="modal-head"><h3>Excel de recategorización — Monotributo</h3><button class="btn btn-ghost" data-action="modal-cerrar-simple">✕</button></div>
+      <div class="modal-body">
+        <p class="hint-sm" style="margin:0;">Un solo Excel con todos los monotributistas (${n}): una hoja por cliente con el detalle de su facturación, la categoría que le corresponde según sus ventas y cuánto pagaría.</p>
+        <div class="field"><label>Recategorización</label><select id="mono-recat-sel">${lista.map((o) => `<option value="${o.ini}|${o.fin}|${o.recat}" ${o === def ? "selected" : ""}>${o.recat.charAt(0).toUpperCase() + o.recat.slice(1)} — ventas de ${monoRango(o.ini, o.fin)}</option>`).join("")}</select></div>
+        <p class="hint-sm" style="margin:0;">La categoría nueva se calcula con las ventas del período cargadas a la fecha. Las cuotas salen de la escala vigente (sin los importes que hayas editado por cliente).</p>
+      </div>
+      <div class="modal-foot"><button class="btn" data-action="modal-cerrar-simple">Cancelar</button><button class="btn btn-accent" data-action="mono-recat-exportar">⬇ Exportar</button></div>
+    </div></div>`;
+}
+function recatCalcCliente(client, v) {
+  const m = client.mono || {};
+  const bienes = m.tipo === "bienes";
+  const meses = [];
+  for (let p = v.ini; p <= v.fin; p = addMonths(p, 1)) {
+    const d = getDoc(client.id, p), raw = d && d.mono ? d.mono.facturacion : undefined;
+    const cargado = raw !== undefined && raw !== null && String(raw).trim() !== "";
+    meses.push({ period: p, cargado, valor: cargado ? num(raw) : 0 });
+  }
+  const rows = getExtras().monoEscala.rows;
+  const permitidas = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0 && (bienes || "ABCDEFGH".indexOf(c) !== -1); });
+  const catPara = (t) => permitidas.find((c) => t <= num(monoRow(c).tope)) || "EXCLUIDO";
+  const total = round2(meses.reduce((s, x) => s + x.valor, 0));
+  const cargados = meses.filter((x) => x.cargado).length;
+  const hoy = todayPeriod();
+  const rest = meses.filter((x) => x.period > hoy).length;
+  const prom = cargados ? total / cargados : 0;
+  const proy = round2(total + prom * rest);
+  return { m, bienes, meses, permitidas, catPara, total, cargados, rest, prom: round2(prom), proy, catAct: m.categoria, catNew: catPara(total), catProy: catPara(proy) };
+}
+function recatDesglose(r, bienes) {
+  const sipa = num(r.sipa), os = num(r.obraSocial), integ = num(bienes ? r.integBienes : r.integServ);
+  if (integ + sipa + os > 0) return { integ, sipa, os };
+  return { integ: num(bienes ? r.cuotaBienes : r.cuotaServ), sipa: 0, os: 0 };   // escala sin desglose: toda la cuota como integrado
+}
+function recatSheetName(nombre, usados) {
+  let base = String(nombre || "Cliente").replace(/[\[\]:*?\/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 28) || "Cliente";
+  let n = base, i = 2;
+  while (usados.has(n.toLowerCase()) || n.toLowerCase() === "resumen" || n.toLowerCase() === "escala") { n = base.slice(0, 26) + " " + i++; }
+  usados.add(n.toLowerCase());
+  return n;
+}
+// Todas las columnas de datos centradas (menos la primera, que lleva los nombres / conceptos y va a la izquierda),
+// para que no queden unas a la derecha y otras a la izquierda.
+function recatAlinear(ws, primeraIzq) {
+  if (!ws["!ref"]) return;
+  const rg = XLSX.utils.decode_range(ws["!ref"]);
+  for (let R = rg.s.r; R <= rg.e.r; R++) for (let C = rg.s.c; C <= rg.e.c; C++) {
+    const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+    if (!cell) continue;
+    const s0 = cell.s || {};
+    if (s0.fill) continue;   // títulos, banners y encabezados ya van centrados
+    const al = Object.assign({}, s0.alignment || {});
+    al.horizontal = C === 0 && primeraIzq ? "left" : "center"; al.vertical = al.vertical || "center";
+    cell.s = Object.assign({}, s0, { alignment: al });
+  }
+}
+function buildRecatEscalaSheet(wb) {
+  const e = getExtras(), provs = Object.keys(e.monoIibb);
+  const nc = 6 + provs.length;
+  const rows = [["Escala del Monotributo — " + (e.monoEscala.vigencia || "vigente")]];
+  rows.push(["Las hojas de cada cliente toman de acá los topes y las cuotas. Si cambia la escala, corregila en la app (⚙ Escala vigente) y volvé a exportar."]);
+  rows.push([]);
+  rows.push(["Cat.", "Tope anual", "Integrado servicios", "Integrado bienes", "SIPA", "Obra social", ...provs.map((p) => "IIBB " + p)]);
+  MONO_CATS.forEach((cat) => {
+    const r = monoRow(cat) || {}, dS = recatDesglose(r, false), dB = recatDesglose(r, true);
+    rows.push([cat, num(r.tope), dS.integ, dB.integ, dS.sipa, dS.os, ...provs.map((p) => num(e.monoIibb[p][cat]))]);
+  });
+  const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: nc - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: nc - 1 } }];
+  const wsE = newSheet(rows, { colWidths: [8, 20, 20, 20, 16, 16, ...provs.map(() => 18)], merges, headerRows: [3], skipCols: [0] });
+  recatAlinear(wsE, false);
+  XLSX.utils.book_append_sheet(wb, wsE, "Escala");
+  return provs;
+}
+function buildRecatClienteSheet(wb, client, v, cal, name, provs) {
+  const m = cal.m, tipo = cal.bienes ? "Venta de bienes" : "Prestación de servicios";
+  const comp = monoComp(client);
+  const rowsEsc = (c) => { const r = monoRow(c); return r ? recatDesglose(r, cal.bienes) : { integ: 0, sipa: 0, os: 0 }; };
+  const iibbCM = !!(client.iibbCM && client.iibbCM.enabled);
+  const prov = iibbCM ? "" : monoIibbProv(client);
+  const iibbDe = (c) => (prov && getExtras().monoIibb[prov] ? num(getExtras().monoIibb[prov][c]) : 0);
+  const rows = [], formulas = new Map(), formats = new Map(), textF = [], merges = [], headerRows = [], plainRows = new Set();
+  const NC = 4, X = (i) => i + 1;
+  const pad = (arr, n) => { const o = arr.slice(); while (o.length < n) o.push(""); return o; };
+  const merge = (r, n) => merges.push({ s: { r, c: 0 }, e: { r, c: n - 1 } });
+  const pushTxt = (r, c, f, val) => textF.push({ r, c, f, v: val });
+  rows.push(pad([`${client.name} — Recategorización ${v.recat}`], NC)); merge(0, NC);
+  rows.push(pad([`${client.cuit ? "CUIT " + client.cuit + " · " : ""}${tipo} · Categoría actual: ${m.categoria}`], NC)); merge(1, NC);
+  rows.push(pad([`Ventas del período: ${monoRango(v.ini, v.fin)}. En azul, los datos cargados en la app.`], NC)); merge(2, NC);
+  rows.push([]);
+  rows.push(["Mes", "Facturado", "Acumulado", "Categoría según el acumulado"]); headerRows.push(4);
+  const r0 = rows.length, rT = r0 + 12;
+  const rB = rT + 2, rH = rB + 1, rTot = rH + 1, rCatAct = rTot + 1, rTope = rCatAct + 1, rCatNew = rTope + 1, rVar = rCatNew + 1;
+  const rCB = rVar + 2, rCH = rCB + 1, rCR = rCH + 1, rInt = rCR + 1, rSip = rInt + 1, rOs = rSip + 1, rIibb = rOs + 1, rMuni = rIibb + 1, rTC = rMuni + 1, rDif = rTC + 1, rNota = rDif + 1;
+  const nCat = cal.permitidas.length, esc = (col) => `Escala!$${col}$5:$${col}$${4 + nCat}`, escAll = (col) => `Escala!$${col}$5:$${col}$15`;
+  const catF = (cell) => `IF(COUNTIF(${esc("B")},"<"&${cell})>=${nCat},"EXCLUIDO",INDEX(${esc("A")},COUNTIF(${esc("B")},"<"&${cell})+1))`;
+  const topeAct = cal.catAct && monoRow(cal.catAct) ? num(monoRow(cal.catAct).tope) : 0;
+  let acum = 0;
+  cal.meses.forEach((x, i) => {
+    const r = rows.length; acum = round2(acum + x.valor);
+    const cat = acum > 0 ? cal.catPara(acum) : "";
+    rows.push([periodLabel(x.period), x.cargado ? x.valor : "", acum, cat]);
+    formulas.set(`${r}:2`, `SUM($B$${X(r0)}:B${X(r)})`);
+    pushTxt(r, 3, `IF(C${X(r)}=0,"",${catF(`C${X(r)}`)})`, cat);
+  });
+  rows.push(["TOTAL VENTAS DEL PERÍODO", cal.total, "", ""]); formulas.set(`${rT}:1`, `SUM(B${X(r0)}:B${X(rT - 1)})`);
+  rows.push([]);
+  rows.push(pad(["Resultado"], 2)); merge(rB, 2);
+  rows.push(["Concepto", "Valor"]); headerRows.push(rH);
+  rows.push(["Ventas del período", cal.total]); formulas.set(`${rTot}:1`, `B${X(rT)}`);
+  rows.push(["Categoría actual", cal.catAct]);
+  rows.push(["Tope de la categoría actual", topeAct]); formulas.set(`${rTope}:1`, `IFERROR(INDEX(${escAll("B")},MATCH(B${X(rCatAct)},${escAll("A")},0)),0)`);
+  rows.push(["Categoría nueva", cal.catNew]); pushTxt(rCatNew, 1, catF(`B${X(rTot)}`), cal.catNew);
+  const varF = (cNew) => `IF(${cNew}="EXCLUIDO","Excluido del Monotributo",IF(${cNew}=B${X(rCatAct)},"Se mantiene en la "&B${X(rCatAct)},IF(${cNew}>B${X(rCatAct)},"Sube a la "&${cNew},"Baja a la "&${cNew})))`;
+  const varV = (c) => c === "EXCLUIDO" ? "Excluido del Monotributo" : c === cal.catAct ? "Se mantiene en la " + cal.catAct : c > cal.catAct ? "Sube a la " + c : "Baja a la " + c;
+  rows.push(["Situación", varV(cal.catNew)]); pushTxt(rVar, 1, varF(`B${X(rCatNew)}`), varV(cal.catNew));
+  rows.push([]);
+  rows.push(pad(["Cuota mensual a pagar"], NC)); merge(rCB, NC);
+  rows.push(["Componente", "Categoría actual", "Categoría nueva", "Incluido"]); headerRows.push(rCH);
+  const cats = [cal.catAct, cal.catNew], colL = ["B", "C"];
+  rows.push(["Categoría", cats[0], cats[1], ""]);
+  pushTxt(rCR, 1, `B${X(rCatAct)}`, cats[0]); pushTxt(rCR, 2, `B${X(rCatNew)}`, cats[1]);
+  const compRow = (r, label, colEsc, valFn, flag) => {
+    rows.push([label, ...cats.map((c) => (flag ? valFn(c) : 0)), flag ? "Sí" : "No"]);
+    colL.forEach((L, k) => formulas.set(`${r}:${k + 1}`, `IF($D${X(r)}="Sí",IFERROR(INDEX(${escAll(colEsc)},MATCH(${L}$${X(rCR)},${escAll("A")},0)),0),0)`));
+  };
+  compRow(rInt, "Impuesto integrado", cal.bienes ? "D" : "C", (c) => rowsEsc(c).integ, comp.integrado);
+  compRow(rSip, "Autónomos (aportes SIPA)", "E", (c) => rowsEsc(c).sipa, comp.sipa);
+  compRow(rOs, "Obra social", "F", (c) => rowsEsc(c).os, comp.os);
+  const iibbCol = prov ? XLSX.utils.encode_col(6 + provs.indexOf(prov)) : null;
+  if (prov && iibbCol) compRow(rIibb, "IIBB " + prov + " (Régimen Simplificado)", iibbCol, (c) => iibbDe(c), comp.iibb);
+  else rows.push([iibbCM ? "IIBB — Convenio Multilateral (no integra la cuota)" : "IIBB en la cuota (no aplica)", 0, 0, "No"]);
+  const muni = comp.muni ? num(m.muniMonto) : 0;
+  rows.push(["Contribución municipal" + (m.muniNombre ? " — " + m.muniNombre : ""), muni, muni, muni > 0 ? "Sí" : "No"]);
+  formulas.set(`${rMuni}:2`, `B${X(rMuni)}`); pushTxt(rMuni, 3, `IF(B${X(rMuni)}>0,"Sí","No")`, muni > 0 ? "Sí" : "No");
+  const sumCol = (k) => { const c = cats[k]; if (c === "EXCLUIDO") return 0; const d = rowsEsc(c); return round2((comp.integrado ? d.integ : 0) + (comp.sipa ? d.sipa : 0) + (comp.os ? d.os : 0) + (prov && comp.iibb ? iibbDe(c) : 0) + muni); };
+  const tc = [sumCol(0), sumCol(1)];
+  rows.push(["TOTAL CUOTA MENSUAL", tc[0], tc[1], ""]);
+  colL.forEach((L, k) => formulas.set(`${rTC}:${k + 1}`, `IF(${L}${X(rCR)}="EXCLUIDO",0,SUM(${L}${X(rInt)}:${L}${X(rMuni)}))`));
+  rows.push(["Diferencia mensual", "", cal.catNew === "EXCLUIDO" ? 0 : round2(tc[1] - tc[0]), ""]);
+  formulas.set(`${rDif}:2`, `IF(C${X(rCR)}="EXCLUIDO",0,C${X(rTC)}-B${X(rTC)})`);
+  const excl = cal.catNew === "EXCLUIDO";
+  const notaTxt = "Atención: las ventas superan el tope máximo del Monotributo; corresponde la exclusión (Régimen General) y esa cuota no aplica.";
+  const highlightBanners = new Map();
+  if (excl) { rows.push(pad([notaTxt], NC)); merge(rNota, NC); highlightBanners.set(rNota, { fg: "C0392B", bg: "FDECEA" }); }
+  const ws = newSheet(rows, { colWidths: [46, 22, 22, 28], merges, formulas, formats, headerRows, plainRows, highlightBanners, skipCols: [3], wrapCols: [] });
+  textF.forEach((t) => { const a = XLSX.utils.encode_cell({ r: t.r, c: t.c }); const prev = ws[a] || {}; ws[a] = Object.assign({}, prev, { t: "s", v: String(t.v == null ? "" : t.v), f: t.f }); });
+  // lo cargado a mano (facturación e "Incluido") va en azul
+  const azul = (r, c) => { const a = XLSX.utils.encode_cell({ r, c }); if (ws[a]) { const s0 = ws[a].s || {}; ws[a].s = Object.assign({}, s0, { font: Object.assign({}, s0.font || {}, { color: { rgb: "0000FF" } }) }); } };
+  for (let i = 0; i < 12; i++) azul(r0 + i, 1);
+  [rInt, rSip, rOs, rIibb].forEach((r) => azul(r, 3)); azul(rMuni, 1);
+  recatAlinear(ws, true);
+  XLSX.utils.book_append_sheet(wb, ws, name);
+  return { name, rCatAct, rTot, rCatNew, rVar, rTC, rDif, tc, calc: cal };
+}
+function exportarRecategorizacion(ini, fin, recat) {
+  const v = { ini, fin, recat };
+  const clientes = state.clients.filter((c) => monoEnabled(c)).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
+  if (!clientes.length) { showToast("No hay clientes con Monotributo."); return; }
+  if (!monoEscalaCargada()) { alert("Falta cargar la escala vigente de Monotributo."); return; }
+  const wb = XLSX.utils.book_new();
+  wb.Props = { Title: "Recategorización Monotributo " + recat, Author: "Papeles de Trabajo Fiscales", CreatedDate: new Date() };
+  const provs = buildRecatEscalaSheet(wb);
+  const usados = new Set(), res = [], sinCat = [];
+  clientes.forEach((c) => {
+    if (!c.mono || !c.mono.categoria || !monoRow(c.mono.categoria)) { sinCat.push(c); return; }
+    const cal = recatCalcCliente(c, v);
+    res.push(Object.assign({ client: c }, buildRecatClienteSheet(wb, c, v, cal, recatSheetName(c.name, usados), provs)));
+  });
+  // Resumen
+  const q = (n) => "'" + n.replace(/'/g, "''") + "'!";
+  const NC = 10, pad = (arr) => { const o = arr.slice(); while (o.length < NC) o.push(""); return o; };
+  const rows = [], formulas = new Map(), formats = new Map(), textF = [], headerRows = [4];
+  const merges = [0, 1, 2].map((r) => ({ s: { r, c: 0 }, e: { r, c: NC - 1 } }));
+  rows.push(pad([`Recategorización de Monotributo — ${recat.charAt(0).toUpperCase() + recat.slice(1)}`]));
+  rows.push(pad([`Ventas de ${monoRango(ini, fin)} · generado el ${nowStampAR()}`]));
+  rows.push(pad([`La categoría nueva sale de las ventas del período cargadas a la fecha. Cuotas según la escala vigente (${getExtras().monoEscala.vigencia || "—"}), con los componentes que paga cada cliente.`]));
+  rows.push([]);
+  rows.push(["Cliente", "CUIT", "Actividad", "Categoría actual", "Ventas del período", "Categoría nueva", "Cuota actual", "Cuota nueva", "Diferencia mensual", "Situación"]);
+  const sit = (cal) => cal.catNew === "EXCLUIDO" ? "Excluido del Monotributo" : cal.catNew === cal.catAct ? "Se mantiene en la " + cal.catAct : cal.catNew > cal.catAct ? "Sube a la " + cal.catNew : "Baja a la " + cal.catNew;
+  res.forEach((x) => {
+    const r = rows.length, S = q(x.name), c = x.client, cal = x.calc;
+    const dif = cal.catNew === "EXCLUIDO" ? 0 : round2(x.tc[1] - x.tc[0]);
+    rows.push([c.name, c.cuit || "", cal.bienes ? "Bienes" : "Servicios", cal.catAct, cal.total, cal.catNew, x.tc[0], x.tc[1], dif, sit(cal)]);
+    const ref = (col, rr) => `${S}${col}${rr + 1}`;
+    textF.push({ r, c: 3, f: ref("B", x.rCatAct), v: cal.catAct }, { r, c: 5, f: ref("B", x.rCatNew), v: cal.catNew }, { r, c: 9, f: ref("B", x.rVar), v: sit(cal) });
+    formulas.set(`${r}:4`, ref("B", x.rTot)); formulas.set(`${r}:6`, ref("B", x.rTC)); formulas.set(`${r}:7`, ref("C", x.rTC)); formulas.set(`${r}:8`, ref("C", x.rDif));
+  });
+  sinCat.forEach((c) => { rows.push(pad([c.name, c.cuit || "", "", "(sin categoría asignada)"])); });
+  const ws = newSheet(rows, { colWidths: [34, 16, 12, 12, 20, 14, 18, 18, 18, 28], merges, formulas, formats, headerRows, skipCols: [1, 2, 3, 5, 9], wrapCols: [] });
+  textF.forEach((t) => { const a = XLSX.utils.encode_cell({ r: t.r, c: t.c }); const prev = ws[a] || {}; ws[a] = Object.assign({}, prev, { t: "s", v: String(t.v == null ? "" : t.v), f: t.f }); });
+  recatAlinear(ws, true);
+  XLSX.utils.book_append_sheet(wb, ws, "Resumen");
+  wb.SheetNames = ["Resumen", "Escala"].concat(wb.SheetNames.filter((n) => n !== "Resumen" && n !== "Escala"));
+  const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const filename = `Recategorización Monotributo ${recat}.xlsx`;
+  if (state.downloads) {
+    state.downloads.save({ filename, data: blob }).then(() => showToast("Excel descargado")).catch((err) => { if (err && err.code === "declined") return; showToast("No se pudo descargar el Excel"); });
+  } else {
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  }
+  if (sinCat.length) showToast(sinCat.length + " cliente(s) sin categoría asignada: figuran en el Resumen, sin hoja.");
 }
 
 // ---- Hoja "Ventas x Actividad": la apertura de ventas por actividad del
