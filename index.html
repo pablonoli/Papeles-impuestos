@@ -3525,11 +3525,11 @@ function renderMonoTab(client) {
 // por cliente (algunos no aportan SIPA u obra social, no tienen integrado, etc.).
 function monoCredencialHtml(client, c) {
   const m = client.mono || {};
-  if (!m.categoria || !c.row) return "";
+  if (!m.categoria || !c.row) return `<p class="hint-sm">Elegí primero la categoría en "Datos del Monotributo".</p>`;
   const act = m.tipo === "bienes" ? "VENTA DE COSAS MUEBLES" : "LOCACIONES DE SERVICIOS";
-  const chk = (k, on, dis) => `<input type="checkbox" ${on ? "checked" : ""} ${dis ? "disabled" : ""} data-cfg="mono-comp" data-comp="${k}" title="${dis ? "" : "Incluir / no incluir en la cuota"}">`;
+  const chk = (k, on, dis) => `<input type="checkbox" ${on ? "checked" : ""} ${dis ? "disabled" : ""} data-action="mono-cred" data-clientid="${client.id}" data-comp="${k}" title="${dis ? "" : "Incluir / no incluir en la cuota"}">`;
   const monto = (on, v) => on ? `<td class="num">${fmtMoney(v)}</td>` : `<td class="num" style="color:var(--muted);">No aporta</td>`;
-  const fila = (k, on, dis, label, v) => `<tr><td style="width:34px;text-align:center;">${chk(k, on, dis)}</td><td style="text-align:left;">${label}</td>${monto(on, v)}</tr>`;
+  const fila = (k, on, dis, label, v) => `<tr><td style="text-align:center;">${chk(k, on, dis)}</td><td style="text-align:left;">${label}</td>${monto(on, v)}</tr>`;
   let filas = "";
   if (c.desglose) {
     filas += fila("integrado", c.comp.integrado, false, `<b>Impuesto integrado:</b> Categoría ${escapeHtml(m.categoria)} <span class="hint-sm">· ${act}</span>`, c.integ);
@@ -3538,13 +3538,29 @@ function monoCredencialHtml(client, c) {
   } else {
     filas += `<tr><td></td><td style="text-align:left;"><b>Cuota ARCA</b> <span class="hint-sm">(integrado + SIPA + obra social) · cargá el desglose en ⚙ Escala vigente para poder tildar cada componente</span></td><td class="num">${fmtMoney(c.cuotaOficial)}</td></tr>`;
   }
-  if (c.iibbPorCM) filas += `<tr><td style="width:34px;text-align:center;"><input type="checkbox" disabled></td><td style="text-align:left;"><b>Ingresos Brutos:</b> Convenio Multilateral <span class="hint-sm">· no integra la cuota (se presenta aparte)</span></td><td class="num" style="color:var(--muted);">No aporta</td></tr>`;
+  if (c.iibbPorCM) filas += `<tr><td style="text-align:center;"><input type="checkbox" disabled></td><td style="text-align:left;"><b>Ingresos Brutos:</b> Convenio Multilateral <span class="hint-sm">· no integra la cuota (se presenta aparte)</span></td><td class="num" style="color:var(--muted);">No aporta</td></tr>`;
   else if (monoIibbProv(client)) filas += fila("iibb", c.comp.iibb, false, `<b>Reg. Simplificado IIBB ${escapeHtml(monoIibbProv(client))}</b>`, c.iibbTabMonto);
-  filas += `<tr><td style="width:34px;text-align:center;">${chk("muni", c.comp.muni, false)}</td><td style="text-align:left;"><b>Contribución municipal:</b>
-      <input type="text" value="${escapeHtml(m.muniNombre || "")}" placeholder="Municipio (ej. Confluencia)" data-cfg="mono-muni-nombre" style="width:190px;margin-left:6px;"></td>
-      ${c.comp.muni ? `<td class="num"><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(m.muniMonto, "money")}" placeholder="0,00" data-cfg="mono-muni-monto" style="width:120px;text-align:right;"></td>` : `<td class="num" style="color:var(--muted);">No aporta</td>`}</tr>`;
-  return `<div class="card" style="margin-top:12px;"><div class="card-head"><h3>Credencial de pago</h3><span class="hint">Tildá los componentes que paga este cliente</span></div><div class="card-body"><div class="table-scroll"><table style="min-width:0;table-layout:fixed;"><colgroup><col style="width:44px"><col><col style="width:150px"></colgroup>${filas}
-    <tr><td></td><td style="text-align:right;font-weight:700;">Total a pagar</td><td class="num" style="font-weight:700;font-size:15px;">${fmtMoney(c.cuotaTotal)}</td></tr></table></div></div></div>`;
+  filas += `<tr><td style="text-align:center;">${chk("muni", c.comp.muni, false)}</td><td style="text-align:left;"><b>Contribución municipal:</b>
+      <input type="text" value="${escapeHtml(m.muniNombre || "")}" placeholder="Municipio (ej. Confluencia)" data-action="mono-cred" data-clientid="${client.id}" data-campo="muniNombre" style="width:190px;margin-left:6px;"></td>
+      ${c.comp.muni ? `<td class="num"><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(m.muniMonto, "money")}" placeholder="0,00" data-action="mono-cred" data-clientid="${client.id}" data-campo="muniMonto" style="width:120px;text-align:right;"></td>` : `<td class="num" style="color:var(--muted);">No aporta</td>`}</tr>`;
+  return `<div class="table-scroll"><table style="min-width:0;table-layout:fixed;"><colgroup><col style="width:44px"><col><col style="width:150px"></colgroup>${filas}
+    <tr><td></td><td style="text-align:right;font-weight:700;">Total a pagar</td><td class="num" style="font-weight:700;font-size:15px;" id="mono-cred-total">${fmtMoney(c.cuotaTotal)}</td></tr></table></div>`;
+}
+function renderMonoCredModal(clientId) {
+  const client = getClient(clientId);
+  if (!client) return;
+  const c = monoCalc(client, state.currentPeriod);
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal" style="max-width:640px;">
+        <div class="modal-head"><h3>Credencial de pago · Monotributo</h3><button class="btn btn-ghost" data-action="mono-cred-cerrar">✕</button></div>
+        <div class="modal-body">
+          <p class="hint-sm" style="margin:0 0 8px;">Tildá los componentes que paga este cliente (algunos no aportan SIPA u obra social, no tienen integrado, etc.). Vale para todos los períodos.</p>
+          ${monoCredencialHtml(client, c)}
+        </div>
+        <div class="modal-foot"><button class="btn btn-accent" data-action="mono-cred-cerrar">Listo</button></div>
+      </div>
+    </div>`;
 }
 function monoSummaryHtml(client, period) {
   const c = monoCalc(client, period);
@@ -3566,9 +3582,8 @@ function monoSummaryHtml(client, period) {
       <div class="kpi"><span class="k-label">Para recategorizar (${c.vent.recat})</span><span class="k-value">${fmtMoney(c.total)}</span><span class="k-sub">${rangoTrans} · ${c.cargadosV} de ${c.trans.length} meses cargados</span></div>
       <div class="kpi"><span class="k-label">Tope de la categoría</span><span class="k-value">${c.tope > 0 ? fmtMoney(c.tope) : "—"}</span><span class="k-sub">${c.tope > 0 ? (c.total <= c.tope ? "Margen: " + fmtMoney(c.tope - c.total) : "Excedido en " + fmtMoney(c.total - c.tope)) : "Sin escala o categoría"}</span></div>
       <div class="kpi"><span class="k-label">12 meses (exclusión)</span><span class="k-value">${fmtMoney(c.total12)}</span><span class="k-sub">${c.pctMax != null ? Math.round(c.pctMax * 100) + "% del tope máximo (" + c.maxCat + ")" : c.cargados + " de 12 meses cargados"}</span></div>
-      <div class="kpi"><span class="k-label">Cuota mensual</span><span class="k-value">${c.cuotaTotal > 0 ? fmtMoney(c.cuotaTotal) : "—"}</span><span class="k-sub">${c.desglose ? ([c.comp.integrado && "Integrado", c.comp.sipa && "SIPA", c.comp.os && "Obra social", c.iibb > 0 && "IIBB " + c.iibbProv, c.muni > 0 && "Municipal"].filter(Boolean).join(" + ") || "Sin componentes") : (c.iibb > 0 ? "Incluye IIBB " + escapeHtml(c.iibbProv) : "Integrado + SIPA + obra social")}</span></div>
+      <div class="kpi" role="button" tabindex="0" style="cursor:pointer;" title="Ver y editar los componentes de la cuota" data-action="mono-cred-abrir" data-clientid="${client.id}"><span class="k-label">Cuota mensual · componentes ›</span><span class="k-value">${c.cuotaTotal > 0 ? fmtMoney(c.cuotaTotal) : "—"}</span><span class="k-sub">${c.desglose ? ([c.comp.integrado && "Integrado", c.comp.sipa && "SIPA", c.comp.os && "Obra social", c.iibb > 0 && "IIBB " + c.iibbProv, c.muni > 0 && "Municipal"].filter(Boolean).join(" + ") || "Sin componentes") : (c.iibb > 0 ? "Incluye IIBB " + escapeHtml(c.iibbProv) : "Integrado + SIPA + obra social")}</span></div>
     </div>
-    ${monoCredencialHtml(client, c)}
     ${barra}
     ${monoMargenHtml(c, m)}`;
 }
@@ -3631,6 +3646,13 @@ function evoDatos(client, endPeriod, n) {
         o.comprasNetas = round2(r.comprasNetasGravadas + r.exento.compras - r.exento.ncCompras);
         o.comprasTotales = round2(o.comprasNetas + sum(r.creditoBrackets, "calculado") - sum(r.restDebitoBrackets, "calculado"));
         if (state.evoTax === "iva") o.saldo = r.saldoAPagar > 0 ? r.saldoAPagar : -round2(r.saldoTecnicoFavorContribuyente + r.saldoLibreDisponibilidad);
+      }
+      // Clientes sin IVA: las ventas salen de la base de IIBB (Convenio o Local) o, en su defecto, de la facturación de Monotributo
+      if (o.ventasNetas == null) {
+        if (client.iibbCM.enabled && doc && hasAnyValue(doc.iibbCM)) { o.ventasNetas = round2(calcIibbCMFor(client, p).totales.baseTotal); o.ventasFuente = "base imponible de IIBB Convenio Multilateral"; }
+        else if (client.iibbLocal.enabled && doc && hasAnyValue(doc.iibbLocal)) { o.ventasNetas = round2(calcIibbLocalFor(client, p).baseImponible); o.ventasFuente = "base imponible de IIBB local"; }
+        else if (monoEnabled(client) && doc && doc.mono && String(doc.mono.facturacion == null ? "" : doc.mono.facturacion).trim() !== "") { o.ventasNetas = round2(num(doc.mono.facturacion)); o.ventasFuente = "facturación de Monotributo"; }
+        if (o.ventasNetas != null) o.ventasTotales = o.ventasNetas;
       }
       if (state.evoTax === "iibbLocal" && client.iibbLocal.enabled && doc && hasAnyValue(doc.iibbLocal)) {
         const r = calcIibbLocalFor(client, p); o.saldo = r.saldoAPagar > 0 ? r.saldoAPagar : -r.saldoAFavor;
@@ -3731,11 +3753,13 @@ function renderEvolucionTab(client) {
   const labels = datos.map((d) => periodShort(d.period));
   const col = (k) => datos.map((d) => d[k]);
   const ivaOn = client.iva.enabled;
+  const hayVentas = ivaOn || datos.some((d) => d.ventasNetas != null);
+  const fuenteVentas = (datos.slice().reverse().find((d) => d.ventasFuente) || {}).ventasFuente || "";
   const ctrl = `
     <div class="evo-ctrl">
       <label>Rango <select data-action="evo-range">${[6, 12, 18, 24].map((n) => `<option value="${n}" ${state.evoRange === n ? "selected" : ""}>${n} meses</option>`).join("")}</select></label>
       <label>Saldo de <select data-action="evo-tax">${taxes.map((t) => `<option value="${t[0]}" ${state.evoTax === t[0] ? "selected" : ""}>${t[1]}</option>`).join("")}</select></label>
-      ${ivaOn && state.evoView === "grafico" ? `<div class="seg" title="Base de comparación de ventas y compras"><button class="${state.evoBase === "neto" ? "on" : ""}" data-action="evo-base" data-base="neto">Neto</button><button class="${state.evoBase === "total" ? "on" : ""}" data-action="evo-base" data-base="total">Total</button></div><div class="seg" title="Forma del gráfico"><button class="${state.evoForma === "barras" ? "on" : ""}" data-action="evo-forma" data-forma="barras">▥ Barras</button><button class="${state.evoForma === "lineas" ? "on" : ""}" data-action="evo-forma" data-forma="lineas">📈 Líneas</button></div>` : ""}
+      ${hayVentas && state.evoView === "grafico" ? `${ivaOn ? `<div class="seg" title="Base de comparación de ventas y compras"><button class="${state.evoBase === "neto" ? "on" : ""}" data-action="evo-base" data-base="neto">Neto</button><button class="${state.evoBase === "total" ? "on" : ""}" data-action="evo-base" data-base="total">Total</button></div>` : ""}<div class="seg" title="Forma del gráfico"><button class="${state.evoForma === "barras" ? "on" : ""}" data-action="evo-forma" data-forma="barras">▥ Barras</button><button class="${state.evoForma === "lineas" ? "on" : ""}" data-action="evo-forma" data-forma="lineas">📈 Líneas</button></div>` : ""}
       <span class="hint-sm">hasta ${periodLabel(end)}</span>
       <span style="flex:1"></span>
       <div class="seg"><button class="${state.evoView === "grafico" ? "on" : ""}" data-action="evo-view" data-view="grafico">📈 Gráfico</button><button class="${state.evoView === "tabla" ? "on" : ""}" data-action="evo-view" data-view="tabla">🔢 Tabla</button></div>
@@ -3744,14 +3768,15 @@ function renderEvolucionTab(client) {
   if (state.evoView === "tabla") {
     const f = (v) => (v == null ? `<span class="hint-sm">—</span>` : fmtMoney(v));
     const sal = (v) => (v == null ? `<span class="hint-sm">—</span>` : v > 0 ? `<span class="evo-t-pagar">▲ ${fmtMoney(v)} a pagar</span>` : v < 0 ? `<span class="evo-t-favor">▼ ${fmtMoney(-v)} a favor</span>` : "Saldo cero");
-    body = `<div class="card"><div class="card-body"><div class="table-scroll"><table style="min-width:860px;"><tr><th style="text-align:left;">Período</th>${ivaOn ? "<th>Ventas netas</th><th>Ventas totales</th><th>Compras netas</th><th>Compras totales</th><th>Ventas − compras (netas)</th>" : ""}<th>Saldo ${escapeHtml((taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1])}</th></tr>
-      ${datos.slice().reverse().map((d) => `<tr><td style="text-align:left;">${periodLabel(d.period)}</td>${ivaOn ? `<td class="num">${f(d.ventasNetas)}</td><td class="num">${f(d.ventasTotales)}</td><td class="num">${f(d.comprasNetas)}</td><td class="num">${f(d.comprasTotales)}</td><td class="num">${d.ventasNetas == null || d.comprasNetas == null ? f(null) : fmtMoney(round2(d.ventasNetas - d.comprasNetas))}</td>` : ""}<td class="num">${sal(d.saldo)}</td></tr>`).join("")}
+    body = `<div class="card"><div class="card-body"><div class="table-scroll"><table style="min-width:860px;"><tr><th style="text-align:left;">Período</th>${ivaOn ? "<th>Ventas netas</th><th>Ventas totales</th><th>Compras netas</th><th>Compras totales</th><th>Ventas − compras (netas)</th>" : hayVentas ? "<th>Ventas</th>" : ""}<th>Saldo ${escapeHtml((taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1])}</th></tr>
+      ${datos.slice().reverse().map((d) => `<tr><td style="text-align:left;">${periodLabel(d.period)}</td>${ivaOn ? `<td class="num">${f(d.ventasNetas)}</td><td class="num">${f(d.ventasTotales)}</td><td class="num">${f(d.comprasNetas)}</td><td class="num">${f(d.comprasTotales)}</td><td class="num">${d.ventasNetas == null || d.comprasNetas == null ? f(null) : fmtMoney(round2(d.ventasNetas - d.comprasNetas))}</td>` : hayVentas ? `<td class="num">${f(d.ventasNetas)}</td>` : ""}<td class="num">${sal(d.saldo)}</td></tr>`).join("")}
     </table></div></div></div>`;
   } else {
     const card = (titulo, hint, svg) => `<div class="card"><div class="card-head"><h3>${titulo}</h3><span class="hint">${hint}</span></div><div class="card-body">${svg}</div></div>`;
-    const kb = state.evoBase === "total" ? "Totales" : "Netas";
+    const kb = ivaOn && state.evoBase === "total" ? "Totales" : "Netas";
     const vv = col("ventas" + kb), cc = col("compras" + kb);
-    body = (ivaOn ? card("Ventas vs Compras", state.evoBase === "total" ? "Totales (neto + IVA), netas de notas de crédito" : "Netas de IVA y de notas de crédito", evoChartSvg({ tipo: state.evoForma === "lineas" ? "line" : "gbar", title: "Ventas vs Compras", labels, series: [{ name: "Ventas", values: vv }, { name: "Compras", values: cc }], extraTip: (i) => (vv[i] != null && cc[i] != null ? `Ventas − compras: ${fmtMoney(round2(vv[i] - cc[i]))}` : "") })) : "")
+    body = (!ivaOn && hayVentas ? card("Ventas", `Según ${fuenteVentas}`, evoChartSvg({ tipo: state.evoForma === "lineas" ? "line" : "gbar", title: "Ventas", labels, series: [{ name: "Ventas", values: vv }] })) : "")
+      + (ivaOn ? card("Ventas vs Compras", state.evoBase === "total" ? "Totales (neto + IVA), netas de notas de crédito" : "Netas de IVA y de notas de crédito", evoChartSvg({ tipo: state.evoForma === "lineas" ? "line" : "gbar", title: "Ventas vs Compras", labels, series: [{ name: "Ventas", values: vv }, { name: "Compras", values: cc }], extraTip: (i) => (vv[i] != null && cc[i] != null ? `Ventas − compras: ${fmtMoney(round2(vv[i] - cc[i]))}` : "") })) : "")
       + card(`Saldo ${(taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1]}`, "Barras hacia arriba: a pagar · hacia abajo: a favor del contribuyente", evoChartSvg({ tipo: "bar", title: "Saldo", labels, series: [{ name: "Saldo", values: col("saldo") }] }));
   }
   return `<div style="display:flex;flex-direction:column;gap:16px;max-width:960px;">${ctrl}${body}</div>`;
@@ -4491,6 +4516,8 @@ document.addEventListener("click", (e) => {
   else if (a === "evo-forma") { state.evoForma = btn.dataset.forma; render(); }
   else if (a === "evo-base") { state.evoBase = btn.dataset.base; render(); }
   else if (a === "mono-escala-abrir") renderMonoEscalaModal();
+  else if (a === "mono-cred-abrir") renderMonoCredModal(btn.dataset.clientid);
+  else if (a === "mono-cred-cerrar") { document.getElementById("modal-root").innerHTML = ""; render(); }
   else if (a === "mono-escala-cerrar") { document.getElementById("modal-root").innerHTML = ""; render(); }
   else if (a === "compras-cancelar") { state.comprasImp = null; document.getElementById("modal-root").innerHTML = ""; }
   else if (a === "compras-aplicar") aplicarComprasImport();
@@ -4539,17 +4566,29 @@ document.addEventListener("input", (e) => {
     const tb = getExtras().monoIibb[t.dataset.prov];
     if (tb) { tb[t.dataset.cat] = t.value; persistExtras(); }
   } else if (a === "mono-escala-vigencia") { getExtras().monoEscala.vigencia = t.value; persistExtras(); }
+  else if (a === "mono-cred") {
+    const id = t.dataset.clientid;
+    if (t.type === "checkbox") {
+      mutateClient(id, (cl) => { cl.mono = cl.mono || {}; cl.mono.comp = Object.assign({}, cl.mono.comp || {}); cl.mono.comp[t.dataset.comp] = t.checked; });
+      renderMonoCredModal(id);
+    } else {
+      mutateClient(id, (cl) => { cl.mono = cl.mono || {}; cl.mono[t.dataset.campo] = t.value; });
+      const tot = document.getElementById("mono-cred-total"), cl2 = getClient(id);
+      if (tot && cl2) tot.textContent = fmtMoney(monoCalc(cl2, state.currentPeriod).cuotaTotal);
+    }
+  }
 });
 // Reformatear montos al salir del campo (Monotributo)
 document.addEventListener("focusout", (e) => {
   const t = e.target, a = t && t.dataset && t.dataset.action;
-  if (a !== "mono-fact" && a !== "mono-escala" && a !== "mono-iibb") return;
+  if (a !== "mono-fact" && a !== "mono-escala" && a !== "mono-iibb" && !(a === "mono-cred" && t.dataset.campo === "muniMonto")) return;
   const raw = String(t.value || "").trim();
   if (raw === "") return;
   const f = fmtMoneyRaw(num(raw));
   if (f === raw) return;
   t.value = f;
-  if (a === "mono-fact") { touchDoc(t.dataset.clientid, t.dataset.period, (doc) => setDeep(doc, "mono.facturacion", f)); }
+  if (a === "mono-cred") { mutateClient(t.dataset.clientid, (cl) => { cl.mono = cl.mono || {}; cl.mono.muniMonto = f; }); }
+  else if (a === "mono-fact") { touchDoc(t.dataset.clientid, t.dataset.period, (doc) => setDeep(doc, "mono.facturacion", f)); }
   else if (a === "mono-iibb") { const tb = getExtras().monoIibb[t.dataset.prov]; if (tb) { tb[t.dataset.cat] = f; persistExtras(); } }
   else { const e2 = getExtras().monoEscala; const r = e2.rows.find((x) => x.cat === t.dataset.cat); if (r) { r[t.dataset.field] = f; persistExtras(); } }
 }, true);
