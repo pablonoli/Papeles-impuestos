@@ -3520,7 +3520,7 @@ function renderMonoTab(client) {
         <div class="card-body">
           <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Mes</th><th>Facturado</th></tr>${filas}</table></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
-            <label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">📂 Importar ventas del año (Excel)<input type="file" accept=".xlsx,.xls,.csv" style="display:none;" data-action="import-mono-file" data-clientid="${client.id}" data-period="${period}"></label>
+            <label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">📂 Importar ventas del año (Excel o CSV de ARCA)<input type="file" accept=".xlsx,.xls,.csv" style="display:none;" data-action="import-mono-file" data-clientid="${client.id}" data-period="${period}"></label>
             <button class="btn btn-sm" data-action="mono-escala-abrir">⚙ Escala vigente${getExtras().monoEscala.vigencia ? " (" + escapeHtml(getExtras().monoEscala.vigencia) + ")" : ""}</button>
             <span class="hint-sm">Cuota vence el ${vto ? fmtFechaCorta(vto) : "—"} ${vto ? `<span class="u-${urgenciaDe(dias)}">${URG_ICON[urgenciaDe(dias)]} ${diasTexto(dias)}</span>` : ""}</span>
           </div>
@@ -4629,14 +4629,41 @@ function fechaAnyToYM(v) {
   if (m) return { y: Number(m[1]), m: Number(m[2]) };
   return null;
 }
+// CSV de ARCA ("Comprobantes en línea" → emitidos): separador ";", campos entre comillas, decimales con coma.
+function parseCsvArca(text) {
+  const t = String(text || "").replace(/^\uFEFF/, "");
+  const first = t.split(/\r?\n/, 1)[0] || "";
+  const delim = [";", "\t", ","].map((d) => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const rows = []; let row = [], cur = "", q = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (q) { if (ch === '"') { if (t[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === delim) { row.push(cur); cur = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && t[i + 1] === "\n") i++; row.push(cur); cur = ""; if (row.some((x) => x !== "")) rows.push(row); row = []; }
+    else cur += ch;
+  }
+  row.push(cur); if (row.some((x) => x !== "")) rows.push(row);
+  return rows;
+}
+// Códigos de comprobante de ARCA: notas de crédito y recibos (el CSV trae el código numérico, p. ej. 13 = Nota de Crédito C)
+const COD_NOTA_CREDITO = [3, 8, 13, 21, 43, 53, 112, 113, 114, 115, 203, 208, 213];
+const COD_RECIBO = [4, 9, 15, 54];
 function importarVentasMono(clientId, period, file) {
   const reader = new FileReader();
   reader.onload = (e) => {
-    let wb;
-    try { wb = XLSX.read(e.target.result, { type: "array" }); }
-    catch (err) { alert("No pude leer el archivo. ¿Es el Excel de comprobantes emitidos de ARCA?"); return; }
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+    let rows;
+    if (/\.(csv|txt)$/i.test(file.name)) {
+      let txt;
+      try { txt = new TextDecoder("utf-8", { fatal: true }).decode(e.target.result); } catch (err) { txt = new TextDecoder("windows-1252").decode(e.target.result); }
+      rows = parseCsvArca(txt);
+    } else {
+      let wb;
+      try { wb = XLSX.read(e.target.result, { type: "array" }); }
+      catch (err) { alert("No pude leer el archivo. ¿Es el Excel de comprobantes emitidos de ARCA?"); return; }
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+    }
     const norm = (x) => String(x || "").trim().toLowerCase();
     let hi = -1; const col = {};
     for (let r = 0; r < Math.min(rows.length, 15); r++) {
@@ -4658,10 +4685,11 @@ function importarVentasMono(clientId, period, file) {
       const row = rows[r], f = fechaAnyToYM(row[col.fecha]);
       if (!f) continue;
       const tipo = String(row[col.tipo] || "").trim();
-      if (/recibo/i.test(tipo)) { recibos++; continue; }
+      const mCod = tipo.match(/^(\d{1,3})(?:\s*-|$)/), cod = mCod ? Number(mCod[1]) : null;
+      if (/recibo/i.test(tipo) || (cod != null && COD_RECIBO.indexOf(cod) !== -1)) { recibos++; continue; }
       const tc = col.tc != null && num(row[col.tc]) > 0 ? num(row[col.tc]) : 1;
       let monto = Math.abs(num(row[col.total])) * tc;
-      if (/Nota de Cr[eé]dito/i.test(tipo)) monto = -monto;
+      if (/Nota de Cr[eé]dito/i.test(tipo) || (cod != null && COD_NOTA_CREDITO.indexOf(cod) !== -1)) monto = -monto;
       const ym = `${f.y}-${String(f.m).padStart(2, "0")}`;
       const o = meses[ym] = meses[ym] || { total: 0, n: 0, nc: 0 };
       o.total = round2(o.total + monto); o.n++; if (monto < 0) o.nc++;
@@ -4708,7 +4736,7 @@ function aplicarMonoImport() {
   Object.keys(s.meses).forEach((ym) => touchDoc(s.clientId, ym, (doc) => setDeep(doc, "mono.facturacion", s.meses[ym].total)));
   if (s.ceros) ventana.forEach((ym) => { if (!s.meses[ym]) touchDoc(s.clientId, ym, (doc) => setDeep(doc, "mono.facturacion", 0)); });
   state.monoImp = null; document.getElementById("modal-root").innerHTML = ""; render();
-  showToast("Facturación mensual cargada desde el Excel.");
+  showToast("Facturación mensual cargada desde el archivo.");
 }
 document.addEventListener("click", (e) => {
   const a = e.target.closest("[data-action]"); if (!a) return;
