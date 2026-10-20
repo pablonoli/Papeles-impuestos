@@ -2513,8 +2513,7 @@ function renderIvaTab(client) {
           <span class="hint">Compras y restitución de débito fiscal (N.C. emitidas)${r.prorrateoExentoEnabled ? ` · <button type="button" class="pill" style="background:var(--accent-soft);color:var(--accent);border:none;cursor:pointer;font:inherit;" data-action="open-prorrateo-modal" data-clientid="${client.id}" data-period="${period}" title="Ver detalle del prorrateo">⚡ Prorrateo ${(r.coefProrrateo * 100).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</button>` : ""}</span>
         </div>
         <div class="card-body">
-          <div style="margin-bottom:10px;"><label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">📂 Importar compras (.xlsx ARCA o .pdf Libro IVA)<input type="file" accept=".xlsx,.pdf" style="display:none;" data-action="import-compras-file" data-clientid="${client.id}" data-period="${period}"></label>
-            <span class="hint-sm" style="margin-left:8px;">Excel "Comprobantes de Compras" del portal IVA, o el Libro IVA Compras en PDF (trae las alícuotas discriminadas)</span></div>
+          <div style="margin-bottom:10px;"><label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">📂 Importar compras (.xlsx ARCA o .pdf Libro IVA)<input type="file" accept=".xlsx,.pdf" style="display:none;" data-action="import-compras-file" data-clientid="${client.id}" data-period="${period}"></label></div>
           <div class="table-scroll"><table>
             <tr><th>Concepto</th><th>Neto (libro)</th><th>Crédito calculado${r.prorrateoExentoEnabled ? " *" : ""}</th><th>S/ Portal ARCA</th><th>Diferencia</th></tr>
             <tr class="section-row"><td colspan="5">Compras${r.prorrateoExentoEnabled ? ` <span style="font-weight:400;color:var(--muted);">(ya incluye el coeficiente de prorrateo)</span>` : ""}</td></tr>
