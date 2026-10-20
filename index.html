@@ -459,6 +459,7 @@
   .evo-empty{ color:var(--muted); font-size:13px; padding:18px 0; }
   .modal-body p.hint-sm{ font-size:11.5px; color:var(--muted); line-height:1.4; }
   #mono-summary .kpi .k-value, .panel-kpis .k-value{ font-size:17px; }
+  .ok-banner{ background:var(--favor-soft); color:var(--favor); border:1px solid var(--favor); border-radius:12px; padding:10px 14px; font-size:13px; font-weight:600; }
 </style>
 
 <div class="app" id="app">
@@ -2512,8 +2513,8 @@ function renderIvaTab(client) {
           <span class="hint">Compras y restitución de débito fiscal (N.C. emitidas)${r.prorrateoExentoEnabled ? ` · <button type="button" class="pill" style="background:var(--accent-soft);color:var(--accent);border:none;cursor:pointer;font:inherit;" data-action="open-prorrateo-modal" data-clientid="${client.id}" data-period="${period}" title="Ver detalle del prorrateo">⚡ Prorrateo ${(r.coefProrrateo * 100).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</button>` : ""}</span>
         </div>
         <div class="card-body">
-          <div style="margin-bottom:10px;"><label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">📂 Importar compras (ARCA, .xlsx)<input type="file" accept=".xlsx" style="display:none;" data-action="import-compras-file" data-clientid="${client.id}" data-period="${period}"></label>
-            <span class="hint-sm" style="margin-left:8px;">Excel "Comprobantes de Compras" del portal IVA</span></div>
+          <div style="margin-bottom:10px;"><label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">📂 Importar compras (.xlsx ARCA o .pdf Libro IVA)<input type="file" accept=".xlsx,.pdf" style="display:none;" data-action="import-compras-file" data-clientid="${client.id}" data-period="${period}"></label>
+            <span class="hint-sm" style="margin-left:8px;">Excel "Comprobantes de Compras" del portal IVA, o el Libro IVA Compras en PDF (trae las alícuotas discriminadas)</span></div>
           <div class="table-scroll"><table>
             <tr><th>Concepto</th><th>Neto (libro)</th><th>Crédito calculado${r.prorrateoExentoEnabled ? " *" : ""}</th><th>S/ Portal ARCA</th><th>Diferencia</th></tr>
             <tr class="section-row"><td colspan="5">Compras${r.prorrateoExentoEnabled ? ` <span style="font-weight:400;color:var(--muted);">(ya incluye el coeficiente de prorrateo)</span>` : ""}</td></tr>
@@ -3865,10 +3866,358 @@ function importarComprasArca(clientId, period, file) {
   reader.onerror = () => alert("No pude leer el archivo.");
   reader.readAsArrayBuffer(file);
 }
+// ---------------------------------------------------------------------
+// Libro IVA Compras en PDF: formato "Libro IVA Compras" (Crystal / Holistor, etc.)
+// y "Subdiario de IVA Compras" (Tango). Núcleo sin dependencias de la app (salvo round2).
+// ---------------------------------------------------------------------
+const PDF_RE_ARG = /^-?\d{1,3}(?:\.\d{3})*,\d{2}$|^-?\d+,\d{2}$/;
+const PDF_RE_DOT = /^-?\d+\.\d{2}$/;
+const PDF_RE_CUIT = /\d{2}-\d{8}-\d/;
+const PDF_RE_PCT = /^\d{1,2},\d{2}%$/;
+function pdfNumArg(s) { return parseFloat(String(s).replace(/\./g, "").replace(",", ".")); }
+function pdfNumUs(s) { return parseFloat(String(s).replace(/,/g, "")); }
+function pdfAgruparFilas(items) {
+  items = items.slice().sort((a, b) => b.y - a.y || a.x - b.x);
+  const rows = [];
+  items.forEach((it) => {
+    const last = rows[rows.length - 1];
+    if (last && Math.abs(last.y - it.y) <= 2.2) last.it.push(it); else rows.push({ y: it.y, it: [it] });
+  });
+  rows.forEach((r) => r.it.sort((a, b) => a.x - b.x));
+  return rows;
+}
+const pdfTxt = (row) => row.it.map((t) => t.s).join(" ");
+const pdfFecha = (d, m, y) => `${d}/${m}/${y}`;
+
+// ----- Formato "Libro IVA Compras" ------------------------------------
+function pdfParseLibro(pages) {
+  const out = { formato: "libro", empresa: "", desde: null, hasta: null, raw: [], foot: { credito: { rates: {}, nal: null }, debito: { rates: {}, nal: null }, ni: null, reg: [] }, problemas: [] };
+  let cur = null, sec = null;
+  const money = (t) => PDF_RE_ARG.test(t.s);
+  const mval = (t) => pdfNumArg(t.s);
+  const finish = () => { if (cur) { out.raw.push(cur); cur = null; } };
+  const montos = (toks, esPrimera) => {
+    const pidx = toks.findIndex((t) => PDF_RE_PCT.test(t.s));
+    if (pidx >= 0) {
+      const before = toks.slice(0, pidx).filter(money), after = toks.slice(pidx + 1).filter(money);
+      const pct = parseFloat(toks[pidx].s.replace(",", "."));
+      const neto = before.length ? mval(before[before.length - 1]) : 0;
+      before.slice(0, -1).forEach((t) => { cur.exe += mval(t); });
+      cur.lines.push({ pct, neto, iva: after.length ? mval(after[0]) : 0 });
+      if (after.length >= 3) cur.total = mval(after[after.length - 1]);
+      return true;
+    }
+    const ms = toks.filter(money).map(mval);
+    if (!ms.length) return false;
+    if (cur.lines.length === 0 && cur.total == null && !cur.sinPct) {
+      cur.sinPct = true;
+      cur.exe += ms.length === 1 ? ms[0] : ms[0];
+      cur.total = ms[ms.length - 1];
+      return true;
+    }
+    return false;
+  };
+  pages.forEach((rows) => {
+    rows.forEach((row) => {
+      const toks = row.it, txt = pdfTxt(row);
+      let m;
+      if (/Hoja Nro:/i.test(txt) && !out.empresa) out.empresa = txt.replace(/\s*Hoja Nro:.*$/i, "").trim();
+      if ((m = txt.match(/Desde el:\s*(\d{2})\/(\d{2})\/(\d{4})/))) {
+        out.desde = { d: +m[1], m: +m[2], y: +m[3] };
+        const h = txt.match(/Hasta el:\s*(\d{2})\/(\d{2})\/(\d{4})/);
+        if (h) out.hasta = { d: +h[1], m: +h[2], y: +h[3] };
+        return;
+      }
+      if (/TOTALES DE OPERACIONES QUE GENERAN CREDITO FISCAL/i.test(txt)) { finish(); sec = "credito"; return; }
+      if (/TOTALES DE OPERACIONES QUE GENERAN DEBITO FISCAL/i.test(txt)) { finish(); sec = "debito"; return; }
+      if (/^REGIMENES ESPECIALES/i.test(txt)) { finish(); sec = "reg"; return; }
+      if (/^TOTALES AL\b/i.test(txt)) { finish(); sec = "fin"; return; }
+      if (sec === "credito" || sec === "debito") {
+        const pi = toks.findIndex((t) => PDF_RE_PCT.test(t.s));
+        if (pi >= 0 && /Tasa IVA/i.test(txt)) {
+          const pct = parseFloat(toks[pi].s.replace(",", "."));
+          const ns = toks.slice(pi + 1).filter(money).map(mval);
+          out.foot[sec].rates[pct] = { neto: ns[0] || 0, iva: ns[1] || 0 };
+        } else if (/^Compras NI/i.test(txt)) { const ns = toks.filter(money).map(mval); if (ns.length) out.foot.ni = ns[0]; }
+        else if (/^No alcanzado/i.test(txt)) { const ns = toks.filter(money).map(mval); if (ns.length) out.foot[sec].nal = ns[0]; }
+        return;
+      }
+      if (sec === "reg") {
+        if (/^(\d{3,4}|IB[A-Z]{2})$/.test(toks[0].s)) { const ns = toks.filter(money).map(mval); if (ns.length) out.foot.reg.push({ code: toks[0].s, amt: ns[0] }); }
+        return;
+      }
+      if (sec) return;
+      if (/^TRANSPORTE\b/i.test(txt)) return;
+      const f = txt.match(/^(\d{2})\/(\d{2})\/(\d{2})\s+([A-Z]{2,3})\s*([A-Z])?\s*(\d{4,5})-(\d{8})/);
+      if (f) {
+        finish();
+        cur = { fecha: pdfFecha(f[1], f[2], "20" + f[3]), tipo: f[4], letra: f[5] || "", pv: f[6], nro: f[7], cuit: "", nombre: "", lines: [], nog: 0, exe: 0, total: null, percs: [], sinPct: false };
+        const ni = toks.findIndex((t) => /\d{4,5}-\d{8}/.test(t.s));
+        const nm = [];
+        for (let i = ni + 1; i < toks.length; i++) {
+          const t = toks[i];
+          if (money(t) || PDF_RE_PCT.test(t.s)) break;
+          const cm = t.s.match(PDF_RE_CUIT);
+          if (cm) { cur.cuit = cm[0].replace(/\D/g, ""); const rest = t.s.replace(PDF_RE_CUIT, "").replace(/\s+[\d-]+$/, "").trim(); if (rest) nm.push(rest); continue; }
+          if (cur.cuit) continue; // Nº de Ing. Brutos u otros datos a la derecha del CUIT
+          nm.push(t.s);
+        }
+        cur.nombre = nm.join(" ").trim();
+        montos(toks, true);
+        return;
+      }
+      if (!cur) return;
+      // Filas de continuación del comprobante
+      if (toks.some((t) => PDF_RE_PCT.test(t.s))) { montos(toks, false); return; }
+      const iNal = toks.findIndex((t) => /^N\.?\s*Al\.?$/i.test(t.s));
+      let hizo = false;
+      for (let i = 0; i < toks.length; i++) {
+        const t = toks[i], nx = toks[i + 1];
+        if (/^N\.?\s*Al\.?$/i.test(t.s) && nx && money(nx)) { cur.nog += mval(nx); i++; hizo = true; }
+        else if (/^(\d{3,4}|IB[A-Z]{2})$/.test(t.s) && nx && money(nx)) { cur.percs.push({ code: t.s, amt: mval(nx) }); i++; hizo = true; }
+      }
+      if (hizo) return;
+      if (toks.some(money)) { montos(toks, false); return; }
+      // continuación del nombre / CUIT
+      const cm = txt.match(PDF_RE_CUIT);
+      if (cm && !cur.cuit) cur.cuit = cm[0].replace(/\D/g, "");
+      const extra = toks.map((t) => t.s).filter((s) => !PDF_RE_CUIT.test(s) && !/^[\d-]+$/.test(s));
+      if (extra.length && cur.nombre.length < 60) cur.nombre = (cur.nombre + " " + extra.join(" ")).trim();
+    });
+  });
+  finish();
+  return out;
+}
+
+// ----- Formato Subdiario de IVA Compras (Tango) ----------------------
+function pdfParseTango(pages) {
+  const out = { formato: "tango", empresa: "", desde: null, hasta: null, raw: [], foot: {}, problemas: [] };
+  let cur = null;
+  const dot = (t) => PDF_RE_DOT.test(t.s);
+  const finish = () => { if (cur) { out.raw.push(cur); cur = null; } };
+  pages.forEach((rows) => {
+    if (!rows.some((r) => /SUBDIARIO DE IVA COMPRAS/i.test(pdfTxt(r)))) return;
+    let tras = false, enDetalle = true;
+    rows.forEach((row) => {
+      const toks = row.it, txt = pdfTxt(row);
+      let m;
+      if (/SUBDIARIO DE IVA COMPRAS/i.test(txt)) { tras = true; return; }
+      if (tras && !out.empresa && !/DESDE|HOJA|COMPROB/i.test(txt) && /[A-Za-z]/.test(txt)) { out.empresa = txt.trim(); return; }
+      if ((m = txt.match(/DESDE\s+(\d{2})\/(\d{2})\/(\d{4})\s+HASTA\s+(\d{2})\/(\d{2})\/(\d{4})/))) {
+        out.desde = { d: +m[1], m: +m[2], y: +m[3] }; out.hasta = { d: +m[4], m: +m[5], y: +m[6] }; return;
+      }
+      if (/^TOTALES DE IVA POR TIPO/i.test(txt)) { finish(); enDetalle = false; return; }
+      if (!enDetalle) {
+        let t;
+        if ((t = txt.match(/TOTAL EXENTO\s*:\s*(-?[\d,]+\.\d{2})/i))) out.foot.exento = pdfNumUs(t[1]);
+        if ((t = txt.match(/TOTAL OTROS IMPUESTOS\s*:\s*(-?[\d,]+\.\d{2})/i))) out.foot.otros = pdfNumUs(t[1]);
+        if ((t = txt.match(/TOTAL NO GRAVADO\s*:\s*(-?[\d,]+\.\d{2})/i))) out.foot.noGravado = pdfNumUs(t[1]);
+        return;
+      }
+      if ((m = txt.match(/^FECHA:\s*(\d{2}\/\d{2}\/\d{4})/))) { finish(); out.fechaActual = m[1]; return; }
+      // fila de totales del subdiario: cuatro importes y nada más
+      if (toks.length === 4 && toks.every(dot)) {
+        finish();
+        const v = toks.map((t) => parseFloat(t.s));
+        out.foot.totales = { nog: v[0], neto: v[1], iva: v[2], total: v[3] };
+        return;
+      }
+      const h = txt.match(/^([A-Z][A-Z\/\.]{1,4})\s+([A-Z])(\d{5})(\d{8})\s+(.*)$/);
+      if (h) {
+        finish();
+        const ci = toks.findIndex((t) => PDF_RE_CUIT.test(t.s));
+        const rest = h[5];
+        const cm = rest.match(PDF_RE_CUIT);
+        let nombre = cm ? rest.slice(0, rest.indexOf(cm[0])) : rest;
+        nombre = nombre.replace(/^\d+\s+/, "").replace(/\s+[A-Z]{2}\s*$/, "").trim();
+        const nums = ci >= 0 ? toks.slice(ci + 1).filter(dot).map((t) => parseFloat(t.s)) : toks.filter(dot).map((t) => parseFloat(t.s));
+        cur = { fecha: out.fechaActual || "", tipo: h[1], letra: h[2], pv: h[3], nro: h[4], cuit: cm ? cm[0].replace(/\D/g, "") : "", nombre, lines: [], nog: 0, exe: 0, total: null, percs: [], otrosImp: 0, netoLibro: 0, ivaLibro: 0 };
+        if (nums.length === 5) {
+          cur.nog = nums[0]; cur.netoLibro = nums[1]; cur.total = nums[4];
+          if (nums[2] > 0) cur.lines.push({ pct: nums[2], neto: nums[1], iva: nums[3] });
+          else if (nums[1] > 0) cur.lines.push({ pct: 0, neto: nums[1], iva: 0 });
+          cur.ivaLibro += nums[3];
+        } else if (nums.length === 3) {
+          cur.nog = nums[0]; cur.netoLibro = nums[1]; cur.total = nums[2];
+          if (nums[1] > 0) cur.lines.push({ pct: 0, neto: nums[1], iva: 0 });
+        } else out.problemas.push(`No pude leer los importes de ${h[2]}${h[3]}-${h[4]} (${nombre}).`);
+        return;
+      }
+      if (!cur) return;
+      // continuación: "OTROS IMPUESTOS", segundas alícuotas, percepciones
+      const nums = toks.filter(dot).map((t) => parseFloat(t.s));
+      if (/OTROS\s+IMPUESTOS/i.test(txt) && nums.length) { const o = nums.shift(); cur.otrosImp += o; cur.percs.push({ code: "OTROS", amt: o }); }
+      for (let i = 0; i + 1 < nums.length; i += 2) {
+        const pct = nums[i], iva = nums[i + 1];
+        cur.ivaLibro += iva;
+        if (pct === 3) cur.percs.push({ code: "IVA3", amt: iva });
+        else cur.lines.push({ pct, neto: null, iva });
+      }
+    });
+  });
+  finish();
+  return out;
+}
+
+// ----- Armado del comprobante en el formato que usa el importador -----
+function pdfArmarComp(r, formato) {
+  const A = (v) => Math.abs(v || 0);
+  const tipo = (r.tipo + (r.letra ? " " + r.letra : "")).trim();
+  const esNC = /^(NC|N\/C|NCR|NCRE)/i.test(r.tipo);
+  const esND = /^(ND|N\/D|NDB|NDEB)/i.test(r.tipo);
+  const lines = r.lines.map((l) => Object.assign({}, l));
+  const conIva = lines.filter((l) => l.pct > 0);
+  const derivar = conIva.length > 1 && conIva.some((l) => l.neto == null);
+  conIva.forEach((l) => { if (derivar || l.neto == null) l.neto = round2(A(l.iva) / (l.pct / 100)); });
+  const sp = { a105: 0, a21: 0, a27: 0, a0: 0, sin: 0, mixto: conIva.length > 1 };
+  let neto = 0, iva = 0;
+  lines.forEach((l) => {
+    const n = A(l.neto), i = A(l.iva);
+    const k = Math.abs(l.pct - 10.5) < 0.001 ? "a105" : Math.abs(l.pct - 21) < 0.001 ? "a21" : Math.abs(l.pct - 27) < 0.001 ? "a27" : l.pct === 0 ? "a0" : "sin";
+    sp[k] += n; neto += n; iva += i;
+  });
+  Object.keys(sp).forEach((k) => { if (typeof sp[k] === "number") sp[k] = round2(sp[k]); });
+  neto = round2(neto); iva = round2(iva);
+  const sg = esNC ? -1 : 1;
+  const esPercIva = (c) => c === "2408" || c === "3337" || c === "IVA3";
+  let percIva = 0, percOtras = 0;
+  r.percs.forEach((p) => { if (esPercIva(p.code)) percIva += sg * p.amt; else percOtras += sg * p.amt; });
+  percIva = round2(percIva); percOtras = round2(percOtras);
+  const nog = round2(A(r.nog)), exe = round2(A(r.exe));
+  const total = round2(A(r.total != null ? r.total : neto + iva + nog + exe + A(percIva + percOtras)));
+  // Factura C / sin discriminar: si no hay nada más, todo el importe es no gravado.
+  let nog2 = nog;
+  if (neto === 0 && iva === 0 && nog === 0 && exe === 0 && total > 0) nog2 = total;
+  return {
+    fecha: r.fecha, tipo, esNC, esND, pv: r.pv, nro: r.nro, cuit: r.cuit, nombre: r.nombre || "(sin nombre)",
+    neto, iva, nog: nog2, exe, total, otros: round2(percIva + percOtras), percIva, percOtras, sp, lines, raw: r,
+  };
+}
+
+// ----- Control contra los totales impresos en el libro ----------------
+function pdfControl(parsed, comp) {
+  const items = [];
+  const push = (label, libro, calc, tol) => { if (libro == null || isNaN(libro)) return; items.push({ label, libro: round2(libro), calc: round2(calc), ok: Math.abs(libro - calc) <= (tol == null ? 0.06 : tol) }); };
+  const pctTxt = (p) => String(p).replace(".", ",");
+  if (parsed.formato === "libro") {
+    const sumar = (esNC) => {
+      const t = {};
+      comp.filter((c) => c.esNC === esNC).forEach((c) => c.lines.forEach((l) => { const o = t[l.pct] = t[l.pct] || { neto: 0, iva: 0 }; o.neto += Math.abs(l.neto || 0); o.iva += Math.abs(l.iva || 0); }));
+      return t;
+    };
+    [["credito", false, "Compras"], ["debito", true, "N.C. recibidas"]].forEach(([sec, esNC, rot]) => {
+      const calc = sumar(esNC), foot = parsed.foot[sec].rates;
+      new Set([...Object.keys(foot), ...Object.keys(calc)]).forEach((p) => {
+        const f = foot[p], c = calc[p] || { neto: 0, iva: 0 };
+        if (f) { push(`${rot}: neto ${pctTxt(p)}%`, Math.abs(f.neto), c.neto); push(`${rot}: IVA ${pctTxt(p)}%`, Math.abs(f.iva), c.iva); }
+        else if (c.neto || c.iva) push(`${rot}: neto ${pctTxt(p)}% (no figura en el pie del libro)`, 0, c.neto);
+      });
+    });
+    // no alcanzado (N. Al) y NI/NR/Exento/Monotributo, por separado
+    const nalFC = comp.filter((c) => !c.esNC).reduce((s, c) => s + Math.abs(c.raw.nog || 0), 0);
+    const nalNC = comp.filter((c) => c.esNC).reduce((s, c) => s + Math.abs(c.raw.nog || 0), 0);
+    const exeFC = comp.filter((c) => !c.esNC).reduce((s, c) => s + Math.abs(c.raw.exe || 0), 0);
+    if (parsed.foot.credito.nal != null) push("Compras: no alcanzado", Math.abs(parsed.foot.credito.nal), nalFC);
+    if (parsed.foot.debito.nal != null) push("N.C. recibidas: no alcanzado", Math.abs(parsed.foot.debito.nal), nalNC);
+    if (parsed.foot.ni != null) push("Compras NI / NR / exento / monotributo", Math.abs(parsed.foot.ni), exeFC);
+    const regCalc = {};
+    comp.forEach((c) => c.raw.percs.forEach((p) => { regCalc[p.code] = (regCalc[p.code] || 0) + p.amt; }));
+    const regFoot = {};
+    parsed.foot.reg.forEach((r) => { regFoot[r.code] = (regFoot[r.code] || 0) + r.amt; });
+    new Set([...Object.keys(regFoot), ...Object.keys(regCalc)]).forEach((code) => { if (regFoot[code] != null) push(`Régimen especial ${code}`, regFoot[code], regCalc[code] || 0); });
+  } else {
+    const f = parsed.foot;
+    const sg = (c) => (c.esNC ? -1 : 1);
+    const sum = (fn) => comp.reduce((s, c) => s + sg(c) * fn(c), 0);
+    if (f.totales) {
+      push("Importe no gravado (exento + otros impuestos)", f.totales.nog, sum((c) => Math.abs(c.raw.nog || 0) + Math.abs(c.raw.otrosImp || 0)));
+      push("Neto gravado", f.totales.neto, sum((c) => Math.abs(c.raw.netoLibro || 0)));
+      push("IVA (incluye percepciones 3%)", f.totales.iva, sum((c) => Math.abs(c.raw.ivaLibro || 0)));
+      push("Total de comprobantes", f.totales.total, sum((c) => c.total));
+    }
+    if (f.exento != null) push("Exento / no gravado", f.exento, sum((c) => Math.abs(c.raw.nog || 0)));
+    if (f.otros != null) push("Otros impuestos", f.otros, sum((c) => Math.abs(c.raw.otrosImp || 0)));
+  }
+  return { items, ok: items.every((i) => i.ok) };
+}
+
+function pdfParseLibroCompleto(pages) {
+  const texto = pages.map((rows) => rows.map(pdfTxt).join("\n")).join("\n");
+  let parsed = null;
+  if (/SUBDIARIO DE IVA COMPRAS/i.test(texto)) parsed = pdfParseTango(pages);
+  else if (/Libro IVA Compras/i.test(texto)) parsed = pdfParseLibro(pages);
+  else if (/SUBDIARIO DE IVA VENTAS|Libro IVA Ventas/i.test(texto)) return { error: "ventas" };
+  if (!parsed) return { error: "formato" };
+  const comp = parsed.raw.map((r) => pdfArmarComp(r, parsed.formato)).filter((c) => c.neto || c.iva || c.nog || c.exe || c.total);
+  const control = pdfControl(parsed, comp);
+  return { parsed, comp, control };
+}
+
+// ---- Lectura del PDF en el navegador (pdf.js se carga recién al usarlo) ----
+let pdfjsPromise = null;
+function cargarPdfJs() {
+  if (window.pdfjsLib && window.pdfjsLib.getDocument && window.pdfjsLib.GlobalWorkerOptions.workerSrc) return Promise.resolve(window.pdfjsLib);
+  if (pdfjsPromise) return pdfjsPromise;
+  const base = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/";
+  pdfjsPromise = new Promise((resolve, reject) => {
+    if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
+    const sc = document.createElement("script");
+    sc.src = base + "pdf.min.js";
+    sc.onload = () => resolve(window.pdfjsLib);
+    sc.onerror = () => reject(new Error("No pude cargar el lector de PDF. Revisá la conexión a internet."));
+    document.head.appendChild(sc);
+  }).then(async (lib) => {
+    try {
+      const r = await fetch(base + "pdf.worker.min.js");
+      const txt = await r.text();
+      lib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([txt], { type: "text/javascript" }));
+    } catch (e) { lib.GlobalWorkerOptions.workerSrc = base + "pdf.worker.min.js"; }
+    return lib;
+  }).catch((e) => { pdfjsPromise = null; throw e; });
+  return pdfjsPromise;
+}
+async function pdfLeerFilas(file) {
+  const lib = await cargarPdfJs();
+  const data = new Uint8Array(await file.arrayBuffer());
+  const pdf = await lib.getDocument({ data }).promise;
+  const pages = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const tc = await (await pdf.getPage(p)).getTextContent();
+    pages.push(pdfAgruparFilas(tc.items.filter((i) => i.str && i.str.trim() !== "").map((i) => ({ x: i.transform[4], y: i.transform[5], w: i.width, s: i.str.trim() }))));
+  }
+  return pages;
+}
+function fechaCorta(f) { return f ? `${String(f.d).padStart(2, "0")}/${String(f.m).padStart(2, "0")}/${f.y}` : ""; }
+async function importarComprasPdf(clientId, period, file) {
+  const client = getClient(clientId);
+  if (!client) return;
+  showToast("Leyendo el PDF…");
+  let pages;
+  try { pages = await pdfLeerFilas(file); }
+  catch (err) { alert("No pude leer el PDF. " + (err && err.message ? err.message : "")); return; }
+  const r = pdfParseLibroCompleto(pages);
+  if (r.error === "ventas") { alert("Ese PDF es un libro de IVA Ventas. Acá hay que cargar el Libro IVA Compras."); return; }
+  if (r.error) { alert("No reconocí el formato del PDF. Funciona con el \"Libro IVA Compras\" y con el \"Subdiario de IVA Compras\" (Tango)."); return; }
+  const p = r.parsed;
+  if (!r.comp.length) { alert("No encontré comprobantes en ese PDF."); return; }
+  if (p.desde) {
+    const ym = (f) => `${f.y}-${String(f.m).padStart(2, "0")}`;
+    if (ym(p.desde) !== period || (p.hasta && ym(p.hasta) !== period)) {
+      alert(`Ese libro es del ${fechaCorta(p.desde)} al ${fechaCorta(p.hasta)}, pero estás en ${periodLabel(period)}. Cambiá de período y volvé a importarlo.`);
+      return;
+    }
+  }
+  state.comprasImp = {
+    clientId, period, comp: r.comp, fuera: 0, conceptos: Object.assign({}, (client.iva && client.iva.compraConceptos) || {}),
+    fuente: "pdf", libro: { empresa: p.empresa, formato: p.formato, desde: p.desde, hasta: p.hasta }, control: r.control, problemas: p.problemas || [],
+  };
+  renderComprasImportModal();
+}
+
 // Totales por casillero del papel de trabajo, según el concepto elegido por proveedor.
 function comprasImpTotales() {
   const s = state.comprasImp;
-  const t = { credito: { prest105: 0, bienes21: 0, bienesUso: 0, locaciones: 0, bienesExterior: 0, prest27: 0 }, restDebito: { ncRecLocaciones: 0, ncRecLocal21: 0, ncRecBienesUso: 0, ncRecServicios: 0 }, exentoC: 0, exentoNC: 0, otros: 0, sin: 0, cant: s.comp.length, cantNC: 0 };
+  const t = { credito: { prest105: 0, bienes21: 0, bienesUso: 0, locaciones: 0, bienesExterior: 0, prest27: 0 }, restDebito: { ncRecLocaciones: 0, ncRecLocal21: 0, ncRecBienesUso: 0, ncRecServicios: 0 }, exentoC: 0, exentoNC: 0, otros: 0, sin: 0, percIva: 0, percOtras: 0, cant: s.comp.length, cantNC: 0 };
   s.comp.forEach((c) => {
     const conc = s.conceptos[c.cuit] || "bienes21";
     const sp = c.sp;
@@ -3888,9 +4237,11 @@ function comprasImpTotales() {
       t.otros += c.otros;
     }
     t.sin += sp.sin;
+    const sgp = c.esNC ? -1 : 1;
+    t.percIva += sgp * (c.percIva || 0); t.percOtras += sgp * (c.percOtras || 0);
   });
   ["credito", "restDebito"].forEach((g) => Object.keys(t[g]).forEach((k) => (t[g][k] = round2(t[g][k]))));
-  t.exentoC = round2(t.exentoC); t.exentoNC = round2(t.exentoNC); t.otros = round2(t.otros); t.sin = round2(t.sin);
+  t.exentoC = round2(t.exentoC); t.exentoNC = round2(t.exentoNC); t.otros = round2(t.otros); t.sin = round2(t.sin); t.percIva = round2(t.percIva); t.percOtras = round2(t.percOtras);
   return t;
 }
 function renderComprasImportModal() {
@@ -3921,14 +4272,36 @@ function renderComprasImportModal() {
   const mixtos = s.comp.filter((c) => c.sp.mixto).length;
   const avisos = [];
   if (t.sin > 0) avisos.push(`<b>${fmtMoney(t.sin)}</b> de neto tienen una alícuota que no pude identificar (10,5 / 21 / 27%): quedan <b>sin cargar</b>, revisalos a mano.`);
-  if (mixtos > 0) avisos.push(`${mixtos} comprobante${mixtos > 1 ? "s tienen" : " tiene"} más de una alícuota: repartí el neto entre 10,5% y 21% (o 21% y 27%) según el IVA facturado.`);
-  if (Math.abs(t.otros) > 1) avisos.push(`<b>${fmtMoney(t.otros)}</b> de diferencia entre el total y neto + IVA: son percepciones, impuestos internos u otros tributos. <b>No se cargan solos</b>: si son percepciones de IVA, cargalas en "Percepciones sufridas".`);
+  if (mixtos > 0) avisos.push(s.fuente === "pdf"
+    ? `${mixtos} comprobante${mixtos > 1 ? "s tienen" : " tiene"} más de una alícuota: el libro las discrimina, cada neto se carga en su alícuota.`
+    : `${mixtos} comprobante${mixtos > 1 ? "s tienen" : " tiene"} más de una alícuota: repartí el neto entre 10,5% y 21% (o 21% y 27%) según el IVA facturado.`);
+  if (s.fuente === "pdf") {
+    if (Math.abs(t.percIva) > 0.5) avisos.push(`Percepciones de IVA que figuran en el libro: <b>${fmtMoney(t.percIva)}</b>. <b>No se cargan solas</b>: cargalas en "Percepciones sufridas".`);
+    if (Math.abs(t.percOtras) > 0.5) avisos.push(`Otras percepciones e impuestos del libro (IIBB, RG 140, etc.): ${fmtMoney(t.percOtras)}. No se cargan.`);
+    (s.problemas || []).slice(0, 5).forEach((m) => avisos.push(escapeHtml(m)));
+  } else if (Math.abs(t.otros) > 1) avisos.push(`<b>${fmtMoney(t.otros)}</b> de diferencia entre el total y neto + IVA: son percepciones, impuestos internos u otros tributos. <b>No se cargan solos</b>: si son percepciones de IVA, cargalas en "Percepciones sufridas".`);
   if (s.fuera > 0) avisos.push(`Se ignoraron ${s.fuera} comprobante${s.fuera > 1 ? "s" : ""} del archivo por no pertenecer a ${periodLabel(s.period)}.`);
+  let libroHeaderHtml = "", controlHtml = "";
+  if (s.fuente === "pdf") {
+    const cli = getClient(s.clientId);
+    const pal = (x) => normalizeSearch(x).split(/\s+/).filter((w) => w.length > 2);
+    const clienteOk = !s.libro.empresa || !cli || pal(s.libro.empresa).some((w) => normalizeSearch(cli.name).indexOf(w) !== -1);
+    libroHeaderHtml = `<p class="hint-sm" style="margin:0;">📄 ${s.libro.formato === "tango" ? "Subdiario de IVA Compras (Tango)" : "Libro IVA Compras"} · <b>${escapeHtml(s.libro.empresa || "sin nombre")}</b>${s.libro.desde ? ` · del ${fechaCorta(s.libro.desde)} al ${fechaCorta(s.libro.hasta)}` : ""}</p>`
+      + (clienteOk ? "" : `<div class="warn-banner"><div class="wb-text"><b>Ojo:</b> el libro dice "${escapeHtml(s.libro.empresa)}" y estás cargando a "${escapeHtml(cli.name)}". Verificá que sea el cliente correcto.</div></div>`);
+    const c = s.control;
+    if (c && c.items.length) {
+      controlHtml = c.ok
+        ? `<div class="ok-banner">✔ Los totales leídos coinciden con los del libro (${c.items.length} controles: neto e IVA por alícuota, no gravado y percepciones).</div>`
+        : `<div class="warn-banner"><div class="wb-text"><b>Hay diferencias con los totales impresos en el libro.</b> Revisá antes de cargar:<br>${c.items.filter((i) => !i.ok).map((i) => `${escapeHtml(i.label)}: libro ${fmtMoney(i.libro)} · leído ${fmtMoney(i.calc)}`).join("<br>")}</div></div>`;
+    }
+  }
   document.getElementById("modal-root").innerHTML = `
     <div class="modal-backdrop">
       <div class="modal" style="max-width:760px;">
         <div class="modal-head"><h3>Importar compras — ${periodLabel(s.period)}</h3><button class="btn btn-ghost" data-action="compras-cancelar">✕</button></div>
         <div class="modal-body">
+          ${libroHeaderHtml}
+          ${controlHtml}
           <p class="hint-sm" style="margin:0;">${t.cant} comprobantes (${t.cantNC} N.C.). Para los proveedores con IVA 21% elegí a qué casillero va su compra; se recuerda para la próxima vez.</p>
           <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Proveedor</th><th>Neto</th><th>IVA</th><th style="text-align:left;">Concepto del 21%</th></tr>${provRows}</table></div>
           <div style="font-weight:700;font-size:13px;">Se va a cargar en el papel de trabajo (Neto libro)</div>
@@ -4004,7 +4377,7 @@ document.addEventListener("change", (e) => {
     const file = t.files && t.files[0];
     const { clientid, period } = t.dataset;
     t.value = "";
-    if (file) importarComprasArca(clientid, period, file);
+    if (file) { if (/\.pdf$/i.test(file.name) || file.type === "application/pdf") importarComprasPdf(clientid, period, file); else importarComprasArca(clientid, period, file); }
   } else if (a === "compras-concepto") {
     state.comprasImp.conceptos[t.dataset.cuit] = t.value;
     const sc = document.querySelector("#modal-root .modal");
