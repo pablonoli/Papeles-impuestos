@@ -2849,11 +2849,6 @@ function renderConfigTab(client) {
             <div class="st"><b>Monotributo</b><span>Categoría, tope de facturación y cuota mensual</span></div>
             <label class="switch"><input type="checkbox" ${monoEnabled(client) ? "checked" : ""} data-cfg="toggle-mono"><span class="slider"></span></label>
           </div>
-          ${monoEnabled(client) ? `<div class="form-grid" style="margin-top:8px;">
-            <div class="field"><label>Categoría</label><select data-cfg="mono-cat"><option value="">— elegir —</option>${MONO_CATS.map((k) => `<option value="${k}" ${client.mono.categoria === k ? "selected" : ""}>${k}</option>`).join("")}</select></div>
-            <div class="field"><label>IIBB en la cuota</label><select data-cfg="mono-iibb"><option value="">Sin IIBB en la cuota</option>${Object.keys(getExtras().monoIibb).map((pv) => `<option value="${escapeHtml(pv)}" ${monoIibbProv(client) === pv ? "selected" : ""}>${escapeHtml(pv)} (Monotributo unificado)</option>`).join("")}</select></div>
-            <div class="field"><label>Actividad</label><select data-cfg="mono-tipo"><option value="servicios" ${client.mono.tipo !== "bienes" ? "selected" : ""}>Servicios</option><option value="bienes" ${client.mono.tipo === "bienes" ? "selected" : ""}>Venta de bienes</option></select></div>
-          </div>` : ""}
         </div>
         <p class="foot-note">IVA se presenta siempre junto con IIBB (Local o Convenio Multilateral) para una misma sociedad: activá IVA y el régimen de IIBB que corresponda en este mismo cliente, no como clientes separados.</p>
       </div>
@@ -3071,22 +3066,29 @@ function getExtras() {
     e.monoEscala.rows = MONO_ESCALA_DEFAULT.map((r) => Object.assign({}, r));
     if (!e.monoEscala.vigencia) e.monoEscala.vigencia = "desde 1/08/2026 (ARCA)";
   }
+  // Escalas guardadas antes del desglose: se completa integrado/SIPA/obra social desde la escala
+  // oficial sólo si la cuota total guardada coincide con la oficial (si el usuario la editó, no se toca).
+  e.monoEscala.rows.forEach((r) => {
+    if (r.integServ !== undefined || r.sipa !== undefined) return;
+    const d = MONO_ESCALA_DEFAULT.find((x) => x.cat === r.cat);
+    if (d && Math.abs(num(r.cuotaServ) - d.cuotaServ) < 0.01 && Math.abs(num(r.cuotaBienes) - d.cuotaBienes) < 0.01) { r.integServ = d.integServ; r.integBienes = d.integBienes; r.sipa = d.sipa; r.obraSocial = d.obraSocial; }
+  });
   return e;
 }
 // Escala vigente desde el 1/08/2026 (ARCA). tope = ingresos brutos anuales;
 // cuotas = total mensual (impuesto integrado + aportes SIPA + obra social).
 const MONO_ESCALA_DEFAULT = [
-  { cat: "A", tope: 12009410.45, cuotaServ: 49527.18, cuotaBienes: 49527.18 },
-  { cat: "B", tope: 17595182.74, cuotaServ: 56379.08, cuotaBienes: 56379.08 },
-  { cat: "C", tope: 24670494.31, cuotaServ: 66020.12, cuotaBienes: 64530.58 },
-  { cat: "D", tope: 30628651.43, cuotaServ: 84612.93, cuotaBienes: 82564.81 },
-  { cat: "E", tope: 36028231.33, cuotaServ: 119811.45, cuotaBienes: 108267.51 },
-  { cat: "F", tope: 45151659.41, cuotaServ: 150784.21, cuotaBienes: 129930.65 },
-  { cat: "G", tope: 53995798.87, cuotaServ: 230312.94, cuotaBienes: 158815.05 },
-  { cat: "H", tope: 81924660.37, cuotaServ: 522706.68, cuotaBienes: 317895.01 },
-  { cat: "I", tope: 91699761.90, cuotaServ: 963747.86, cuotaBienes: 474992.78 },
-  { cat: "J", tope: 105012519.20, cuotaServ: 1167299.76, cuotaBienes: 580793.69 },
-  { cat: "K", tope: 126610838.75, cuotaServ: 1614446.04, cuotaBienes: 702103.24 },
+  { cat: "A", tope: 12009410.45, cuotaServ: 49527.18, cuotaBienes: 49527.18, integServ: 5585.77, integBienes: 5585.77, sipa: 18246.86, obraSocial: 25694.55 },
+  { cat: "B", tope: 17595182.74, cuotaServ: 56379.08, cuotaBienes: 56379.08, integServ: 10612.98, integBienes: 10612.98, sipa: 20071.55, obraSocial: 25694.55 },
+  { cat: "C", tope: 24670494.31, cuotaServ: 66020.12, cuotaBienes: 64530.58, integServ: 18246.86, integBienes: 16757.32, sipa: 22078.71, obraSocial: 25694.55 },
+  { cat: "D", tope: 30628651.43, cuotaServ: 84612.93, cuotaBienes: 82564.81, integServ: 29790.79, integBienes: 27742.67, sipa: 24286.58, obraSocial: 30535.56 },
+  { cat: "E", tope: 36028231.33, cuotaServ: 119811.45, cuotaBienes: 108267.51, integServ: 55857.73, integBienes: 44313.79, sipa: 26715.24, obraSocial: 37238.48 },
+  { cat: "F", tope: 45151659.41, cuotaServ: 150784.21, cuotaBienes: 129930.65, integServ: 78573.2, integBienes: 57719.64, sipa: 29386.76, obraSocial: 42824.25 },
+  { cat: "G", tope: 53995798.87, cuotaServ: 230312.94, cuotaBienes: 158815.05, integServ: 142995.76, integBienes: 71497.87, sipa: 41141.46, obraSocial: 46175.72 },
+  { cat: "H", tope: 81924660.37, cuotaServ: 522706.68, cuotaBienes: 317895.01, integServ: 409623.31, integBienes: 204811.64, sipa: 57598.04, obraSocial: 55485.33 },
+  { cat: "I", tope: 91699761.90, cuotaServ: 963747.86, cuotaBienes: 474992.78, integServ: 814591.79, integBienes: 325836.71, sipa: 80637.26, obraSocial: 68518.81 },
+  { cat: "J", tope: 105012519.20, cuotaServ: 1167299.76, cuotaBienes: 580793.69, integServ: 977510.14, integBienes: 391004.07, sipa: 112892.16, obraSocial: 76897.46 },
+  { cat: "K", tope: 126610838.75, cuotaServ: 1614446.04, cuotaBienes: 702103.24, integServ: 1368514.2, integBienes: 456171.4, sipa: 158049.02, obraSocial: 87882.82 },
 ];
 // IIBB que se paga dentro de la cuota del Monotributo unificado (Régimen Simplificado
 // provincial), por categoría y por mes.
@@ -3351,6 +3353,14 @@ function monoIibbProv(client) {
   const jur = normalizeSearch((client.iibbLocal && client.iibbLocal.jurisdiccion) || "");
   return jur.indexOf("neuquen") !== -1 ? "Neuquén" : "";
 }
+// Componentes de la cuota que paga cada cliente (hay clientes que no aportan SIPA u obra social,
+// que no tienen el integrado, etc.). Por defecto: integrado + SIPA + obra social + IIBB del régimen
+// simplificado; la contribución municipal queda apagada hasta que se active.
+function monoComp(client) {
+  const c = (client.mono && client.mono.comp) || {};
+  const v = (k, d) => (c[k] === undefined ? d : !!c[k]);
+  return { integrado: v("integrado", true), sipa: v("sipa", true), os: v("os", true), iibb: v("iibb", true), muni: v("muni", false) };
+}
 function monoRow(cat) { return getExtras().monoEscala.rows.find((r) => r.cat === cat) || null; }
 function monoEscalaCargada() { return getExtras().monoEscala.rows.some((r) => num(r.tope) > 0); }
 // Ventana de la recategorización: ARCA recategoriza dos veces al año con períodos FIJOS de 12 meses
@@ -3385,11 +3395,22 @@ function monoCalc(client, period) {
   const row = m.categoria ? monoRow(m.categoria) : null;
   const tope = row ? num(row.tope) : 0;
   const pct = tope > 0 ? total / tope : null;
-  const cuota = row ? num(m.tipo === "bienes" ? row.cuotaBienes : row.cuotaServ) : 0;
-  const iibbProv = monoIibbProv(client);
+  const cuotaOficial = row ? num(m.tipo === "bienes" ? row.cuotaBienes : row.cuotaServ) : 0;
+  // Desglose de la cuota (integrado / SIPA / obra social) y qué componentes paga este cliente
+  const comp = monoComp(client);
+  const integ = row ? num(m.tipo === "bienes" ? row.integBienes : row.integServ) : 0;
+  const sipa = row ? num(row.sipa) : 0, obra = row ? num(row.obraSocial) : 0;
+  const desglose = integ + sipa + obra > 0;
+  const cuota = desglose ? round2((comp.integrado ? integ : 0) + (comp.sipa ? sipa : 0) + (comp.os ? obra : 0)) : cuotaOficial;
+  // IIBB dentro de la cuota (Monotributo unificado): no corresponde si el cliente tributa por Convenio Multilateral
+  const iibbPorCM = !!(client.iibbCM && client.iibbCM.enabled);
+  const iibbProv = iibbPorCM ? "" : monoIibbProv(client);
   const iibbTabla = iibbProv ? getExtras().monoIibb[iibbProv] : null;
-  const iibb = iibbTabla && m.categoria ? num(iibbTabla[m.categoria]) : 0;
-  const cuotaTotal = round2(cuota + iibb);
+  const iibbTabMonto = iibbTabla && m.categoria ? num(iibbTabla[m.categoria]) : 0;
+  const iibb = comp.iibb ? iibbTabMonto : 0;
+  const muniNombre = String(m.muniNombre || "").trim();
+  const muni = comp.muni ? num(m.muniMonto) : 0;
+  const cuotaTotal = round2(cuota + iibb + muni);
   const permitidas = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0 && (m.tipo === "bienes" || "ABCDEFGH".indexOf(c) !== -1); });
   let sugerida = null, catProy = null;
   if (monoEscalaCargada()) {
@@ -3409,7 +3430,7 @@ function monoCalc(client, period) {
   const pctMax = maxTope > 0 ? total12 / maxTope : null;
   const excedeMax = maxTope > 0 && total12 > maxTope;
   const cargados = meses.filter((x) => x.cargado).length;
-  return { meses, total, total12, vent, trans, cargadosV, mesesRest, promedio, proyeccion, catProy, tope, pct, cuota, iibb, iibbProv, cuotaTotal, topeSug, sigSugerida, sugerida, excedeMax, nivel, row, cargados, maxCat, maxTope, siguiente, faltaSubir, faltaExclusion, pctMax };
+  return { meses, total, total12, vent, trans, cargadosV, mesesRest, promedio, proyeccion, catProy, tope, pct, cuota, cuotaOficial, comp, integ, sipa, obra, desglose, iibbPorCM, iibbTabMonto, muni, muniNombre, iibb, iibbProv, cuotaTotal, topeSug, sigSugerida, sugerida, excedeMax, nivel, row, cargados, maxCat, maxTope, siguiente, faltaSubir, faltaExclusion, pctMax };
 }
 function monoBarHtml(c, pct, nivel) {
   if (pct == null) pct = c.pct;
@@ -3459,7 +3480,7 @@ function renderMonoTab(client) {
   const dias = diasHasta(vto);
   const aviso = !escalaOk
     ? `<div class="warn-banner"><div class="wb-text"><b>Falta cargar la escala vigente de Monotributo.</b> Sin la escala no se puede calcular el tope, la cuota ni la categoría que corresponde.</div><div class="wb-actions"><button class="btn btn-sm" data-action="mono-escala-abrir">Cargar escala</button></div></div>`
-    : !m.categoria ? `<div class="warn-banner"><div class="wb-text"><b>Este cliente no tiene categoría asignada.</b> Elegila en Configuración → Impuestos activos → Monotributo.</div></div>` : "";
+    : !m.categoria ? `<div class="warn-banner"><div class="wb-text"><b>Este cliente no tiene categoría asignada.</b> Elegila en "Datos del Monotributo", más abajo.</div></div>` : "";
   let reco = "";
   if (escalaOk && c.cargados >= 1) {
     const rango = monoRango(c.vent.ini, c.vent.fin);
@@ -3478,6 +3499,16 @@ function renderMonoTab(client) {
       ${aviso}${reco}
       <div id="mono-summary">${monoSummaryHtml(client, period)}</div>
       <div class="card">
+        <div class="card-head"><h3>Datos del Monotributo</h3><span class="hint">Valen para todos los períodos de este cliente</span></div>
+        <div class="card-body">
+          <div class="form-grid">
+            <div class="field"><label>Categoría</label><select data-cfg="mono-cat"><option value="">— elegir —</option>${MONO_CATS.map((k) => `<option value="${k}" ${m.categoria === k ? "selected" : ""}>${k}</option>`).join("")}</select></div>
+            <div class="field"><label>Actividad</label><select data-cfg="mono-tipo"><option value="servicios" ${m.tipo !== "bienes" ? "selected" : ""}>Servicios</option><option value="bienes" ${m.tipo === "bienes" ? "selected" : ""}>Venta de bienes</option></select></div>
+            <div class="field"><label>IIBB en la cuota</label>${client.iibbCM.enabled ? `<select disabled><option>No aplica: tributa por Convenio Multilateral</option></select>` : `<select data-cfg="mono-iibb"><option value="">Sin IIBB en la cuota</option>${Object.keys(getExtras().monoIibb).map((pv) => `<option value="${escapeHtml(pv)}" ${monoIibbProv(client) === pv ? "selected" : ""}>${escapeHtml(pv)} (Monotributo unificado)</option>`).join("")}</select>`}</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
         <div class="card-head"><h3>Facturación mes a mes</h3><span class="hint">Últimos 12 meses hasta ${periodLabel(period)} (control de exclusión) · <span style="color:var(--accent);">●</span> = entra en la recategorización de ${c.vent.recat} (${monoRango(c.vent.ini, c.vent.fin)}) · cargá el total facturado de cada mes</span></div>
         <div class="card-body">
           <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Mes</th><th>Facturado</th></tr>${filas}</table></div>
@@ -3489,6 +3520,31 @@ function renderMonoTab(client) {
         </div>
       </div>
     </div>`;
+}
+// "Credencial de pago": mismo esquema que la de ARCA. Cada componente se puede tildar o destildar
+// por cliente (algunos no aportan SIPA u obra social, no tienen integrado, etc.).
+function monoCredencialHtml(client, c) {
+  const m = client.mono || {};
+  if (!m.categoria || !c.row) return "";
+  const act = m.tipo === "bienes" ? "VENTA DE COSAS MUEBLES" : "LOCACIONES DE SERVICIOS";
+  const chk = (k, on, dis) => `<input type="checkbox" ${on ? "checked" : ""} ${dis ? "disabled" : ""} data-cfg="mono-comp" data-comp="${k}" title="${dis ? "" : "Incluir / no incluir en la cuota"}">`;
+  const monto = (on, v) => on ? `<td class="num">${fmtMoney(v)}</td>` : `<td class="num" style="color:var(--muted);">No aporta</td>`;
+  const fila = (k, on, dis, label, v) => `<tr><td style="width:34px;text-align:center;">${chk(k, on, dis)}</td><td style="text-align:left;">${label}</td>${monto(on, v)}</tr>`;
+  let filas = "";
+  if (c.desglose) {
+    filas += fila("integrado", c.comp.integrado, false, `<b>Impuesto integrado:</b> Categoría ${escapeHtml(m.categoria)} <span class="hint-sm">· ${act}</span>`, c.integ);
+    filas += fila("sipa", c.comp.sipa, false, `<b>Autónomos</b> <span class="hint-sm">(aportes jubilatorios SIPA)</span>`, c.sipa);
+    filas += fila("os", c.comp.os, false, `<b>Obra social</b>`, c.obra);
+  } else {
+    filas += `<tr><td></td><td style="text-align:left;"><b>Cuota ARCA</b> <span class="hint-sm">(integrado + SIPA + obra social) · cargá el desglose en ⚙ Escala vigente para poder tildar cada componente</span></td><td class="num">${fmtMoney(c.cuotaOficial)}</td></tr>`;
+  }
+  if (c.iibbPorCM) filas += `<tr><td style="width:34px;text-align:center;"><input type="checkbox" disabled></td><td style="text-align:left;"><b>Ingresos Brutos:</b> Convenio Multilateral <span class="hint-sm">· no integra la cuota (se presenta aparte)</span></td><td class="num" style="color:var(--muted);">No aporta</td></tr>`;
+  else if (monoIibbProv(client)) filas += fila("iibb", c.comp.iibb, false, `<b>Reg. Simplificado IIBB ${escapeHtml(monoIibbProv(client))}</b>`, c.iibbTabMonto);
+  filas += `<tr><td style="width:34px;text-align:center;">${chk("muni", c.comp.muni, false)}</td><td style="text-align:left;"><b>Contribución municipal:</b>
+      <input type="text" value="${escapeHtml(m.muniNombre || "")}" placeholder="Municipio (ej. Confluencia)" data-cfg="mono-muni-nombre" style="width:190px;margin-left:6px;"></td>
+      ${c.comp.muni ? `<td class="num"><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(m.muniMonto, "money")}" placeholder="0,00" data-cfg="mono-muni-monto" style="width:120px;text-align:right;"></td>` : `<td class="num" style="color:var(--muted);">No aporta</td>`}</tr>`;
+  return `<div class="card" style="margin-top:12px;"><div class="card-head"><h3>Credencial de pago</h3><span class="hint">Tildá los componentes que paga este cliente</span></div><div class="card-body"><div class="table-scroll"><table style="min-width:0;table-layout:fixed;"><colgroup><col style="width:44px"><col><col style="width:150px"></colgroup>${filas}
+    <tr><td></td><td style="text-align:right;font-weight:700;">Total a pagar</td><td class="num" style="font-weight:700;font-size:15px;">${fmtMoney(c.cuotaTotal)}</td></tr></table></div></div></div>`;
 }
 function monoSummaryHtml(client, period) {
   const c = monoCalc(client, period);
@@ -3510,19 +3566,18 @@ function monoSummaryHtml(client, period) {
       <div class="kpi"><span class="k-label">Para recategorizar (${c.vent.recat})</span><span class="k-value">${fmtMoney(c.total)}</span><span class="k-sub">${rangoTrans} · ${c.cargadosV} de ${c.trans.length} meses cargados</span></div>
       <div class="kpi"><span class="k-label">Tope de la categoría</span><span class="k-value">${c.tope > 0 ? fmtMoney(c.tope) : "—"}</span><span class="k-sub">${c.tope > 0 ? (c.total <= c.tope ? "Margen: " + fmtMoney(c.tope - c.total) : "Excedido en " + fmtMoney(c.total - c.tope)) : "Sin escala o categoría"}</span></div>
       <div class="kpi"><span class="k-label">12 meses (exclusión)</span><span class="k-value">${fmtMoney(c.total12)}</span><span class="k-sub">${c.pctMax != null ? Math.round(c.pctMax * 100) + "% del tope máximo (" + c.maxCat + ")" : c.cargados + " de 12 meses cargados"}</span></div>
-      <div class="kpi"><span class="k-label">Cuota mensual</span><span class="k-value">${c.cuotaTotal > 0 ? fmtMoney(c.cuotaTotal) : "—"}</span><span class="k-sub">${c.iibb > 0 ? "Incluye IIBB " + escapeHtml(c.iibbProv) : "Integrado + SIPA + obra social"}</span></div>
+      <div class="kpi"><span class="k-label">Cuota mensual</span><span class="k-value">${c.cuotaTotal > 0 ? fmtMoney(c.cuotaTotal) : "—"}</span><span class="k-sub">${c.desglose ? ([c.comp.integrado && "Integrado", c.comp.sipa && "SIPA", c.comp.os && "Obra social", c.iibb > 0 && "IIBB " + c.iibbProv, c.muni > 0 && "Municipal"].filter(Boolean).join(" + ") || "Sin componentes") : (c.iibb > 0 ? "Incluye IIBB " + escapeHtml(c.iibbProv) : "Integrado + SIPA + obra social")}</span></div>
     </div>
-    ${c.iibb > 0 ? `<div class="card" style="margin-top:12px;"><div class="card-head"><h3>Cuota mensual a pagar</h3><span class="hint">Monotributo unificado · categoría ${escapeHtml(m.categoria)}</span></div><div class="card-body"><div class="table-scroll"><table style="min-width:0;">
-      <tr><td style="text-align:left;">Cuota ARCA <span class="hint-sm">(impuesto integrado + aportes SIPA + obra social)</span></td><td class="num">${fmtMoney(c.cuota)}</td></tr>
-      <tr><td style="text-align:left;">IIBB ${escapeHtml(c.iibbProv)} <span class="hint-sm">(Régimen Simplificado)</span></td><td class="num">${fmtMoney(c.iibb)}</td></tr>
-      <tr><td style="text-align:left;font-weight:700;">Total a pagar</td><td class="num" style="font-weight:700;">${fmtMoney(c.cuotaTotal)}</td></tr>
-    </table></div></div></div>` : ""}
+    ${monoCredencialHtml(client, c)}
     ${barra}
     ${monoMargenHtml(c, m)}`;
 }
 function monoResumenHtml(client) {
   if (!monoEnabled(client)) return "";
   return `<div style="margin-top:16px;"><div class="card"><div class="card-head"><h3>Monotributo</h3><button class="btn btn-sm" data-action="select-tab" data-tab="mono">Abrir</button></div><div class="card-body">${monoSummaryHtml(client, state.currentPeriod)}</div></div></div>`;
+}
+function monoEscalaTotales(r) {
+  return { serv: round2(num(r.integServ) + num(r.sipa) + num(r.obraSocial)), bienes: round2(num(r.integBienes) + num(r.sipa) + num(r.obraSocial)) };
 }
 function renderMonoEscalaModal() {
   const e = getExtras().monoEscala;
@@ -3531,18 +3586,18 @@ function renderMonoEscalaModal() {
     const r = e.rows.find((x) => x.cat === cat) || {};
     const inpI = (prov) => `<input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(getExtras().monoIibb[prov][cat], "money")}" data-action="mono-iibb" data-prov="${escapeHtml(prov)}" data-cat="${cat}" style="width:100%;">`;
     const inp = (f) => `<input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(r[f], "money")}" data-action="mono-escala" data-cat="${cat}" data-field="${f}" style="width:100%;">`;
-    return `<tr><td style="text-align:left;font-weight:700;">${cat}</td><td>${inp("tope")}</td><td>${inp("cuotaServ")}</td><td>${inp("cuotaBienes")}</td>${iibbProvs.map((pv) => `<td>${inpI(pv)}</td>`).join("")}</tr>`;
+    return `<tr><td style="text-align:left;font-weight:700;">${cat}</td><td>${inp("tope")}</td><td>${inp("integServ")}</td><td>${inp("integBienes")}</td><td>${inp("sipa")}</td><td>${inp("obraSocial")}</td><td class="num" data-tot="${cat}|serv">${fmtMoney(num(r.cuotaServ))}</td><td class="num" data-tot="${cat}|bienes">${fmtMoney(num(r.cuotaBienes))}</td>${iibbProvs.map((pv) => `<td>${inpI(pv)}</td>`).join("")}</tr>`;
   }).join("");
   document.getElementById("modal-root").innerHTML = `
     <div class="modal-backdrop">
-      <div class="modal" style="max-width:780px;">
+      <div class="modal" style="max-width:1100px;">
         <div class="modal-head"><h3>Escala vigente de Monotributo</h3><button class="btn btn-ghost" data-action="mono-escala-cerrar">✕</button></div>
         <div class="modal-body">
           <div class="field"><label>Vigencia (texto libre, ej. "desde agosto 2026")</label><input type="text" value="${escapeHtml(e.vigencia || "")}" data-action="mono-escala-vigencia"></div>
-          <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Cat.</th><th>Ingresos brutos (12 m)</th><th>Cuota total servicios</th><th>Cuota total bienes</th>${iibbProvs.map((pv) => `<th>IIBB ${escapeHtml(pv)} (por mes)</th>`).join("")}</tr>${filas}</table></div>
-          <p class="hint-sm">Se guarda al escribir. La escala es global: vale para todos los clientes. La cuota es el total mensual (impuesto integrado + aportes SIPA + obra social, sin adherentes ni exenciones). Las categorías I, J y K sólo aplican a venta de bienes. La columna de IIBB es lo que se paga dentro de la cuota del Monotributo unificado (Régimen Simplificado provincial): se suma a la cuota de ARCA en los clientes que lo tengan activado en Configuración.</p>
+          <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Cat.</th><th>Ingresos brutos (12 m)</th><th>Integrado servicios</th><th>Integrado bienes</th><th>Aportes SIPA</th><th>Obra social</th><th>Cuota total servicios</th><th>Cuota total bienes</th>${iibbProvs.map((pv) => `<th>IIBB ${escapeHtml(pv)} (por mes)</th>`).join("")}</tr>${filas}</table></div>
+          <p class="hint-sm">Se guarda al escribir. La escala es global: vale para todos los clientes. Las cuotas totales se calculan solas (integrado + SIPA + obra social, sin adherentes ni exenciones) y el desglose es el que permite tildar cada componente en la credencial de pago del cliente. Las categorías I, J y K sólo aplican a venta de bienes. La columna de IIBB es lo que se paga dentro de la cuota del Monotributo unificado (Régimen Simplificado provincial): se suma en los clientes que lo tengan activado y que no tributen por Convenio Multilateral.</p>
         </div>
-        <div class="modal-foot"><button class="btn btn-accent" data-action="mono-escala-cerrar">Listo</button></div>
+    <div class="modal-foot"><button class="btn btn-accent" data-action="mono-escala-cerrar">Listo</button></div>
       </div>
     </div>`;
 }
@@ -4473,7 +4528,13 @@ document.addEventListener("input", (e) => {
     const e2 = getExtras().monoEscala;
     let r = e2.rows.find((x) => x.cat === t.dataset.cat);
     if (!r) { r = { cat: t.dataset.cat }; e2.rows.push(r); }
-    r[t.dataset.field] = t.value; persistExtras();
+    r[t.dataset.field] = t.value;
+    if (["integServ", "integBienes", "sipa", "obraSocial"].indexOf(t.dataset.field) !== -1) {
+      const tt = monoEscalaTotales(r); r.cuotaServ = tt.serv; r.cuotaBienes = tt.bienes;
+      const cs = document.querySelector(`[data-tot="${t.dataset.cat}|serv"]`), cb = document.querySelector(`[data-tot="${t.dataset.cat}|bienes"]`);
+      if (cs) cs.textContent = fmtMoney(tt.serv); if (cb) cb.textContent = fmtMoney(tt.bienes);
+    }
+    persistExtras();
   } else if (a === "mono-iibb") {
     const tb = getExtras().monoIibb[t.dataset.prov];
     if (tb) { tb[t.dataset.cat] = t.value; persistExtras(); }
@@ -4804,6 +4865,9 @@ function handleConfigInput(t) {
   else if (cfg === "mono-cat") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.categoria = t.value; });
   else if (cfg === "mono-tipo") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.tipo = t.value; });
   else if (cfg === "mono-iibb") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.iibb = t.value; });
+  else if (cfg === "mono-comp") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.comp = Object.assign({}, cl.mono.comp || {}); cl.mono.comp[t.dataset.comp] = t.checked; });
+  else if (cfg === "mono-muni-nombre") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.muniNombre = t.value; });
+  else if (cfg === "mono-muni-monto") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.muniMonto = t.value; });
   else if (cfg === "decreto814rate") mutateClient(c.id, (cl) => (cl.iva.decreto814Rate = t.value));
   else if (cfg === "iva-saldo-tecnico-inicial") mutateClient(c.id, (cl) => (cl.iva.saldosIniciales.saldoTecnicoAnterior = t.value));
   else if (cfg === "iva-saldo-libre-inicial") mutateClient(c.id, (cl) => (cl.iva.saldosIniciales.saldoLibreDisponibilidadAnterior = t.value));
