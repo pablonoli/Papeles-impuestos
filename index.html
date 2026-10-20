@@ -2851,6 +2851,7 @@ function renderConfigTab(client) {
           </div>
           ${monoEnabled(client) ? `<div class="form-grid" style="margin-top:8px;">
             <div class="field"><label>Categoría</label><select data-cfg="mono-cat"><option value="">— elegir —</option>${MONO_CATS.map((k) => `<option value="${k}" ${client.mono.categoria === k ? "selected" : ""}>${k}</option>`).join("")}</select></div>
+            <div class="field"><label>IIBB en la cuota</label><select data-cfg="mono-iibb"><option value="">Sin IIBB en la cuota</option>${Object.keys(getExtras().monoIibb).map((pv) => `<option value="${escapeHtml(pv)}" ${monoIibbProv(client) === pv ? "selected" : ""}>${escapeHtml(pv)} (Monotributo unificado)</option>`).join("")}</select></div>
             <div class="field"><label>Actividad</label><select data-cfg="mono-tipo"><option value="servicios" ${client.mono.tipo !== "bienes" ? "selected" : ""}>Servicios</option><option value="bienes" ${client.mono.tipo === "bienes" ? "selected" : ""}>Venta de bienes</option></select></div>
           </div>` : ""}
         </div>
@@ -3064,6 +3065,8 @@ function getExtras() {
   if (!e.vencLocal || typeof e.vencLocal !== "object") e.vencLocal = {};
   if (!e.monoEscala || typeof e.monoEscala !== "object") e.monoEscala = { vigencia: "", rows: [] };
   if (!Array.isArray(e.monoEscala.rows)) e.monoEscala.rows = [];
+  if (!e.monoIibb || typeof e.monoIibb !== "object") e.monoIibb = {};
+  Object.keys(MONO_IIBB_DEFAULT).forEach((prov) => { if (!e.monoIibb[prov] || typeof e.monoIibb[prov] !== "object") e.monoIibb[prov] = Object.assign({}, MONO_IIBB_DEFAULT[prov]); });
   if (!e.monoEscala.rows.length) {
     e.monoEscala.rows = MONO_ESCALA_DEFAULT.map((r) => Object.assign({}, r));
     if (!e.monoEscala.vigencia) e.monoEscala.vigencia = "desde 1/08/2026 (ARCA)";
@@ -3085,6 +3088,11 @@ const MONO_ESCALA_DEFAULT = [
   { cat: "J", tope: 105012519.20, cuotaServ: 1167299.76, cuotaBienes: 580793.69 },
   { cat: "K", tope: 126610838.75, cuotaServ: 1614446.04, cuotaBienes: 702103.24 },
 ];
+// IIBB que se paga dentro de la cuota del Monotributo unificado (Régimen Simplificado
+// provincial), por categoría y por mes.
+const MONO_IIBB_DEFAULT = {
+  "Neuquén": { A: 13000, B: 19500, C: 27300, D: 37700, E: 42900, F: 53300, G: 65000, H: 88400, I: 117000, J: 130000, K: 149500 },
+};
 function persistExtras() { saveLocalStore(); scheduleGistPush(); }
 
 // ¿Hay algún importe distinto de cero cargado? (los textos sólo cuentan si
@@ -3230,9 +3238,11 @@ function presentadoBarHtml(client, taxKey, period) {
   const d = getDoc(client.id, period);
   const f = pres && d.presentado[taxKey].fecha ? fmtFechaCorta(d.presentado[taxKey].fecha) : "";
   const vto = vencimientoDe(client, taxKey, period), dias = diasHasta(vto), u = urgenciaDe(dias);
-  const nombre = taxKey === "mono" ? `Cuota de Monotributo pagada (vence en ${MESES[periodMonth(addMonths(period, 1)) - 1].toLowerCase()})` : `${TAX_LABEL[taxKey]} presentada en ARCA`;
+  const nombre = taxKey === "mono" ? `VEP de Monotributo enviado al cliente (vence en ${MESES[periodMonth(addMonths(period, 1)) - 1].toLowerCase()})` : `${TAX_LABEL[taxKey]} presentada en ARCA`;
+  let montoVep = "";
+  if (taxKey === "mono") { const mc = monoCalc(client, period); if (mc.cuotaTotal > 0) montoVep = ` · VEP por ${fmtMoney(mc.cuotaTotal)}${mc.iibb > 0 ? " (incluye IIBB " + escapeHtml(mc.iibbProv) + ")" : ""}`; }
   return `<div class="pres-bar ${pres ? "on" : ""}"><label class="switch"><input type="checkbox" ${pres ? "checked" : ""} data-action="presentado-check" data-client="${client.id}" data-tax="${taxKey}" data-period="${period}"><span class="slider"></span></label>
-    <div><b>${nombre}</b><div class="hint-sm" style="font-size:12px;">${pres ? "Marcada el " + f : "Pendiente"}${vto ? ` · vence ${fmtFechaCorta(vto)} ${pres ? "" : `<span class="u-${u}">${URG_ICON[u]} ${diasTexto(dias)}</span>`}` : ` · <span title="Sin fecha de vencimiento cargada para esta jurisdicción o terminación de CUIT">sin fecha de vencimiento</span>`}</div></div></div>`;
+    <div><b>${nombre}</b><div class="hint-sm" style="font-size:12px;">${pres ? (taxKey === "mono" ? "Enviado el " : "Marcada el ") + f : (taxKey === "mono" ? "VEP sin enviar" : "Pendiente")}${montoVep}${vto ? ` · vence ${fmtFechaCorta(vto)} ${pres ? "" : `<span class="u-${u}">${URG_ICON[u]} ${diasTexto(dias)}</span>`}` : ` · <span title="Sin fecha de vencimiento cargada para esta jurisdicción o terminación de CUIT">sin fecha de vencimiento</span>`}</div></div></div>`;
 }
 function estadoDatos(client, taxKey, period) {
   try {
@@ -3333,66 +3343,105 @@ function alertasCliente(client, period) {
 // Monotributo
 // ---------------------------------------------------------------------
 const MONO_CATS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
+// Provincia cuyo IIBB se paga junto con la cuota: la elegida en la configuración del
+// cliente; si nunca se eligió, se toma Neuquén cuando la jurisdicción de IIBB Local es Neuquén.
+function monoIibbProv(client) {
+  const m = client.mono || {};
+  if (m.iibb !== undefined && m.iibb !== null) return m.iibb;
+  const jur = normalizeSearch((client.iibbLocal && client.iibbLocal.jurisdiccion) || "");
+  return jur.indexOf("neuquen") !== -1 ? "Neuquén" : "";
+}
 function monoRow(cat) { return getExtras().monoEscala.rows.find((r) => r.cat === cat) || null; }
 function monoEscalaCargada() { return getExtras().monoEscala.rows.some((r) => num(r.tope) > 0); }
+// Ventana de la recategorización: ARCA recategoriza dos veces al año con períodos FIJOS de 12 meses
+// (en enero: enero–diciembre del año anterior; en julio: julio–junio). Se muestra la ventana
+// que está por evaluarse, según el mes que se está mirando.
+function monoVentana(period) {
+  const y = periodYear(period), mo = periodMonth(period);
+  return mo <= 6 ? { ini: `${y - 1}-07`, fin: `${y}-06`, recat: `julio ${y}` } : { ini: `${y}-01`, fin: `${y}-12`, recat: `enero ${y + 1}` };
+}
+function monoRango(a, b) { return `${MESES_CORTOS[periodMonth(a) - 1]} ${periodYear(a)} – ${MESES_CORTOS[periodMonth(b) - 1]} ${periodYear(b)}`; }
+// `total` / `pct` / categoría sugerida salen de la ventana de recategorización.
+// `total12` / `pctMax` / exclusión salen de los últimos 12 meses móviles (control de salida del régimen).
 function monoCalc(client, period) {
   const m = client.mono || {};
+  const factDe = (p) => { const d = getDoc(client.id, p); return d && d.mono ? d.mono.facturacion : undefined; };
+  const tieneDato = (p) => { const raw = factDe(p); return raw !== undefined && raw !== null && String(raw).trim() !== ""; };
   const meses = [];
   for (let i = 11; i >= 0; i--) {
     const p = addMonths(period, -i);
-    const doc = getDoc(client.id, p);
-    const raw = doc && doc.mono && doc.mono.facturacion;
-    meses.push({ period: p, valor: num(raw), cargado: raw !== undefined && raw !== null && String(raw).trim() !== "" });
+    meses.push({ period: p, valor: num(factDe(p)), cargado: tieneDato(p) });
   }
-  const total = round2(meses.reduce((s, x) => s + x.valor, 0));
+  const total12 = round2(meses.reduce((s, x) => s + x.valor, 0));
+  const vent = monoVentana(period);
+  const ventMeses = [];
+  for (let p = vent.ini; p <= vent.fin; p = addMonths(p, 1)) ventMeses.push(p);
+  const trans = ventMeses.filter((p) => p <= period);
+  const total = round2(trans.reduce((s, p) => s + num(factDe(p)), 0));
+  const cargadosV = trans.filter(tieneDato).length;
+  const mesesRest = ventMeses.length - trans.length;
+  const promedio = cargadosV >= 3 ? round2(total / cargadosV) : 0;
+  const proyeccion = promedio > 0 && mesesRest > 0 ? round2(total + promedio * mesesRest) : null;
   const row = m.categoria ? monoRow(m.categoria) : null;
   const tope = row ? num(row.tope) : 0;
   const pct = tope > 0 ? total / tope : null;
   const cuota = row ? num(m.tipo === "bienes" ? row.cuotaBienes : row.cuotaServ) : 0;
-  let sugerida = null, excedeMax = false;
+  const iibbProv = monoIibbProv(client);
+  const iibbTabla = iibbProv ? getExtras().monoIibb[iibbProv] : null;
+  const iibb = iibbTabla && m.categoria ? num(iibbTabla[m.categoria]) : 0;
+  const cuotaTotal = round2(cuota + iibb);
+  const permitidas = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0 && (m.tipo === "bienes" || "ABCDEFGH".indexOf(c) !== -1); });
+  let sugerida = null, catProy = null;
   if (monoEscalaCargada()) {
-    const cands = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0 && (m.tipo === "bienes" || "ABCDEFGH".indexOf(c) !== -1); });
-    sugerida = cands.find((c) => total <= num(monoRow(c).tope)) || null;
-    excedeMax = !sugerida && cands.length > 0;
+    sugerida = permitidas.find((c) => total <= num(monoRow(c).tope)) || null;
+    if (proyeccion != null) catProy = permitidas.find((c) => proyeccion <= num(monoRow(c).tope)) || null;
   }
   const nivel = pct == null ? "na" : pct >= 1 ? "excede" : pct >= 0.85 ? "cerca" : "ok";
-  // Márgenes: hasta la categoría siguiente y hasta la exclusión (tope máximo)
-  const permitidas = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0 && (m.tipo === "bienes" || "ABCDEFGH".indexOf(c) !== -1); });
   const maxCat = permitidas.length ? permitidas[permitidas.length - 1] : null;
   const maxTope = maxCat ? num(monoRow(maxCat).tope) : 0;
+  const topeSug = sugerida ? num(monoRow(sugerida).tope) : 0;
+  const iSug = sugerida ? permitidas.indexOf(sugerida) : -1;
+  const sigSugerida = iSug !== -1 && iSug < permitidas.length - 1 ? permitidas[iSug + 1] : null;
   const idx = permitidas.indexOf(m.categoria);
   const siguiente = idx !== -1 && idx < permitidas.length - 1 ? permitidas[idx + 1] : null;
   const faltaSubir = tope > 0 ? round2(tope - total) : null;
-  const faltaExclusion = maxTope > 0 ? round2(maxTope - total) : null;
-  const pctMax = maxTope > 0 ? total / maxTope : null;
-  const cargadosN = meses.filter((x) => x.cargado).length;
-  const promedio = cargadosN >= 3 ? round2(total / cargadosN) : 0;
-  const mesesAlTope = promedio > 0 && faltaSubir != null && faltaSubir > 0 ? Math.ceil(faltaSubir / promedio) : null;
-  return { meses, total, tope, pct, cuota, sugerida, excedeMax, nivel, row, cargados: cargadosN, maxCat, maxTope, siguiente, faltaSubir, faltaExclusion, pctMax, promedio, mesesAlTope };
+  const faltaExclusion = maxTope > 0 ? round2(maxTope - total12) : null;
+  const pctMax = maxTope > 0 ? total12 / maxTope : null;
+  const excedeMax = maxTope > 0 && total12 > maxTope;
+  const cargados = meses.filter((x) => x.cargado).length;
+  return { meses, total, total12, vent, trans, cargadosV, mesesRest, promedio, proyeccion, catProy, tope, pct, cuota, iibb, iibbProv, cuotaTotal, topeSug, sigSugerida, sugerida, excedeMax, nivel, row, cargados, maxCat, maxTope, siguiente, faltaSubir, faltaExclusion, pctMax };
 }
-function monoBarHtml(c) {
-  if (c.pct == null) return "";
-  const w = Math.min(100, Math.round(c.pct * 100));
-  const col = c.nivel === "excede" ? "var(--pagar)" : c.nivel === "cerca" ? "var(--diff)" : "var(--favor)";
-  return `<div class="bar" role="img" aria-label="${Math.round(c.pct * 100)}% del tope"><i style="width:${w}%;background:${col};"></i></div>`;
+function monoBarHtml(c, pct, nivel) {
+  if (pct == null) pct = c.pct;
+  if (!nivel) nivel = c.nivel;
+  if (pct == null) return "";
+  const w = Math.min(100, Math.round(pct * 100));
+  const col = nivel === "excede" ? "var(--pagar)" : nivel === "cerca" ? "var(--diff)" : "var(--favor)";
+  return `<div class="bar" role="img" aria-label="${Math.round(pct * 100)}% del tope"><i style="width:${w}%;background:${col};"></i></div>`;
 }
 function monoMargenHtml(c, m) {
   if (c.tope <= 0 && c.maxTope <= 0) return "";
   const fila = (ico, titulo, detalle, color) => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border);"><span>${ico}</span><div style="flex:1;"><b style="color:${color};">${titulo}</b><div class="hint-sm" style="font-size:12px;">${detalle}</div></div></div>`;
+  const rango = monoRango(c.vent.ini, c.vent.fin), recat = c.vent.recat;
   let f1 = "", f2 = "", f3 = "";
   if (c.tope > 0) {
-    if (c.faltaSubir < 0) f1 = fila("⛔", `Superaste el tope de la categoría ${escapeHtml(m.categoria)} por ${fmtMoney(-c.faltaSubir)}`, c.sugerida ? `Te corresponde la categoría ${c.sugerida} en la próxima recategorización (enero / julio).` : "", "var(--pagar)");
+    if (c.faltaSubir < 0) f1 = fila("⛔", `Superaste el tope de la categoría ${escapeHtml(m.categoria)} por ${fmtMoney(-c.faltaSubir)}`, c.sugerida ? `Con lo facturado hasta hoy te corresponde la categoría ${c.sugerida} en la recategorización de ${recat} (período ${rango}).` : "", "var(--pagar)");
     else if (c.siguiente) {
       const cerca = c.pct >= 0.85;
-      f1 = fila(cerca ? "⚠" : "↗", `Para subir a la categoría ${c.siguiente} faltan ${fmtMoney(c.faltaSubir)}`, `Tope de la ${escapeHtml(m.categoria)}: ${fmtMoney(c.tope)} · usaste ${Math.round(c.pct * 100)}%.${cerca ? " Estás cerca: conviene planificar la facturación." : ""}`, cerca ? "var(--diff)" : "var(--ink)");
+      f1 = fila(cerca ? "⚠" : "↗", `Para subir a la categoría ${c.siguiente} faltan ${fmtMoney(c.faltaSubir)}`, `Tope de la ${escapeHtml(m.categoria)}: ${fmtMoney(c.tope)} · acumulaste el ${Math.round(c.pct * 100)}% en el período de la recategorización de ${recat} (${rango}).${cerca ? " Estás cerca: conviene planificar la facturación." : ""}`, cerca ? "var(--diff)" : "var(--ink)");
     } else f1 = fila("ℹ", `Estás en la categoría máxima (${escapeHtml(m.categoria)})`, `Faltan ${fmtMoney(c.faltaSubir)} para el tope.`, "var(--ink)");
   }
   if (c.maxTope > 0) {
     const cercaE = c.pctMax >= 0.85, excl = c.pctMax >= 1;
     f2 = fila(excl ? "⛔" : cercaE ? "⚠" : "🛡", excl ? `Superaste el tope máximo del Monotributo (cat. ${c.maxCat}) por ${fmtMoney(-c.faltaExclusion)}` : `Para la exclusión del Monotributo faltan ${fmtMoney(c.faltaExclusion)}`,
-      excl ? "Corresponde la exclusión: pasar al Régimen General (responsable inscripto)." : `Tope máximo ${m.tipo === "bienes" ? "(venta de bienes)" : "(servicios)"}: categoría ${c.maxCat}, ${fmtMoney(c.maxTope)} · usaste ${Math.round(c.pctMax * 100)}%.${cercaE ? " ¡Riesgo de exclusión!" : ""}`, excl || cercaE ? "var(--pagar)" : "var(--ink)");
+      excl ? "Corresponde la exclusión: pasar al Régimen General (responsable inscripto)." : `Control con los últimos 12 meses (${fmtMoney(c.total12)}). Tope máximo ${m.tipo === "bienes" ? "(venta de bienes)" : "(servicios)"}: categoría ${c.maxCat}, ${fmtMoney(c.maxTope)} · usaste ${Math.round(c.pctMax * 100)}%.${cercaE ? " ¡Riesgo de exclusión!" : ""}`, excl || cercaE ? "var(--pagar)" : "var(--ink)");
   }
-  if (c.mesesAlTope != null && c.faltaSubir > 0) f3 = fila("📈", `Al ritmo actual (${fmtMoney(c.promedio)} por mes) alcanzarías el tope de tu categoría en unos ${c.mesesAlTope} ${c.mesesAlTope === 1 ? "mes" : "meses"}`, "Estimación con el promedio de los meses cargados; los meses viejos salen de la ventana de 12 meses, así que es aproximado.", "var(--ink)");
+  if (c.proyeccion != null && c.tope > 0) {
+    const sup = c.proyeccion > c.tope;
+    f3 = fila("📈", `Al ritmo actual (${fmtMoney(c.promedio)} por mes) cerrarías ${monoRango(c.vent.ini, c.vent.fin)} en ${fmtMoney(c.proyeccion)}`,
+      sup ? (c.catProy ? `Superarías el tope de la ${escapeHtml(m.categoria)} y te correspondería la ${c.catProy} en la recategorización de ${recat}.` : `Superarías el máximo de la escala: correspondería la exclusión.`) : `Te mantendrías dentro de la categoría ${escapeHtml(m.categoria)}.`,
+      "var(--ink)") ;
+  }
   return `<div class="card" style="margin-top:12px;"><div class="card-head"><h3>Margen de facturación</h3></div><div class="card-body" style="gap:0;padding-top:0;">${f1}${f2}${f3}</div></div>`;
 }
 function monoNivelHtml(c) {
@@ -3413,12 +3462,15 @@ function renderMonoTab(client) {
     : !m.categoria ? `<div class="warn-banner"><div class="wb-text"><b>Este cliente no tiene categoría asignada.</b> Elegila en Configuración → Impuestos activos → Monotributo.</div></div>` : "";
   let reco = "";
   if (escalaOk && c.cargados >= 1) {
-    if (c.excedeMax) reco = `<div class="warn-banner" style="border-color:var(--pagar);color:var(--pagar);background:var(--pagar-soft);"><div class="wb-text"><b>⛔ La facturación de 12 meses supera el máximo de la escala${m.tipo === "bienes" ? "" : " para servicios"}.</b> Corresponde la salida del Monotributo (Régimen General).</div></div>`;
-    else if (c.sugerida && m.categoria && c.sugerida !== m.categoria) reco = `<div class="warn-banner"><div class="wb-text"><b>Categoría sugerida: ${c.sugerida}</b> (hoy: ${escapeHtml(m.categoria)}). Con ${fmtMoney(c.total)} facturados en 12 meses, ${MONO_CATS.indexOf(c.sugerida) > MONO_CATS.indexOf(m.categoria) ? "correspondería recategorizar hacia arriba" : "podría recategorizar hacia abajo"} en la próxima recategorización semestral (enero / julio).</div></div>`;
+    const rango = monoRango(c.vent.ini, c.vent.fin);
+    if (c.excedeMax) reco = `<div class="warn-banner" style="border-color:var(--pagar);color:var(--pagar);background:var(--pagar-soft);"><div class="wb-text"><b>⛔ La facturación de los últimos 12 meses supera el máximo de la escala${m.tipo === "bienes" ? "" : " para servicios"}.</b> Corresponde la salida del Monotributo (Régimen General).</div></div>`;
+    else if (c.tope > 0 && c.total > c.tope && c.sugerida) reco = `<div class="warn-banner"><div class="wb-text"><b>Categoría sugerida: ${c.sugerida}</b> (hoy: ${escapeHtml(m.categoria)}). Ya superaste el tope de la ${escapeHtml(m.categoria)} con ${fmtMoney(c.total)} facturados en el período de la recategorización de ${c.vent.recat} (${rango}).</div></div>`;
+    else if (c.mesesRest === 0 && c.sugerida && m.categoria && c.sugerida !== m.categoria) reco = `<div class="warn-banner"><div class="wb-text"><b>Categoría sugerida: ${c.sugerida}</b> (hoy: ${escapeHtml(m.categoria)}). Con ${fmtMoney(c.total)} facturados en ${rango}, podría recategorizar hacia abajo en la recategorización de ${c.vent.recat}.</div></div>`;
   }
+  const enVent = {}; c.vent && c.trans.forEach((p) => { enVent[p] = true; });
   const filas = c.meses.slice().reverse().map((x) => `
     <tr>
-      <td style="text-align:left;">${periodLabel(x.period)}</td>
+      <td style="text-align:left;">${enVent[x.period] ? `<span title="Entra en el período de la recategorización de ${c.vent.recat}" style="color:var(--accent);">●</span> ` : ""}${periodLabel(x.period)}</td>
       <td><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(getDeep(getDoc(client.id, x.period) || {}, "mono.facturacion", ""), "money")}" data-action="mono-fact" data-clientid="${client.id}" data-period="${x.period}"></td>
     </tr>`).join("");
   return `
@@ -3426,7 +3478,7 @@ function renderMonoTab(client) {
       ${aviso}${reco}
       <div id="mono-summary">${monoSummaryHtml(client, period)}</div>
       <div class="card">
-        <div class="card-head"><h3>Facturación mes a mes</h3><span class="hint">Últimos 12 meses hasta ${periodLabel(period)} · cargá el total facturado de cada mes</span></div>
+        <div class="card-head"><h3>Facturación mes a mes</h3><span class="hint">Últimos 12 meses hasta ${periodLabel(period)} (control de exclusión) · <span style="color:var(--accent);">●</span> = entra en la recategorización de ${c.vent.recat} (${monoRango(c.vent.ini, c.vent.fin)}) · cargá el total facturado de cada mes</span></div>
         <div class="card-body">
           <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Mes</th><th>Facturado</th></tr>${filas}</table></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
@@ -3441,14 +3493,31 @@ function renderMonoTab(client) {
 function monoSummaryHtml(client, period) {
   const c = monoCalc(client, period);
   const m = client.mono || {};
+  const rangoTrans = monoRango(c.vent.ini, period), rangoVent = monoRango(c.vent.ini, c.vent.fin);
+  const exceCat = c.pct != null && c.pct >= 1 && c.sugerida && c.sugerida !== m.categoria && c.topeSug > 0;
+  let barra = "";
+  if (exceCat) {
+    // Superó el tope de su categoría: la barra vuelve a empezar y mide el avance
+    // contra el tope de la categoría que le corresponde ahora.
+    const pN = c.total / c.topeSug, nivN = pN >= 0.85 ? "cerca" : "ok", falta = round2(c.topeSug - c.total);
+    barra = `<div class="card" style="margin-top:12px;"><div class="card-body" style="gap:8px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><b>${Math.round(pN * 100)}% del tope de la categoría ${c.sugerida}</b><span class="pill pagar">⛔ Superó el tope de la ${escapeHtml(m.categoria)}</span></div>${monoBarHtml(c, pN, nivN)}<div class="hint-sm" style="font-size:12.5px;">Superaste el tope de la ${escapeHtml(m.categoria)} por ${fmtMoney(round2(c.total - c.tope))}: hoy te corresponde la <b>${c.sugerida}</b>. ${c.sigSugerida ? `Para pasar a la <b>${c.sigSugerida}</b> faltan <b>${fmtMoney(falta)}</b>.` : `Para la exclusión del Monotributo faltan <b>${fmtMoney(falta)}</b>.`}${pN >= 0.85 ? " Estás cerca: conviene planificar la facturación." : ""} Recategorización de ${c.vent.recat}: ventas de ${rangoVent}.</div></div></div>`;
+  } else if (c.pct != null) {
+    barra = `<div class="card" style="margin-top:12px;"><div class="card-body" style="gap:8px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><b>${Math.round(c.pct * 100)}% del tope de la categoría ${escapeHtml(m.categoria)}</b>${monoNivelHtml(c)}</div>${monoBarHtml(c)}<div class="hint-sm" style="font-size:12.5px;">Recategorización de ${c.vent.recat}: ventas de ${rangoVent} (acumulado a ${periodLabel(period)}).</div></div></div>`;
+  }
   return `
     <div class="kpi-row">
       <div class="kpi"><span class="k-label">Categoría</span><span class="k-value">${m.categoria ? escapeHtml(m.categoria) : "—"}</span><span class="k-sub">${m.tipo === "bienes" ? "Venta de bienes" : "Prestación de servicios"}</span></div>
-      <div class="kpi"><span class="k-label">Facturado — 12 meses</span><span class="k-value">${fmtMoney(c.total)}</span><span class="k-sub">${c.cargados} de 12 meses cargados</span></div>
+      <div class="kpi"><span class="k-label">Para recategorizar (${c.vent.recat})</span><span class="k-value">${fmtMoney(c.total)}</span><span class="k-sub">${rangoTrans} · ${c.cargadosV} de ${c.trans.length} meses cargados</span></div>
       <div class="kpi"><span class="k-label">Tope de la categoría</span><span class="k-value">${c.tope > 0 ? fmtMoney(c.tope) : "—"}</span><span class="k-sub">${c.tope > 0 ? (c.total <= c.tope ? "Margen: " + fmtMoney(c.tope - c.total) : "Excedido en " + fmtMoney(c.total - c.tope)) : "Sin escala o categoría"}</span></div>
-      <div class="kpi"><span class="k-label">Cuota mensual</span><span class="k-value">${c.cuota > 0 ? fmtMoney(c.cuota) : "—"}</span><span class="k-sub">Integrado + SIPA + obra social</span></div>
+      <div class="kpi"><span class="k-label">12 meses (exclusión)</span><span class="k-value">${fmtMoney(c.total12)}</span><span class="k-sub">${c.pctMax != null ? Math.round(c.pctMax * 100) + "% del tope máximo (" + c.maxCat + ")" : c.cargados + " de 12 meses cargados"}</span></div>
+      <div class="kpi"><span class="k-label">Cuota mensual</span><span class="k-value">${c.cuotaTotal > 0 ? fmtMoney(c.cuotaTotal) : "—"}</span><span class="k-sub">${c.iibb > 0 ? "Incluye IIBB " + escapeHtml(c.iibbProv) : "Integrado + SIPA + obra social"}</span></div>
     </div>
-    ${c.pct != null ? `<div class="card" style="margin-top:12px;"><div class="card-body" style="gap:8px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><b>${Math.round(c.pct * 100)}% del tope utilizado</b>${monoNivelHtml(c)}</div>${monoBarHtml(c)}</div></div>` : ""}
+    ${c.iibb > 0 ? `<div class="card" style="margin-top:12px;"><div class="card-head"><h3>Cuota mensual a pagar</h3><span class="hint">Monotributo unificado · categoría ${escapeHtml(m.categoria)}</span></div><div class="card-body"><div class="table-scroll"><table style="min-width:0;">
+      <tr><td style="text-align:left;">Cuota ARCA <span class="hint-sm">(impuesto integrado + aportes SIPA + obra social)</span></td><td class="num">${fmtMoney(c.cuota)}</td></tr>
+      <tr><td style="text-align:left;">IIBB ${escapeHtml(c.iibbProv)} <span class="hint-sm">(Régimen Simplificado)</span></td><td class="num">${fmtMoney(c.iibb)}</td></tr>
+      <tr><td style="text-align:left;font-weight:700;">Total a pagar</td><td class="num" style="font-weight:700;">${fmtMoney(c.cuotaTotal)}</td></tr>
+    </table></div></div></div>` : ""}
+    ${barra}
     ${monoMargenHtml(c, m)}`;
 }
 function monoResumenHtml(client) {
@@ -3457,19 +3526,21 @@ function monoResumenHtml(client) {
 }
 function renderMonoEscalaModal() {
   const e = getExtras().monoEscala;
+  const iibbProvs = Object.keys(getExtras().monoIibb);
   const filas = MONO_CATS.map((cat) => {
     const r = e.rows.find((x) => x.cat === cat) || {};
+    const inpI = (prov) => `<input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(getExtras().monoIibb[prov][cat], "money")}" data-action="mono-iibb" data-prov="${escapeHtml(prov)}" data-cat="${cat}" style="width:100%;">`;
     const inp = (f) => `<input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(r[f], "money")}" data-action="mono-escala" data-cat="${cat}" data-field="${f}" style="width:100%;">`;
-    return `<tr><td style="text-align:left;font-weight:700;">${cat}</td><td>${inp("tope")}</td><td>${inp("cuotaServ")}</td><td>${inp("cuotaBienes")}</td></tr>`;
+    return `<tr><td style="text-align:left;font-weight:700;">${cat}</td><td>${inp("tope")}</td><td>${inp("cuotaServ")}</td><td>${inp("cuotaBienes")}</td>${iibbProvs.map((pv) => `<td>${inpI(pv)}</td>`).join("")}</tr>`;
   }).join("");
   document.getElementById("modal-root").innerHTML = `
     <div class="modal-backdrop">
-      <div class="modal" style="max-width:640px;">
+      <div class="modal" style="max-width:780px;">
         <div class="modal-head"><h3>Escala vigente de Monotributo</h3><button class="btn btn-ghost" data-action="mono-escala-cerrar">✕</button></div>
         <div class="modal-body">
           <div class="field"><label>Vigencia (texto libre, ej. "desde agosto 2026")</label><input type="text" value="${escapeHtml(e.vigencia || "")}" data-action="mono-escala-vigencia"></div>
-          <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Cat.</th><th>Ingresos brutos (12 m)</th><th>Cuota total servicios</th><th>Cuota total bienes</th></tr>${filas}</table></div>
-          <p class="hint-sm">Se guarda al escribir. La escala es global: vale para todos los clientes. La cuota es el total mensual (impuesto integrado + aportes SIPA + obra social, sin adherentes ni exenciones). Las categorías I, J y K sólo aplican a venta de bienes.</p>
+          <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Cat.</th><th>Ingresos brutos (12 m)</th><th>Cuota total servicios</th><th>Cuota total bienes</th>${iibbProvs.map((pv) => `<th>IIBB ${escapeHtml(pv)} (por mes)</th>`).join("")}</tr>${filas}</table></div>
+          <p class="hint-sm">Se guarda al escribir. La escala es global: vale para todos los clientes. La cuota es el total mensual (impuesto integrado + aportes SIPA + obra social, sin adherentes ni exenciones). Las categorías I, J y K sólo aplican a venta de bienes. La columna de IIBB es lo que se paga dentro de la cuota del Monotributo unificado (Régimen Simplificado provincial): se suma a la cuota de ARCA en los clientes que lo tengan activado en Configuración.</p>
         </div>
         <div class="modal-foot"><button class="btn btn-accent" data-action="mono-escala-cerrar">Listo</button></div>
       </div>
@@ -3655,8 +3726,8 @@ function chipEstadoHtml(t, clientId, period) {
   const cls = t.pres ? "est-ok" : vencida ? "est-venc" : t.status === "ok" ? "est-parcial" : "est-falta";
   const ico = t.pres ? "✓" : vencida ? "⛔" : t.status === "ok" ? "◐" : "○";
   const extra = t.key === "mono" && t.mono && t.mono.pct != null ? ` ${Math.round(t.mono.pct * 100)}%` : "";
-  const queEs = t.key === "mono" ? "cuota pagada" : "presentada en ARCA";
-  const tip = t.pres ? `${TAX_LABEL[t.key]}: ${queEs}. Click para desmarcar.` : `${TAX_LABEL[t.key]}: pendiente (${t.status === "ok" ? "datos cargados en el panel, falta presentar" : t.status === "parcial" ? "carga parcial en el panel" : "sin datos cargados"}). Click para marcar como ${queEs}.`;
+  const queEs = t.key === "mono" ? "VEP enviado" : "presentada en ARCA";
+  const tip = t.key === "mono" ? (t.pres ? "Monotributo: VEP enviado al cliente. Click para desmarcar." : "Monotributo: VEP sin enviar. Click para marcarlo como enviado.") : t.pres ? `${TAX_LABEL[t.key]}: ${queEs}. Click para desmarcar.` : `${TAX_LABEL[t.key]}: pendiente (${t.status === "ok" ? "datos cargados en el panel, falta presentar" : t.status === "parcial" ? "carga parcial en el panel" : "sin datos cargados"}). Click para marcar como ${queEs}.`;
   return `<button type="button" class="est ${cls}" title="${escapeHtml(tip)}" data-action="presentado-toggle" data-client="${clientId}" data-tax="${t.key}" data-period="${period}">${ico} ${TAX_LABEL[t.key]}${extra}</button>`;
 }
 function saldoCeldaHtml(t) {
@@ -3698,12 +3769,12 @@ function renderPanelView() {
     <div style="display:flex;flex-direction:column;gap:16px;">
       <div class="kpi-row">
         <div class="kpi"><span class="k-label">Clientes</span><span class="k-value">${filas.length === state.clients.length ? state.clients.length : filas.length + " / " + state.clients.length}</span><span class="k-sub">${todasTax.length} declaraciones en total</span></div>
-        <div class="kpi"><span class="k-label">Presentadas en ARCA</span><span class="k-value">${presentadas} / ${todasTax.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pctComp}%;background:var(--favor);"></i></div><span class="k-sub">${pctComp}% presentado</span></div>
+        <div class="kpi"><span class="k-label">Presentadas / VEP enviados</span><span class="k-value">${presentadas} / ${todasTax.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pctComp}%;background:var(--favor);"></i></div><span class="k-sub">${pctComp}% presentado</span></div>
         <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Pendientes que vencen en ≤ 7 días o vencidas</span><span class="k-value">${urgentes}</span><span class="k-sub">sin presentar todavía</span></div>
       </div>
       <div class="card"><div class="card-head"><h3>Estado por cliente</h3><div class="seg">${pill("todos", "Todos")}${pill("faltan", "Pendientes")}${pill("pronto", "Vencen pronto")}</div></div>
         <div class="card-body"><div class="table-scroll"><table class="panel-table"><tr><th style="text-align:left;">Cliente</th><th style="text-align:left;">Presentación en ARCA</th><th style="text-align:left;">Saldos</th><th style="text-align:left;">Próximo vencimiento</th><th style="text-align:left;">Monotributo</th></tr>${rows}</table></div></div>
-        <p class="foot-note">Tocá cada impuesto para marcarlo como presentado en ARCA (o la cuota como paga, en Monotributo). ✓ presentado · ◐ pendiente con datos ya cargados en el panel · ○ pendiente sin datos · ⛔ vencido sin presentar.</p>
+        <p class="foot-note">Tocá cada impuesto para marcarlo como presentado en ARCA (o el VEP como enviado, en Monotributo). ✓ presentado · ◐ pendiente con datos ya cargados en el panel · ○ pendiente sin datos · ⛔ vencido sin presentar.</p>
       </div>
     </div>`;
 }
@@ -3746,7 +3817,7 @@ function renderCalendarioView() {
   const detalle = sel.length ? sel.map((i) => `
       <div class="cal-item"><button type="button" class="linklike" data-action="panel-abrir" data-client="${i.c.id}" data-tab="${i.k}" data-period="${fp}"><b>${escapeHtml(i.c.name)}</b></button>
         <span class="chip on">${TAX_LABEL[i.k]}</span>
-        <button type="button" class="est ${i.est.pres ? "est-ok" : i.est.status === "ok" ? "est-parcial" : "est-falta"}" style="margin-left:auto;" data-action="presentado-toggle" data-client="${i.c.id}" data-tax="${i.k}" data-period="${fp}" title="Click para cambiar">${i.est.pres ? "✓ " + (i.k === "mono" ? "Cuota paga" : "Presentada") : "○ Marcar como " + (i.k === "mono" ? "paga" : "presentada")}</button></div>`).join("")
+        <button type="button" class="est ${i.est.pres ? "est-ok" : i.est.status === "ok" ? "est-parcial" : "est-falta"}" style="margin-left:auto;" data-action="presentado-toggle" data-client="${i.c.id}" data-tax="${i.k}" data-period="${fp}" title="Click para cambiar">${i.est.pres ? "✓ " + (i.k === "mono" ? "VEP enviado" : "Presentada") : "○ Marcar como " + (i.k === "mono" ? "VEP enviado" : "presentada")}</button></div>`).join("")
     : `<p style="color:var(--muted);font-size:13px;margin:0;">No hay vencimientos de tus clientes este día.</p>`;
   return `
     <div class="topbar"><div class="client-title"><h1>Calendario de vencimientos</h1><div class="meta"><span>Vencen en ${MESES[mo - 1].toLowerCase()} ${y}</span><span>·</span><span>período fiscal ${periodLabel(fp)}</span></div></div>
@@ -3755,7 +3826,7 @@ function renderCalendarioView() {
       ${sinCal ? `<div class="warn-banner"><div class="wb-text"><b>Falta el calendario de ${y}.</b> Mandame la tabla y la sumo.</div></div>` : ""}
       <div class="card"><div class="card-body">
         <div class="cal-grid">${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((n) => `<div class="cal-h">${n}</div>`).join("")}${celdas}</div>
-        <p class="hint-sm" style="margin:6px 0 0;font-size:11.5px;">Cada etiqueta muestra presentadas / total: IVA, CM (Convenio Multilateral), IIBB (Local: Neuquén y Río Negro) y Mono (cuota). Verde: todo presentado · rojo: vencido · naranja: vence en ≤ 7 días.</p>
+        <p class="hint-sm" style="margin:6px 0 0;font-size:11.5px;">Cada etiqueta muestra presentadas / total: IVA, CM (Convenio Multilateral), IIBB (Local: Neuquén y Río Negro) y Mono (VEP). Verde: todo presentado · rojo: vencido · naranja: vence en ≤ 7 días.</p>
       </div></div>
       <div class="card"><div class="card-head"><h3 style="text-transform:capitalize;">${fechaLarga}</h3><span class="hint u-${selU}">${(porDia[state.calDia] || []).length ? URG_ICON[selU] + " " + diasTexto(selDias) : ""}</span></div>
         <div class="card-body">${detalle}</div></div>
@@ -4403,18 +4474,22 @@ document.addEventListener("input", (e) => {
     let r = e2.rows.find((x) => x.cat === t.dataset.cat);
     if (!r) { r = { cat: t.dataset.cat }; e2.rows.push(r); }
     r[t.dataset.field] = t.value; persistExtras();
+  } else if (a === "mono-iibb") {
+    const tb = getExtras().monoIibb[t.dataset.prov];
+    if (tb) { tb[t.dataset.cat] = t.value; persistExtras(); }
   } else if (a === "mono-escala-vigencia") { getExtras().monoEscala.vigencia = t.value; persistExtras(); }
 });
 // Reformatear montos al salir del campo (Monotributo)
 document.addEventListener("focusout", (e) => {
   const t = e.target, a = t && t.dataset && t.dataset.action;
-  if (a !== "mono-fact" && a !== "mono-escala") return;
+  if (a !== "mono-fact" && a !== "mono-escala" && a !== "mono-iibb") return;
   const raw = String(t.value || "").trim();
   if (raw === "") return;
   const f = fmtMoneyRaw(num(raw));
   if (f === raw) return;
   t.value = f;
   if (a === "mono-fact") { touchDoc(t.dataset.clientid, t.dataset.period, (doc) => setDeep(doc, "mono.facturacion", f)); }
+  else if (a === "mono-iibb") { const tb = getExtras().monoIibb[t.dataset.prov]; if (tb) { tb[t.dataset.cat] = f; persistExtras(); } }
   else { const e2 = getExtras().monoEscala; const r = e2.rows.find((x) => x.cat === t.dataset.cat); if (r) { r[t.dataset.field] = f; persistExtras(); } }
 }, true);
 
@@ -4728,6 +4803,7 @@ function handleConfigInput(t) {
   else if (cfg === "toggle-mono") mutateClient(c.id, (cl) => { cl.mono = Object.assign({ categoria: "", tipo: "servicios" }, cl.mono || {}); cl.mono.enabled = t.checked; });
   else if (cfg === "mono-cat") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.categoria = t.value; });
   else if (cfg === "mono-tipo") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.tipo = t.value; });
+  else if (cfg === "mono-iibb") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.iibb = t.value; });
   else if (cfg === "decreto814rate") mutateClient(c.id, (cl) => (cl.iva.decreto814Rate = t.value));
   else if (cfg === "iva-saldo-tecnico-inicial") mutateClient(c.id, (cl) => (cl.iva.saldosIniciales.saldoTecnicoAnterior = t.value));
   else if (cfg === "iva-saldo-libre-inicial") mutateClient(c.id, (cl) => (cl.iva.saldosIniciales.saldoLibreDisponibilidadAnterior = t.value));
