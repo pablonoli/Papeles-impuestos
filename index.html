@@ -3398,15 +3398,19 @@ function monoCalc(client, period) {
   const cuotaOficial = row ? num(m.tipo === "bienes" ? row.cuotaBienes : row.cuotaServ) : 0;
   // Desglose de la cuota (integrado / SIPA / obra social) y qué componentes paga este cliente
   const comp = monoComp(client);
-  const integ = row ? num(m.tipo === "bienes" ? row.integBienes : row.integServ) : 0;
-  const sipa = row ? num(row.sipa) : 0, obra = row ? num(row.obraSocial) : 0;
-  const desglose = integ + sipa + obra > 0;
+  const integEsc = row ? num(m.tipo === "bienes" ? row.integBienes : row.integServ) : 0;
+  const sipaEsc = row ? num(row.sipa) : 0, obraEsc = row ? num(row.obraSocial) : 0;
+  // Importes editables por cliente (p. ej. obra social con adherentes): si hay uno cargado, pisa el de la escala
+  const ov = (k, esc) => { const v = m.compMontos && m.compMontos[k]; return v === undefined || v === null || String(v).trim() === "" ? esc : num(v); };
+  const integ = ov("integrado", integEsc), sipa = ov("sipa", sipaEsc), obra = ov("os", obraEsc);
+  const desglose = integEsc + sipaEsc + obraEsc > 0;
   const cuota = desglose ? round2((comp.integrado ? integ : 0) + (comp.sipa ? sipa : 0) + (comp.os ? obra : 0)) : cuotaOficial;
   // IIBB dentro de la cuota (Monotributo unificado): no corresponde si el cliente tributa por Convenio Multilateral
   const iibbPorCM = !!(client.iibbCM && client.iibbCM.enabled);
   const iibbProv = iibbPorCM ? "" : monoIibbProv(client);
   const iibbTabla = iibbProv ? getExtras().monoIibb[iibbProv] : null;
-  const iibbTabMonto = iibbTabla && m.categoria ? num(iibbTabla[m.categoria]) : 0;
+  const iibbEsc = iibbTabla && m.categoria ? num(iibbTabla[m.categoria]) : 0;
+  const iibbTabMonto = iibbProv ? ov("iibb", iibbEsc) : 0;
   const iibb = comp.iibb ? iibbTabMonto : 0;
   const muniNombre = String(m.muniNombre || "").trim();
   const muni = comp.muni ? num(m.muniMonto) : 0;
@@ -3430,7 +3434,7 @@ function monoCalc(client, period) {
   const pctMax = maxTope > 0 ? total12 / maxTope : null;
   const excedeMax = maxTope > 0 && total12 > maxTope;
   const cargados = meses.filter((x) => x.cargado).length;
-  return { meses, total, total12, vent, trans, cargadosV, mesesRest, promedio, proyeccion, catProy, tope, pct, cuota, cuotaOficial, comp, integ, sipa, obra, desglose, iibbPorCM, iibbTabMonto, muni, muniNombre, iibb, iibbProv, cuotaTotal, topeSug, sigSugerida, sugerida, excedeMax, nivel, row, cargados, maxCat, maxTope, siguiente, faltaSubir, faltaExclusion, pctMax };
+  return { meses, total, total12, vent, trans, cargadosV, mesesRest, promedio, proyeccion, catProy, tope, pct, cuota, cuotaOficial, comp, integ, sipa, obra, integEsc, sipaEsc, obraEsc, iibbEsc, desglose, iibbPorCM, iibbTabMonto, muni, muniNombre, iibb, iibbProv, cuotaTotal, topeSug, sigSugerida, sugerida, excedeMax, nivel, row, cargados, maxCat, maxTope, siguiente, faltaSubir, faltaExclusion, pctMax };
 }
 function monoBarHtml(c, pct, nivel) {
   if (pct == null) pct = c.pct;
@@ -3528,8 +3532,10 @@ function monoCredencialHtml(client, c) {
   if (!m.categoria || !c.row) return `<p class="hint-sm">Elegí primero la categoría en "Datos del Monotributo".</p>`;
   const act = m.tipo === "bienes" ? "VENTA DE COSAS MUEBLES" : "LOCACIONES DE SERVICIOS";
   const chk = (k, on, dis) => `<input type="checkbox" ${on ? "checked" : ""} ${dis ? "disabled" : ""} data-action="mono-cred" data-clientid="${client.id}" data-comp="${k}" title="${dis ? "" : "Incluir / no incluir en la cuota"}">`;
-  const monto = (on, v) => on ? `<td class="num">${fmtMoney(v)}</td>` : `<td class="num" style="color:var(--muted);">No aporta</td>`;
-  const fila = (k, on, dis, label, v) => `<tr><td style="text-align:center;">${chk(k, on, dis)}</td><td style="text-align:left;">${label}</td>${monto(on, v)}</tr>`;
+  const ovr = (k) => { const v = m.compMontos && m.compMontos[k]; return v !== undefined && v !== null && String(v).trim() !== ""; };
+  const monto = (k, on, v) => on ? `<td class="num"><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(v, "money")}" data-action="mono-cred" data-clientid="${client.id}" data-campo="monto:${k}" style="width:130px;text-align:right;${ovr(k) ? "border-color:var(--accent);" : ""}" title="Editable: pisa el valor de la escala sólo para este cliente"></td>` : `<td class="num" style="color:var(--muted);">No aporta</td>`;
+  const esc = { integrado: c.integEsc, sipa: c.sipaEsc, os: c.obraEsc, iibb: c.iibbEsc };
+  const fila = (k, on, dis, label, v) => `<tr><td style="text-align:center;">${chk(k, on, dis)}</td><td style="text-align:left;">${label}${ovr(k) ? ` <span class="hint-sm">· modificado (escala: ${fmtMoney(esc[k])})</span> <button class="btn btn-sm btn-ghost" data-action="mono-cred-reset" data-clientid="${client.id}" data-comp="${k}" title="Volver al valor de la escala">↺</button>` : ""}</td>${monto(k, on, v)}</tr>`;
   let filas = "";
   if (c.desglose) {
     filas += fila("integrado", c.comp.integrado, false, `<b>Impuesto integrado:</b> Categoría ${escapeHtml(m.categoria)} <span class="hint-sm">· ${act}</span>`, c.integ);
@@ -3546,6 +3552,19 @@ function monoCredencialHtml(client, c) {
   return `<div class="table-scroll"><table style="min-width:0;table-layout:fixed;"><colgroup><col style="width:44px"><col><col style="width:150px"></colgroup>${filas}
     <tr><td></td><td style="text-align:right;font-weight:700;">Total a pagar</td><td class="num" style="font-weight:700;font-size:15px;" id="mono-cred-total">${fmtMoney(c.cuotaTotal)}</td></tr></table></div>`;
 }
+// Guarda un campo de la credencial. "monto:<comp>" es un importe que pisa el de la escala (si
+// queda igual al de la escala o vacío, se borra el override y vuelve a seguir a la escala).
+function monoCredSet(clientId, campo, valor) {
+  mutateClient(clientId, (cl) => {
+    cl.mono = cl.mono || {};
+    if (String(campo).indexOf("monto:") !== 0) { cl.mono[campo] = valor; return; }
+    const k = campo.slice(6), cc = monoCalc(cl, state.currentPeriod);
+    const esc = { integrado: cc.integEsc, sipa: cc.sipaEsc, os: cc.obraEsc, iibb: cc.iibbEsc }[k];
+    cl.mono.compMontos = Object.assign({}, cl.mono.compMontos || {});
+    if (String(valor).trim() === "" || Math.abs(num(valor) - esc) < 0.005) delete cl.mono.compMontos[k];
+    else cl.mono.compMontos[k] = valor;
+  });
+}
 function renderMonoCredModal(clientId) {
   const client = getClient(clientId);
   if (!client) return;
@@ -3555,7 +3574,7 @@ function renderMonoCredModal(clientId) {
       <div class="modal" style="max-width:640px;">
         <div class="modal-head"><h3>Credencial de pago · Monotributo</h3><button class="btn btn-ghost" data-action="mono-cred-cerrar">✕</button></div>
         <div class="modal-body">
-          <p class="hint-sm" style="margin:0 0 8px;">Tildá los componentes que paga este cliente (algunos no aportan SIPA u obra social, no tienen integrado, etc.). Vale para todos los períodos.</p>
+          <p class="hint-sm" style="margin:0 0 8px;">Tildá los componentes que paga este cliente (algunos no aportan SIPA u obra social, no tienen integrado, etc.) y, si hace falta, corregí el importe (por ejemplo obra social con adherentes). Vale para todos los períodos de este cliente.</p>
           ${monoCredencialHtml(client, c)}
         </div>
         <div class="modal-foot"><button class="btn btn-accent" data-action="mono-cred-cerrar">Listo</button></div>
@@ -4517,6 +4536,7 @@ document.addEventListener("click", (e) => {
   else if (a === "evo-base") { state.evoBase = btn.dataset.base; render(); }
   else if (a === "mono-escala-abrir") renderMonoEscalaModal();
   else if (a === "mono-cred-abrir") renderMonoCredModal(btn.dataset.clientid);
+  else if (a === "mono-cred-reset") { mutateClient(btn.dataset.clientid, (cl) => { if (cl.mono && cl.mono.compMontos) { cl.mono.compMontos = Object.assign({}, cl.mono.compMontos); delete cl.mono.compMontos[btn.dataset.comp]; } }); renderMonoCredModal(btn.dataset.clientid); }
   else if (a === "mono-cred-cerrar") { document.getElementById("modal-root").innerHTML = ""; render(); }
   else if (a === "mono-escala-cerrar") { document.getElementById("modal-root").innerHTML = ""; render(); }
   else if (a === "compras-cancelar") { state.comprasImp = null; document.getElementById("modal-root").innerHTML = ""; }
@@ -4572,7 +4592,7 @@ document.addEventListener("input", (e) => {
       mutateClient(id, (cl) => { cl.mono = cl.mono || {}; cl.mono.comp = Object.assign({}, cl.mono.comp || {}); cl.mono.comp[t.dataset.comp] = t.checked; });
       renderMonoCredModal(id);
     } else {
-      mutateClient(id, (cl) => { cl.mono = cl.mono || {}; cl.mono[t.dataset.campo] = t.value; });
+      monoCredSet(id, t.dataset.campo, t.value);
       const tot = document.getElementById("mono-cred-total"), cl2 = getClient(id);
       if (tot && cl2) tot.textContent = fmtMoney(monoCalc(cl2, state.currentPeriod).cuotaTotal);
     }
@@ -4581,13 +4601,13 @@ document.addEventListener("input", (e) => {
 // Reformatear montos al salir del campo (Monotributo)
 document.addEventListener("focusout", (e) => {
   const t = e.target, a = t && t.dataset && t.dataset.action;
-  if (a !== "mono-fact" && a !== "mono-escala" && a !== "mono-iibb" && !(a === "mono-cred" && t.dataset.campo === "muniMonto")) return;
+  if (a !== "mono-fact" && a !== "mono-escala" && a !== "mono-iibb" && !(a === "mono-cred" && (t.dataset.campo === "muniMonto" || String(t.dataset.campo).indexOf("monto:") === 0))) return;
   const raw = String(t.value || "").trim();
   if (raw === "") return;
   const f = fmtMoneyRaw(num(raw));
   if (f === raw) return;
   t.value = f;
-  if (a === "mono-cred") { mutateClient(t.dataset.clientid, (cl) => { cl.mono = cl.mono || {}; cl.mono.muniMonto = f; }); }
+  if (a === "mono-cred") { monoCredSet(t.dataset.clientid, t.dataset.campo, f); }
   else if (a === "mono-fact") { touchDoc(t.dataset.clientid, t.dataset.period, (doc) => setDeep(doc, "mono.facturacion", f)); }
   else if (a === "mono-iibb") { const tb = getExtras().monoIibb[t.dataset.prov]; if (tb) { tb[t.dataset.cat] = f; persistExtras(); } }
   else { const e2 = getExtras().monoEscala; const r = e2.rows.find((x) => x.cat === t.dataset.cat); if (r) { r[t.dataset.field] = f; persistExtras(); } }
