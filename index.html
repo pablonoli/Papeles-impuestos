@@ -3094,6 +3094,8 @@ const MONO_ESCALA_DEFAULT = [
 // provincial), por categoría y por mes.
 const MONO_IIBB_DEFAULT = {
   "Neuquén": { A: 13000, B: 19500, C: 27300, D: 37700, E: 42900, F: 53300, G: 65000, H: 88400, I: 117000, J: 130000, K: 149500 },
+  // CABA (AGIP): Régimen Simplificado incluido en el Monotributo unificado
+  "CABA": { A: 25695, B: 37650, C: 52785, D: 65535, E: 77085, F: 96605, G: 115530, H: 175285, I: 196200, J: 224685, K: 270895 },
 };
 function persistExtras() { saveLocalStore(); scheduleGistPush(); }
 
@@ -3351,7 +3353,8 @@ function monoIibbProv(client) {
   const m = client.mono || {};
   if (m.iibb !== undefined && m.iibb !== null) return m.iibb;
   const jur = normalizeSearch((client.iibbLocal && client.iibbLocal.jurisdiccion) || "");
-  return jur.indexOf("neuquen") !== -1 ? "Neuquén" : "";
+  // Si la jurisdicción del IIBB local del cliente tiene tabla cargada (Neuquén, CABA...), se usa esa
+  return Object.keys(getExtras().monoIibb).find((k) => normalizeSearch(k) === jur) || "";
 }
 // Componentes de la cuota que paga cada cliente (hay clientes que no aportan SIPA u obra social,
 // que no tienen el integrado, etc.). Por defecto: integrado + SIPA + obra social + IIBB del régimen
