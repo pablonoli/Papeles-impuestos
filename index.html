@@ -1497,7 +1497,7 @@ function computeIibbLocalPeriod(client, doc, carryIn) {
   // determinado es la suma del impuesto de cada una.
   const actividadDetalle = activities.map((a) => {
     const baseImponible = num(doc.actividades[a.code]);
-    const alicuota = alicLocal(a, doc.period) / 100;
+    const alicuota = alicLocal(a, doc.period, client) / 100;
     const impuesto = round2(baseImponible * alicuota);
     return { code: a.code, desc: a.desc, baseImponible, alicuota, impuesto };
   });
@@ -1535,18 +1535,79 @@ function getCoef(client, jurName, period) {
 // {desde, valor} (Local, dentro de la actividad). Para un período se usa la
 // vigencia más nueva cuyo "desde" no lo supere; así, actualizar las alícuotas
 // de enero no cambia los períodos ya cerrados. Devuelve % (1.5 = 1,5%).
+// Alícuotas progresivas (algunas jurisdicciones): la alícuota depende de los
+// ingresos del ejercicio anterior del cliente. Los tramos se cargan una vez
+// por jurisdicción + actividad (con vigencia) en "Actualizar alícuotas". Rige
+// lo más nuevo entre la vigencia de tramos y la alícuota cargada a mano para
+// ese cliente (si empatan, gana la del cliente).
+function alicEscalaDe(jur, code) {
+  const jc = jurCanon(jur);
+  return Object.values(getExtras().alicEscalas || {}).find((x) => x.jur === jc && (x.codes || []).includes(code)) || null;
+}
+function alicTramosVig(jur, code, period) {
+  const esc = alicEscalaDe(jur, code); if (!esc) return null;
+  const v = (esc.vig || []).filter((x) => x.desde && (!period || x.desde <= period)).sort((a, b) => b.desde.localeCompare(a.desde))[0];
+  return v ? { desde: v.desde, tramos: v.tramos, req: esc.req || "", esc } : null;
+}
+function clienteCumple(client, req) {
+  const t = (client && client.tamano) || "";
+  return !req || (req === "micro" ? t === "micro" : (t === "micro" || t === "peq"));
+}
+// Ingresos del ejercicio atribuidos a una jurisdicción (CM: base distribuida + ajustes; local: ventas si es su jurisdicción).
+function ingresosJur(client, year, jur) {
+  const jc = jurCanon(jur), man = client.ingrAnt && client.ingrAnt[year + "|" + jc];
+  if (man !== undefined && man !== null && String(man).trim() !== "") return { monto: num(man), manual: true };
+  let tot = 0, hay = false;
+  if (client.iibbCM) {
+    const j = (client.iibbCM.jurisdictions || []).find((y) => jurCanon(y.name) === jc), acts = client.iibbCM.activities || [];
+    listPeriodsWithTax(client.id, "iibbCM").filter((p) => periodYear(p) === Number(year)).forEach((p) => {
+      hay = true; if (!j) return;
+      const d = getDoc(client.id, p), cd = (d && d.iibbCM) || {}, jd = (cd.jurisdicciones && cd.jurisdicciones[j.name]) || {}, coef = getCoef(client, j.name, p);
+      acts.forEach((a) => {
+        const ov = jd.baseOverrides && jd.baseOverrides[a.code];
+        const base = ov !== undefined && ov !== null && ov !== "" ? num(ov) : round2(num(cd.actividades && cd.actividades[a.code]) * getActivityAttribution(a, j.name, coef));
+        tot += base + num(jd.ajustes && jd.ajustes[a.code]);
+      });
+    });
+  }
+  if (client.iibbLocal && jurCanon(client.iibbLocal.jurisdiccion) === jc) {
+    listPeriodsWithTax(client.id, "iibbLocal").filter((p) => periodYear(p) === Number(year)).forEach((p) => {
+      const d = getDoc(client.id, p), act = (d && d.iibbLocal && d.iibbLocal.actividades) || {};
+      Object.keys(act).forEach((k) => { tot += num(act[k]); }); hay = true;
+    });
+  }
+  return hay ? { monto: round2(tot), manual: false } : null;
+}
+function alicDeTramos(tramos, ingresos) {
+  const vacio = (x) => x === null || x === undefined || String(x).trim() === "";
+  const t = (tramos || []).slice().sort((a, b) => (vacio(a.hasta) ? Infinity : num(a.hasta)) - (vacio(b.hasta) ? Infinity : num(b.hasta)));
+  const hit = t.find((x) => vacio(x.hasta) || ingresos <= num(x.hasta));
+  return hit && !vacio(hit.alic) ? num(hit.alic) : null;
+}
+function alicElegir(client, tv, exp, period, base, jur) {
+  if (tv && client && clienteCumple(client, tv.req) && !(exp && exp.forzada && exp.desde >= tv.desde)) {
+    const ing = ingresosJur(client, periodYear(period || todayPeriod()) - 1, jur);
+    const r = ing ? alicDeTramos(tv.tramos, ing.monto) : null;
+    if (r !== null) return r;
+  }
+  return exp ? exp.valor : base;
+}
 function alicCM(client, jurName, code, period) {
   const vigs = (client.iibbCM.alicVig || []).filter((v) => v.desde && (!period || v.desde <= period)).sort((a, b) => b.desde.localeCompare(a.desde));
+  let exp = null;
   for (const v of vigs) {
     const x = v.valores && v.valores[jurName] && v.valores[jurName][code];
-    if (x !== undefined && x !== null && x !== "") return num(x);
+    if (x !== undefined && x !== null && x !== "") { exp = { desde: v.desde, valor: num(x), forzada: !!(v.forzar && v.forzar[jurName] && v.forzar[jurName][code]) }; break; }
   }
   const j = (client.iibbCM.jurisdictions || []).find((y) => y.name === jurName);
-  return num(j && j.alicuotas && j.alicuotas[code]);
+  return alicElegir(client, alicTramosVig(jurName, code, period), exp, period, num(j && j.alicuotas && j.alicuotas[code]), jurName);
 }
-function alicLocal(a, period) {
+function alicLocal(a, period, client) {
   const vigs = (a.alicHist || []).filter((v) => v.desde && (!period || v.desde <= period)).sort((x, y) => y.desde.localeCompare(x.desde));
-  return vigs.length ? num(vigs[0].valor) : num(a.alicuota);
+  const exp = vigs.length ? { desde: vigs[0].desde, valor: num(vigs[0].valor), forzada: !!vigs[0].forzada } : null;
+  const jur = client && client.iibbLocal && client.iibbLocal.jurisdiccion;
+  const tv = client && a.code ? alicTramosVig(jur, a.code, period) : null;
+  return alicElegir(client, tv, exp, period, num(a.alicuota), jur);
 }
 
 // Qué fracción de la base nacional de una actividad le corresponde a una
@@ -3086,6 +3147,7 @@ function getExtras() {
   if (!state.extras || typeof state.extras !== "object") state.extras = {};
   const e = state.extras;
   if (!e.vencLocal || typeof e.vencLocal !== "object") e.vencLocal = {};
+  if (!e.alicEscalas || typeof e.alicEscalas !== "object") e.alicEscalas = {};
   if (!e.monoEscala || typeof e.monoEscala !== "object") e.monoEscala = { vigencia: "", rows: [] };
   if (!Array.isArray(e.monoEscala.rows)) e.monoEscala.rows = [];
   if (!e.monoIibb || typeof e.monoIibb !== "object") e.monoIibb = {};
@@ -4577,6 +4639,14 @@ document.addEventListener("click", (e) => {
   else if (a === "mono-cred-abrir") renderMonoCredModal(btn.dataset.clientid);
   else if (a === "mono-recat-abrir") renderMonoRecatModal();
   else if (a === "alic-aplicar") alicAplicar();
+  else if (a === "alic-esc") renderAlicEscModal(btn.dataset.key, false);
+  else if (a === "alic-esc-nqn") alicEscalaNqnCargar();
+  else if (a === "alic-tramo-agregar") { alicEscDraftLeer(); state.escDraft.tramos.splice(state.escDraft.tramos.length - 1, 0, { hasta: "", alic: "" }); renderAlicEscModal(null, true); }
+  else if (a === "alic-tramo-quitar") { alicEscDraftLeer(); state.escDraft.tramos.splice(Number(btn.dataset.idx), 1); renderAlicEscModal(null, true); }
+  else if (a === "alic-esc-guardar") alicEscGuardar();
+  else if (a === "alic-esc-borrar") { const d = state.escDraft; if (d && d.id) { delete getExtras().alicEscalas[d.id]; persistExtras(); } state.escDraft = null; document.getElementById("modal-root").innerHTML = ""; render(); }
+  else if (a === "alic-exp") { state.alicExp = state.alicExp || {}; state.alicExp[btn.dataset.key] = !state.alicExp[btn.dataset.key]; render(); }
+  else if (a === "alic-jur") { state.alicJur = btn.dataset.key; render(); }
   else if (a === "cm05-coef") renderCm05CoefModal(btn.dataset.clientid, btn.dataset.anio);
   else if (a === "cm05-coef-guardar") cm05CoefGuardar(btn.dataset.clientid, btn.dataset.anio);
   else if (a === "cm05-pres-chip") { const r = cm05Reg(getClient(btn.dataset.clientid), btn.dataset.anio); cm05Set(btn.dataset.clientid, btn.dataset.anio, "presentado", !r.presentado); render(); }
@@ -4621,16 +4691,33 @@ document.addEventListener("change", (e) => {
   else if (a === "cm05-pres") { cm05Set(t.dataset.clientid, t.dataset.anio, "presentado", t.checked); render(); }
   else if (a === "cm05-fecha") { cm05Set(t.dataset.clientid, t.dataset.anio, "fecha", t.value); render(); }
   else if (a === "cm05-ultimo") { cm05Set(t.dataset.clientid, t.dataset.anio, "ultimo", /^\d{4}-\d{2}$/.test(t.value) ? t.value : ""); render(); if (t.dataset.modal) renderCm05CoefModal(t.dataset.clientid, t.dataset.anio); }
+  else if (a === "alic-esc-sel") { alicEscDraftLeer(); const jur = state.escDraft.jur, fc = state.escDraft.fromCode; state.escDraft = alicEscDraftDe(t.value ? getExtras().alicEscalas[t.value] : null, jur, fc); state.escDraft.fromCode = fc; renderAlicEscModal(null, true); }
+  else if (a === "alic-esc-req") { alicEscDraftLeer(); state.escDraft.req = t.value; renderAlicEscModal(null, true); }
+  else if (a === "alic-esc-code") { alicEscDraftLeer(); const d = state.escDraft; d.codes = t.checked ? d.codes.concat(t.dataset.code) : d.codes.filter((x) => x !== t.dataset.code); renderAlicEscModal(null, true); }
+  else if (a === "alic-cli-tamano") { mutateClient(t.dataset.clientid, (c) => { c.tamano = t.value; }); alicEscPreviewActualizar(); }
   else if (a === "alic-desde") { if (/^\d{4}-\d{2}$/.test(t.value)) { state.alicDesde = t.value; state.alicMsg = ""; render(); } }
 });
 document.addEventListener("input", (e) => {
   const t = e.target, a = t.dataset && t.dataset.action;
-  if (a === "cm05-coef-input") cm05CoefSuma();
+  if (a === "alic-tramo-hasta" || a === "alic-tramo-alic") {
+    alicEscDraftLeer();
+    const dd = state.escDraft;
+    document.querySelectorAll("#modal-root [data-lbl]").forEach((sp) => { sp.textContent = alicEscEtiqueta(dd, Number(sp.dataset.lbl)); });
+    alicEscPreviewActualizar();
+  } else if (a === "alic-ingr") {
+    mutateClient(t.dataset.clientid, (c) => { c.ingrAnt = c.ingrAnt || {}; c.ingrAnt[t.dataset.anio + "|" + jurCanon(state.escDraft ? state.escDraft.jur : "")] = t.value; });
+    alicEscPreviewActualizar();
+  } else if (a === "alic-nueva-cli") {
+    state.alicCli = state.alicCli || {};
+    state.alicCli[t.dataset.key] = t.value;
+    const b = document.querySelector('[data-action="alic-aplicar"]');
+    if (b) { const n = alicFilas(state.alicDesde).filter(alicCambia).length; b.disabled = !n; b.textContent = "Aplicar" + (n ? ` (${n})` : ""); }
+  } else if (a === "cm05-coef-input") cm05CoefSuma();
   else if (a === "alic-nueva") {
     state.alicNuevas = state.alicNuevas || {};
     state.alicNuevas[t.dataset.key] = t.value;
     const b = document.querySelector('[data-action="alic-aplicar"]');
-    if (b) { const n = Object.values(state.alicNuevas).filter((x) => String(x).trim() !== "").length; b.disabled = !n; b.textContent = "Aplicar" + (n ? ` (${n})` : ""); }
+    if (b) { const n = alicFilas(state.alicDesde).filter(alicCambia).length; b.disabled = !n; b.textContent = "Aplicar" + (n ? ` (${n})` : ""); }
   } else if (a === "mono-fact") {
     touchDoc(t.dataset.clientid, t.dataset.period, (doc) => setDeep(doc, "mono.facturacion", t.value));
     const el = document.getElementById("mono-summary"), c = getClient(t.dataset.clientid);
@@ -6385,13 +6472,21 @@ function alicDesdeDefault() {
   const t = todayPeriod(), y = periodYear(t);
   return periodMonth(t) === 1 ? `${y}-01` : `${y + 1}-01`;
 }
+// Una fila por jurisdicción + actividad: la alícuota es la misma para el
+// Convenio Multilateral y para el IIBB local de esa jurisdicción, así que una
+// sola carga actualiza a todos los clientes (CM o local).
+function jurCanon(name) {
+  const n = normalizeSearch(String(name || ""));
+  return AR_JURISDICCIONES.find((x) => normalizeSearch(x) === n) || String(name || "").trim() || "(sin jurisdicción)";
+}
 function alicFilas(desde) {
   const prev = addMonths(desde, -1), map = new Map();
-  const add = (tipo, jur, code, desc, c, actual, vigs) => {
-    const k = tipo + "|" + jur + "|" + code;
+  const add = (jur, code, desc, c, tipo, jurName, actual, vigs) => {
+    const k = jur + "|" + code;
     let f = map.get(k);
-    if (!f) { f = { k, tipo, jur, code, desc, clientes: [], vig: new Map() }; map.set(k, f); }
-    f.clientes.push({ id: c.id, name: c.name, actual });
+    if (!f) { f = { k, jur, code, desc: desc || "", clientes: [], vig: new Map() }; map.set(k, f); }
+    if (!f.desc && desc) f.desc = desc;
+    f.clientes.push({ id: c.id, name: c.name, tipo, jurName, actual });
     vigs.forEach((v) => f.vig.set(v.desde + "|" + v.valor, v));
   };
   state.clients.forEach((c) => {
@@ -6400,76 +6495,235 @@ function alicFilas(desde) {
       const vigs = (c.iibbCM.alicVig || []).filter((v) => { const x = v.valores && v.valores[j.name] && v.valores[j.name][a.code]; return x !== undefined && x !== null && x !== ""; })
         .map((v) => ({ desde: v.desde, valor: num(v.valores[j.name][a.code]) }));
       if ((raw === undefined || raw === null || raw === "") && !vigs.length) return;
-      add("CM", j.name, a.code, a.desc, c, alicCM(c, j.name, a.code, prev), vigs);
+      add(jurCanon(j.name), a.code, a.desc, c, "CM", j.name, alicCM(c, j.name, a.code, prev), vigs);
     }));
     if (c.iibbLocal && c.iibbLocal.enabled) (c.iibbLocal.activities || []).forEach((a) => {
       if (!a.code) return;
-      add("Local", c.iibbLocal.jurisdiccion || "(sin jurisdicción)", a.code, a.desc, c, alicLocal(a, prev), (a.alicHist || []).map((v) => ({ desde: v.desde, valor: num(v.valor) })));
+      add(jurCanon(c.iibbLocal.jurisdiccion), a.code, a.desc, c, "Local", "", alicLocal(a, prev, c), (a.alicHist || []).map((v) => ({ desde: v.desde, valor: num(v.valor) })));
     });
   });
-  return Array.from(map.values()).sort((a, b) => (a.tipo === b.tipo ? 0 : a.tipo === "CM" ? -1 : 1) || jurSortIndex(a.jur) - jurSortIndex(b.jur) || a.jur.localeCompare(b.jur, "es") || a.code.localeCompare(b.code));
+  return Array.from(map.values()).sort((a, b) => jurSortIndex(a.jur) - jurSortIndex(b.jur) || a.jur.localeCompare(b.jur, "es") || a.code.localeCompare(b.code));
 }
 function alicAplicar() {
   const desde = state.alicDesde;
   const nuevas = state.alicNuevas || {};
-  const filas = alicFilas(desde).filter((f) => nuevas[f.k] !== undefined && String(nuevas[f.k]).trim() !== "");
+  const cli = state.alicCli || {};
+  const vacio = (x) => x === undefined || String(x).trim() === "";
+  const clave = (f, ci) => f.k + "|" + ci.id + "|" + ci.tipo;
+  const filas = alicFilas(desde).filter((f) => !vacio(nuevas[f.k]) || f.clientes.some((ci) => !vacio(cli[clave(f, ci)])));
   const clientes = new Set();
   filas.forEach((f) => {
-    const val = num(nuevas[f.k]);
     f.clientes.forEach((ci) => {
+      const raw = !vacio(cli[clave(f, ci)]) ? cli[clave(f, ci)] : nuevas[f.k];
+      if (vacio(raw)) return;
+      const val = num(raw), forzar = !vacio(cli[clave(f, ci)]) && !!alicEscalaDe(f.jur, f.code);
       mutateClient(ci.id, (c) => {
-        if (f.tipo === "CM") {
+        if (ci.tipo === "CM") {
           c.iibbCM.alicVig = c.iibbCM.alicVig || [];
           let v = c.iibbCM.alicVig.find((x) => x.desde === desde);
           if (!v) { v = { desde, valores: {} }; c.iibbCM.alicVig.push(v); }
-          v.valores[f.jur] = v.valores[f.jur] || {};
-          v.valores[f.jur][f.code] = val;
+          v.valores[ci.jurName] = v.valores[ci.jurName] || {};
+          v.valores[ci.jurName][f.code] = val;
+          v.forzar = v.forzar || {}; v.forzar[ci.jurName] = v.forzar[ci.jurName] || {};
+          if (forzar) v.forzar[ci.jurName][f.code] = true; else delete v.forzar[ci.jurName][f.code];
         } else {
           const a = (c.iibbLocal.activities || []).find((x) => x.code === f.code);
           if (a) {
             a.alicHist = a.alicHist || [];
             const h = a.alicHist.find((x) => x.desde === desde);
-            if (h) h.valor = val; else a.alicHist.push({ desde, valor: val });
+            if (h) { h.valor = val; h.forzada = forzar; } else a.alicHist.push({ desde, valor: val, forzada: forzar });
           }
         }
       });
       clientes.add(ci.id);
     });
   });
-  state.alicNuevas = {};
+  state.alicNuevas = {}; state.alicCli = {};
   state.alicMsg = filas.length ? `Se cargó la vigencia desde ${periodLabel(desde)}: ${filas.length} alícuota${filas.length === 1 ? "" : "s"} en ${clientes.size} cliente${clientes.size === 1 ? "" : "s"}.` : "No había alícuotas nuevas para cargar.";
   render();
+}
+function alicCambia(f) {
+  const n = state.alicNuevas || {}, c = state.alicCli || {};
+  return String(n[f.k] || "").trim() !== "" || f.clientes.some((ci) => String(c[f.k + "|" + ci.id + "|" + ci.tipo] || "").trim() !== "");
+}
+function alicFilaHtml(f, desde) {
+  const pct = (v) => fmtPctRaw(v) + "%";
+  const distintos = Array.from(new Set(f.clientes.map((c) => c.actual))).sort((a, b) => a - b);
+  const actuales = distintos.length === 1 ? pct(distintos[0]) : `<span title="${escapeHtml(f.clientes.map((c) => c.name + ": " + pct(c.actual)).join("\n"))}" style="cursor:help;border-bottom:1px dotted var(--muted);">varía</span>`;
+  const vigs = Array.from(f.vig.values()).sort((a, b) => a.desde.localeCompare(b.desde)).map((v) => `${periodLabel(v.desde)}: ${pct(v.valor)}`).join(" · ");
+  const cambia = alicCambia(f), abierto = !!(state.alicExp || {})[f.k], nCli = new Set(f.clientes.map((c) => c.id)).size;
+  const pctv = (v) => fmtPctRaw(v) + "%";
+  const subs = abierto ? f.clientes.slice().sort((a, b) => a.name.localeCompare(b.name, "es")).map((ci) => `<tr style="background:var(--surface-2);">
+    <td style="text-align:left;padding-left:22px;"><span class="hint-sm">↳ ${escapeHtml(ci.name)} · ${ci.tipo === "CM" ? "CM" : "local"}</span></td><td></td>
+    <td style="text-align:center;"><span class="hint-sm">${pctv(ci.actual)}</span></td>
+    <td style="text-align:center;"><span class="pct-field"><input type="text" inputmode="decimal" data-kind="percent" value="${escapeHtml((state.alicCli || {})[f.k + "|" + ci.id + "|" + ci.tipo] || "")}" placeholder="${escapeHtml(String((state.alicNuevas || {})[f.k] || "igual"))}" data-action="alic-nueva-cli" data-key="${escapeHtml(f.k + "|" + ci.id + "|" + ci.tipo)}" style="width:80px;"><span class="pct-suffix">%</span></span></td><td></td></tr>`).join("") : "";
+  return `<tr${cambia ? ` style="background:var(--surface-2);"` : ""}>
+    <td style="text-align:left;overflow:hidden;" title="${escapeHtml(f.code + " — " + (f.desc || ""))}"><b>${escapeHtml(f.code)}</b><div class="hint-sm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(f.desc || "")}</div></td>
+    <td style="text-align:center;" title="${escapeHtml(f.clientes.map((c) => c.name).join(", "))}"><button type="button" class="linklike" data-action="alic-exp" data-key="${escapeHtml(f.k)}" title="Cargar una alícuota distinta por cliente"><span class="hint-sm">${nCli} cliente${nCli === 1 ? "" : "s"} ${abierto ? "▾" : "▸"}</span></button></td>
+    <td style="text-align:center;">${actuales}${vigs ? `<div class="hint-sm" style="font-size:10.5px;">${vigs}</div>` : ""}</td>
+    <td style="text-align:center;"><span class="pct-field"><input type="text" inputmode="decimal" data-kind="percent" value="${escapeHtml((state.alicNuevas || {})[f.k] || "")}" placeholder="—" data-action="alic-nueva" data-key="${escapeHtml(f.k)}" style="width:80px;"><span class="pct-suffix">%</span></span></td>
+    <td style="text-align:center;">${(() => { const es = alicEscalaDe(f.jur, f.code); return `<button type="button" class="btn btn-sm ${es ? "btn-accent" : ""}" data-action="alic-esc" data-key="${escapeHtml(f.k)}" title="${es ? escapeHtml(es.nombre) : "Asignar una escala por ingresos"}" style="max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${es ? escapeHtml(es.nombre) : "+ Escala"}</button>`; })()}</td>
+  </tr>${subs}`;
+}
+const NQN_COD = {
+  A: "451211 451291 453210 453220 453291 453292 454011 471130 471191 471900 472111 472112 472120 472130 472140 472150 472160 472171 472172 472190 472200 474010 474020 475110 475120 475190 475210 475220 475230 475240 475250 475260 475270 475290 475300 475410 475420 475430 475440 475490 476130 476200 476310 476320 476400 477110 477120 477130 477140 477150 477190 477210 477220 477230 477290 477311 477312 477320 477330 477410 477420 477430 477440 477450 477470 477480 477490 477810 477830 477840 477890 478010 478090 479101 479109 479900 649992 791101",
+  B: "016111 016112 016113 016119 016120 016130 016141 016149 016150 016190 016210 016220 016230 016291 016292 016299 017020 031120 031300 099000 109000 149000 182000 204000 221120 331101 331210 331220 331290 331301 331400 331900 332000 370000 381100 381200 390000 439100 452101 452210 452220 452300 452401 452500 452600 452700 452800 452910 452990 454020 521010 521020 521030 522010 522020 522091 522092 522099 523011 523019 523020 523031 523032 523039 523090 524110 524120 524130 524190 524210 524220 524230 524290 524310 524320 524330 524390 530091 530099 551021 551022 551023 551090 552000 561011 561012 561013 561014 561019 561020 561030 561040 562010 562091 562099 591110 591120 591300 601000 602100 602200 602310 602320 602900 611010 620104 620200 620300 620900 631111 631112 631119 631121 631122 631123 631129 631190 631201 631202 639100 639900 681010 681020 681098 681099 691001 691002 692000 702010 702091 702092 702099 711002 711003 711009 712000 721010 721020 721030 721090 722010 722020 731001 731002 731009 732000 741000 742000 749001 749002 749003 749009 750000 771110 771190 771210 771220 771290 772010 772091 772099 773010 773020 773030 773040 773090 774000 780001 780009 791201 791901 791909 801020 801090 811000 812010 812020 812091 812099 813000 821100 821900 822001 822009 823000 829200 829909 851010 851020 852100 852200 853100 853201 853300 854910 854920 854930 854940 854950 854960 854990 855000 861010 861020 862110 862120 862130 862200 863110 863120 863190 863200 863300 864000 869010 869090 870100 870210 870220 870910 870920 870990 880000 900011 900021 900030 900040 900091 931010 931020 931030 931041 931042 931050 931090 939010 939020 939090 941100 941200 951100 951200 952100 952200 952300 952910 952920 952990 960101 960102 960201 960202 960300 960910 960990 970000",
+};
+function alicEscalaNqnCargar() {
+  const e = getExtras(), jc = "Neuquén";
+  const nueva = (id, nombre, req, codes, tramos) => { e.alicEscalas[id] = { id, jur: jc, nombre, req, codes: codes.split(" "), vig: [{ desde: "2026-01", tramos }] }; };
+  nueva("nqn_A", "Escala A", "micro", NQN_COD.A, [{ hasta: 250000000, alic: 2 }, { hasta: 500000000, alic: 2.5 }, { hasta: 750000000, alic: 3 }, { hasta: 1000000000, alic: 3.5 }, { hasta: null, alic: null }]);
+  nueva("nqn_B", "Escala B", "micropeq", NQN_COD.B, [{ hasta: 150000000, alic: 2 }, { hasta: 300000000, alic: 2.5 }, { hasta: 450000000, alic: 3 }, { hasta: 600000000, alic: 3.5 }, { hasta: null, alic: null }]);
+  persistExtras();
+  state.alicMsg = "Se cargaron las escalas A y B de la Ley 3541/2026 (Neuquén). Marcá el tamaño de cada cliente (micro / pequeña) desde el editor de la escala.";
+  render();
+}
+function alicEscDraftLeer() {
+  const d = state.escDraft; if (!d) return;
+  document.querySelectorAll('#modal-root [data-action="alic-tramo-hasta"]').forEach((i) => { d.tramos[Number(i.dataset.idx)].hasta = i.value; });
+  document.querySelectorAll('#modal-root [data-action="alic-tramo-alic"]').forEach((i) => { d.tramos[Number(i.dataset.idx)].alic = i.value; });
+  const n = document.querySelector('#modal-root [data-action="alic-esc-nombre"]'); if (n) d.nombre = n.value;
+}
+function alicEscDraftDe(esc, jur, fromCode) {
+  const desde = state.alicDesde;
+  const v = esc ? (esc.vig || []).filter((x) => x.desde <= desde).sort((a, b) => b.desde.localeCompare(a.desde))[0] : null;
+  const tramos = v ? v.tramos.map((t) => ({ hasta: t.hasta == null ? "" : t.hasta, alic: t.alic == null ? "" : t.alic })) : [{ hasta: "", alic: "" }, { hasta: "", alic: "" }];
+  const codes = esc ? (esc.codes || []).slice() : [];
+  if (fromCode && !codes.includes(fromCode)) codes.push(fromCode);
+  return { id: esc ? esc.id : null, jur, nombre: esc ? esc.nombre : "", req: esc ? (esc.req || "") : "micropeq", codes, tramos };
+}
+function alicEscAlicTxt(c, d) {
+  const anio = periodYear(state.alicDesde) - 1;
+  if (!clienteCumple(c, d.req)) return `<span class="hint-sm">no cumple · la de la actividad</span>`;
+  const ing = ingresosJur(c, anio, d.jur);
+  if (!ing) return `<span class="hint-sm">falta el ingreso</span>`;
+  const r = alicDeTramos(d.tramos.map((t) => ({ hasta: String(t.hasta).trim() === "" ? null : num(t.hasta), alic: t.alic })), ing.monto);
+  return r === null ? `<span class="hint-sm">la de la actividad</span>` : `<b>${fmtPctRaw(r)}%</b>`;
+}
+function alicEscPreviewActualizar() {
+  const d = state.escDraft; if (!d) return;
+  document.querySelectorAll("#alic-esc-prev tr[data-cid]").forEach((tr) => { const c = getClient(tr.dataset.cid), td = tr.querySelector(".esc-alic"); if (c && td) td.innerHTML = alicEscAlicTxt(c, d); });
+}
+function alicEscPreviewHtml() {
+  const d = state.escDraft, anio = periodYear(state.alicDesde) - 1, ids = new Set();
+  alicFilas(state.alicDesde).filter((f) => f.jur === d.jur && d.codes.includes(f.code)).forEach((f) => f.clientes.forEach((ci) => ids.add(ci.id)));
+  const cl = Array.from(ids).map(getClient).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name, "es"));
+  if (!cl.length) return `<tr><td class="hint-sm" colspan="4">Ningún cliente tiene estas actividades.</td></tr>`;
+  const cond = d.req !== "";
+  return `<tr><th style="text-align:left;">Cliente</th><th>Ingresos ${escapeHtml(d.jur)} ${anio}</th>${cond ? "<th>Tamaño</th>" : ""}<th>Alícuota</th></tr>` + cl.map((c) => {
+    const ing = ingresosJur(c, anio, d.jur);
+    return `<tr data-cid="${c.id}"><td style="text-align:left;">${escapeHtml(c.name)}</td>
+      <td style="text-align:right;"><input type="text" inputmode="decimal" data-kind="money" data-action="alic-ingr" data-clientid="${c.id}" data-anio="${anio}" value="${ing && ing.manual ? escapeHtml(rawOrBlank(ing.monto, "money")) : ""}" placeholder="${ing ? escapeHtml(fmtMoneyRaw(ing.monto)) : "cargá el monto"}" style="width:130px;text-align:right;"></td>
+      ${cond ? `<td style="text-align:center;"><select data-action="alic-cli-tamano" data-clientid="${c.id}" style="width:96px;"><option value=""${!c.tamano ? " selected" : ""}>No PyME</option><option value="micro"${c.tamano === "micro" ? " selected" : ""}>Micro</option><option value="peq"${c.tamano === "peq" ? " selected" : ""}>Pequeña</option></select></td>` : ""}
+      <td style="text-align:center;" class="esc-alic">${alicEscAlicTxt(c, d)}</td></tr>`;
+  }).join("");
+}
+function alicEscEtiqueta(d, i) {
+  const n = d.tramos.length, antes = i > 0 ? d.tramos[i - 1].hasta : "";
+  const m = antes !== "" ? "Más de $ " + fmtMoneyRaw(num(antes)) : "Más de …";
+  return i === 0 ? "Hasta" : (i === n - 1 ? m : m + " y hasta");
+}
+function renderAlicEscModal(key, keepDraft) {
+  if (!keepDraft || !state.escDraft) {
+    const f = alicFilas(state.alicDesde).find((x) => x.k === key); if (!f) return;
+    state.escDraft = alicEscDraftDe(alicEscalaDe(f.jur, f.code), f.jur, f.code);
+    state.escDraft.fromCode = f.code;
+  }
+  const d = state.escDraft, n = d.tramos.length, anio = periodYear(state.alicDesde) - 1;
+  const filas = alicFilas(state.alicDesde).filter((f) => f.jur === d.jur);
+  const otras = Object.values(getExtras().alicEscalas).filter((x) => x.jur === d.jur);
+  const rows = d.tramos.map((t, i) => {
+    const ultimo = i === n - 1;
+    return `<tr><td style="text-align:left;"><span data-lbl="${i}">${alicEscEtiqueta(d, i)}</span> ${ultimo ? "" : `<input type="text" inputmode="decimal" data-kind="money" data-action="alic-tramo-hasta" data-idx="${i}" value="${escapeHtml(rawOrBlank(t.hasta, "money"))}" placeholder="$ monto" style="width:130px;text-align:right;">`}</td>
+      <td style="text-align:center;"><span class="pct-field"><input type="text" inputmode="decimal" data-kind="percent" data-action="alic-tramo-alic" data-idx="${i}" value="${escapeHtml(rawOrBlank(t.alic, "percent"))}" placeholder="${ultimo ? "—" : "0"}" style="width:80px;"><span class="pct-suffix">%</span></span></td>
+      <td style="text-align:center;">${!ultimo && n > 2 ? `<button class="btn btn-ghost btn-danger btn-sm" data-action="alic-tramo-quitar" data-idx="${i}">✕</button>` : ""}</td></tr>`;
+  }).join("");
+  const chips = filas.map((f) => { const es = alicEscalaDe(f.jur, f.code), otra = es && es.id !== d.id; return `<label style="display:flex;gap:6px;align-items:flex-start;font-size:12.5px;padding:2px 0;"><input type="checkbox" data-action="alic-esc-code" data-code="${escapeHtml(f.code)}"${d.codes.includes(f.code) ? " checked" : ""}><span><b>${escapeHtml(f.code)}</b> ${escapeHtml((f.desc || "").slice(0, 70))}${otra ? ` <span class="hint-sm">(hoy en ${escapeHtml(es.nombre)})</span>` : ""}</span></label>`; }).join("");
+  const extra = d.codes.filter((c) => !filas.some((f) => f.code === c)).length;
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-backdrop"><div class="modal" style="max-width:680px;max-height:92vh;overflow:auto;">
+      <div class="modal-head"><h3>Escala por ingresos · ${escapeHtml(d.jur)}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+      <div class="modal-body" style="gap:12px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="field" style="flex:1;min-width:170px;"><label>Escala</label><select data-action="alic-esc-sel">${otras.map((o) => `<option value="${o.id}"${o.id === d.id ? " selected" : ""}>${escapeHtml(o.nombre)}</option>`).join("")}<option value=""${!d.id ? " selected" : ""}>➕ Nueva escala</option></select></div>
+          <div class="field" style="flex:1;min-width:170px;"><label>Nombre</label><input type="text" data-action="alic-esc-nombre" value="${escapeHtml(d.nombre)}" placeholder="Ej.: Escala B (servicios)"></div>
+        </div>
+        <p class="hint-sm" style="margin:0;">Rige desde <b>${periodLabel(state.alicDesde)}</b>. Se mide con los <b>ingresos del ejercicio anterior (${anio}) atribuidos a ${escapeHtml(d.jur)}</b>, netos de IVA.</p>
+        <table style="min-width:0;width:100%;table-layout:fixed;"><colgroup><col><col style="width:110px;"><col style="width:44px;"></colgroup><tr><th style="text-align:left;">Ingresos del ejercicio ${anio}</th><th>Alícuota</th><th></th></tr>${rows}</table>
+        <p class="hint-sm" style="margin:-6px 0 0;">Si el último tramo queda sin alícuota, se aplica la de la actividad.</p>
+        <button class="btn btn-sm" style="align-self:flex-start;" data-action="alic-tramo-agregar">+ Agregar tramo</button>
+        <div class="field"><label>¿A qué clientes alcanza?</label><select data-action="alic-esc-req"><option value=""${d.req === "" ? " selected" : ""}>A todos</option><option value="micro"${d.req === "micro" ? " selected" : ""}>Sólo microempresas (Ley 25.300)</option><option value="micropeq"${d.req === "micropeq" ? " selected" : ""}>Micro o pequeñas empresas (Ley 25.300)</option></select></div>
+        <div><h4 class="subhead" style="margin:0 0 4px;">Actividades que usan esta escala</h4>
+          <div style="max-height:130px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px 10px;">${chips || `<span class="hint-sm">No hay actividades de ${escapeHtml(d.jur)} cargadas.</span>`}</div>
+          ${extra ? `<p class="hint-sm" style="margin:4px 0 0;">Además incluye ${extra} código${extra === 1 ? "" : "s"} de la ley que ningún cliente usa hoy.</p>` : ""}</div>
+        <div class="subsection" style="margin:0;"><h4 class="subhead">Qué le corresponde a cada cliente</h4>
+          <p class="hint-sm" style="margin:0 0 6px;">Si no hay datos de ${anio}, cargá el ingreso acá.</p>
+          <table style="min-width:0;width:100%;" id="alic-esc-prev">${alicEscPreviewHtml()}</table></div>
+      </div>
+      <div class="modal-foot" style="justify-content:space-between;">${d.id ? `<button class="btn btn-danger" data-action="alic-esc-borrar">Eliminar escala</button>` : "<span></span>"}<div style="display:flex;gap:8px;"><button class="btn" data-action="close-modal">Cancelar</button><button class="btn btn-accent" data-action="alic-esc-guardar">Guardar escala</button></div></div>
+    </div></div>`;
+  wireModalBackdropClose();
+}
+function alicEscGuardar() {
+  alicEscDraftLeer();
+  const d = state.escDraft; if (!d) return;
+  if (!d.codes.length) { showToast("Elegí al menos una actividad"); return; }
+  const tr = d.tramos.map((t, i) => {
+    const ult = i === d.tramos.length - 1;
+    return { hasta: ult ? null : (String(t.hasta).trim() === "" ? NaN : num(t.hasta)), alic: String(t.alic).trim() === "" ? (ult ? null : NaN) : num(t.alic) };
+  });
+  if (tr.some((t) => Number.isNaN(t.alic) || (t.hasta !== null && Number.isNaN(t.hasta)))) { showToast("Completá el monto y la alícuota de los tramos"); return; }
+  for (let i = 1; i < tr.length - 1; i++) if (tr[i].hasta <= tr[i - 1].hasta) { showToast("Los montos tienen que ir de menor a mayor"); return; }
+  const e = getExtras(); e.alicEscalas = e.alicEscalas || {};
+  let esc = d.id && e.alicEscalas[d.id];
+  if (!esc) { const id = "esc_" + Date.now().toString(36); esc = e.alicEscalas[id] = { id, jur: d.jur, vig: [] }; }
+  esc.nombre = d.nombre.trim() || "Escala " + (Object.keys(e.alicEscalas).length);
+  esc.req = d.req; esc.codes = d.codes.slice();
+  Object.values(e.alicEscalas).forEach((o) => { if (o !== esc && o.jur === esc.jur) o.codes = (o.codes || []).filter((c) => !esc.codes.includes(c)); });
+  esc.vig = (esc.vig || []).filter((v) => v.desde !== state.alicDesde); esc.vig.push({ desde: state.alicDesde, tramos: tr });
+  persistExtras();
+  state.alicMsg = `Escala "${esc.nombre}" guardada desde ${periodLabel(state.alicDesde)}.`;
+  state.escDraft = null;
+  document.getElementById("modal-root").innerHTML = "";
+  render();
+}
+function alicTablaHtml(filas, desde) {
+  const prev = addMonths(desde, -1);
+  return `<table style="min-width:0;width:100%;table-layout:fixed;"><colgroup><col><col style="width:90px;"><col style="width:100px;"><col style="width:110px;"><col style="width:96px;"></colgroup>
+    <tr><th style="text-align:left;">Actividad</th><th>Clientes</th><th title="Alícuota vigente a ${periodLabel(prev)}">Actual</th><th title="Nueva alícuota desde ${periodLabel(desde)}">Nueva</th><th title="Alícuota progresiva según ingresos del ejercicio anterior">Escala</th></tr>
+    ${filas.map((f) => alicFilaHtml(f, desde)).join("")}</table>`;
 }
 function renderAlicView() {
   if (!state.alicDesde) state.alicDesde = alicDesdeDefault();
   if (!state.alicNuevas) state.alicNuevas = {};
-  const desde = state.alicDesde, prev = addMonths(desde, -1);
+  if (!state.alicOpen) state.alicOpen = {};
+  const desde = state.alicDesde, nuevas = state.alicNuevas;
   const filas = alicFilas(desde);
-  const pct = (v) => fmtPctRaw(v) + "%";
-  const trs = filas.map((f) => {
-    const actuales = Array.from(new Set(f.clientes.map((c) => c.actual))).sort((a, b) => a - b).map(pct).join(" / ");
-    const vigs = Array.from(f.vig.values()).sort((a, b) => a.desde.localeCompare(b.desde)).map((v) => `${periodLabel(v.desde)}: ${pct(v.valor)}`).join(" · ");
-    const cambia = String(state.alicNuevas[f.k] || "").trim() !== "";
-    return `<tr${cambia ? ` style="background:var(--surface-2);"` : ""}>
-      <td style="text-align:center;">${f.tipo === "CM" ? "CM" : "Local"}</td>
-      <td style="text-align:left;">${escapeHtml(f.jur)}</td>
-      <td style="text-align:left;"><b>${escapeHtml(f.code)}</b><div class="hint-sm">${escapeHtml(f.desc || "")}</div></td>
-      <td style="text-align:left;"><span class="hint-sm">${f.clientes.map((c) => escapeHtml(c.name)).join(", ")}</span></td>
-      <td style="text-align:center;">${actuales}</td>
-      <td style="text-align:center;"><span class="pct-field"><input type="text" inputmode="decimal" data-kind="percent" value="${escapeHtml(state.alicNuevas[f.k] || "")}" placeholder="—" data-action="alic-nueva" data-key="${escapeHtml(f.k)}" style="width:80px;"><span class="pct-suffix">%</span></span></td>
-      <td style="text-align:left;"><span class="hint-sm">${vigs || "—"}</span></td>
-    </tr>`;
-  }).join("") || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Ningún cliente tiene alícuotas de IIBB cargadas.</td></tr>`;
-  const nCambios = filas.filter((f) => String(state.alicNuevas[f.k] || "").trim() !== "").length;
+  const grupos = [];
+  filas.forEach((f) => { const k = f.jur; let g = grupos.find((x) => x.k === k); if (!g) { g = { k, jur: f.jur, filas: [] }; grupos.push(g); } g.filas.push(f); });
+  const pend = (g) => g.filas.filter(alicCambia).length;
+  const nCambios = filas.filter(alicCambia).length;
+  if (!state.alicJur || !grupos.some((g) => g.k === state.alicJur)) state.alicJur = grupos.length ? grupos[0].k : "";
+  const nombre = (g) => g.jur;
+  let cuerpo = "";
+  if (!grupos.length) cuerpo = `<div class="card"><div class="card-body" style="text-align:center;color:var(--muted);padding:24px;">Ningún cliente tiene alícuotas de IIBB cargadas.</div></div>`;
+  else {
+    const g = grupos.find((x) => x.k === state.alicJur);
+    const chip = (x) => `<button type="button" class="btn btn-sm ${x.k === state.alicJur ? "btn-accent" : ""}" data-action="alic-jur" data-key="${escapeHtml(x.k)}">${escapeHtml(nombre(x))}${pend(x) ? ` <b style="margin-left:4px;">●${pend(x)}</b>` : ""}</button>`;
+    cuerpo = `<div class="card"><div class="card-body">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">${grupos.map(chip).join("")}</div>
+      ${g.jur === "Neuquén" && !Object.values(getExtras().alicEscalas).some((x) => x.jur === "Neuquén") ? `<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;background:var(--surface-2);border-radius:10px;padding:8px 12px;margin-bottom:10px;"><span class="hint-sm">Neuquén tiene alícuotas reducidas por escala de ingresos (Ley 3541/2026, art. 7).</span><button type="button" class="btn btn-sm btn-accent" data-action="alic-esc-nqn">Cargar escalas A y B</button></div>` : ""}
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;"><h3 style="margin:0;font-size:15px;">${escapeHtml(nombre(g))}</h3><span class="hint-sm">${g.filas.length} actividad${g.filas.length === 1 ? "" : "es"}</span></div>
+      <div class="table-scroll">${alicTablaHtml(g.filas, desde)}</div></div></div>`;
+  }
   return `
-    <div class="topbar"><div class="client-title"><h1>Actualización de alícuotas IIBB</h1><div class="meta"><span>Convenio Multilateral y jurisdicción local</span></div></div>
+    <div class="topbar"><div class="client-title"><h1>Actualización de alícuotas IIBB</h1><div class="meta"><span>Elegí la jurisdicción y completá sólo las alícuotas que cambian</span></div></div>
       <div class="topbar-actions"><label class="hint-sm" style="display:flex;align-items:center;gap:6px;">Vigente desde <input type="month" data-action="alic-desde" value="${desde}" min="${MIN_PERIOD}"></label>
         <button class="btn btn-accent" data-action="alic-aplicar" ${nCambios ? "" : "disabled"}>Aplicar${nCambios ? ` (${nCambios})` : ""}</button></div></div>
     <div style="display:flex;flex-direction:column;gap:16px;">
       ${state.alicMsg ? `<div class="card"><div class="card-body" style="color:var(--accent-strong);">✔ ${escapeHtml(state.alicMsg)}</div></div>` : ""}
-      <div class="card"><div class="card-head"><h3>Alícuotas por jurisdicción y actividad</h3><span class="hint">Completá sólo las que cambian; las vacías quedan igual</span></div>
-        <div class="card-body"><div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th></th><th style="text-align:left;">Jurisdicción</th><th style="text-align:left;">Actividad</th><th style="text-align:left;">Clientes</th><th title="Alícuota vigente a ${periodLabel(prev)}">Actual</th><th title="Nueva alícuota desde ${periodLabel(desde)}">Nueva</th><th style="text-align:left;">Historial</th></tr>${trs}</table></div></div></div>
-      <p class="foot-note">La actualización crea una vigencia nueva y no modifica los períodos anteriores a la fecha elegida. Si aplicás de nuevo con la misma fecha, reemplaza el valor cargado.</p>
+      ${cuerpo}
+      <p class="foot-note">Las vacías quedan igual. La actualización crea una vigencia nueva y no modifica los períodos anteriores a la fecha elegida.</p>
     </div>`;
 }
 
@@ -7335,7 +7589,7 @@ function buildIibbLocalSheet(wb, client) {
     const actFormulas = new Map();
     actRows.push([]);
     const header = ["Período"];
-    activities.forEach((a) => header.push(`${a.code} — ${a.desc} — Ventas netas`, (a.alicHist || []).length ? `${a.code} — Impuesto` : `${a.code} — Impuesto (${fmtPctRaw(a.alicuota)}%)`));
+    activities.forEach((a) => header.push(`${a.code} — ${a.desc} — Ventas netas`, ((a.alicHist || []).length || alicTramosVig(client.iibbLocal.jurisdiccion, a.code)) ? `${a.code} — Impuesto` : `${a.code} — Impuesto (${fmtPctRaw(a.alicuota)}%)`));
     header.push("TOTAL Base", "TOTAL Impuesto");
     actRows.push(header);
     const actHeaderRow = actRows.length - 1;
@@ -7351,7 +7605,7 @@ function buildIibbLocalSheet(wb, client) {
         const baseCol = 1 + i * 2, impCol = 2 + i * 2;
         baseCols.push(baseCol); impCols.push(impCol);
         const baseVal = num(actData[a.code]);
-        const alicP = alicLocal(a, p) / 100;
+        const alicP = alicLocal(a, p, client) / 100;
         const impVal = round2(baseVal * alicP);
         actFormulas.set(R + ":" + impCol, `${XLSX.utils.encode_col(baseCol)}${R + 1}*${alicP}`);
         row.push(baseVal, impVal);
@@ -7360,7 +7614,7 @@ function buildIibbLocalSheet(wb, client) {
       actFormulas.set(R + ":" + totalBaseCol, `SUM(${baseCols.map((c) => XLSX.utils.encode_col(c) + (R + 1)).join(",")})`);
       actFormulas.set(R + ":" + totalImpCol, `SUM(${impCols.map((c) => XLSX.utils.encode_col(c) + (R + 1)).join(",")})`);
       const totalBase = round2(baseCols.reduce((s, c, i) => s + num(actData[activities[i].code]), 0));
-      const totalImp = round2(impCols.reduce((s, c, i) => s + round2(num(actData[activities[i].code]) * (alicLocal(activities[i], p) / 100)), 0));
+      const totalImp = round2(impCols.reduce((s, c, i) => s + round2(num(actData[activities[i].code]) * (alicLocal(activities[i], p, client) / 100)), 0));
       row.push(totalBase, totalImp);
       actMeta[p] = { totalBaseCell: [R, totalBaseCol], totalImpuestoCell: [R, totalImpCol] };
       if (resaltarActual && p === state.currentPeriod) actHighlights.set(R, COLOR_ACTUAL);
