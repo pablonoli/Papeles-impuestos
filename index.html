@@ -1497,7 +1497,7 @@ function computeIibbLocalPeriod(client, doc, carryIn) {
   // determinado es la suma del impuesto de cada una.
   const actividadDetalle = activities.map((a) => {
     const baseImponible = num(doc.actividades[a.code]);
-    const alicuota = num(a.alicuota) / 100;
+    const alicuota = alicLocal(a, doc.period) / 100;
     const impuesto = round2(baseImponible * alicuota);
     return { code: a.code, desc: a.desc, baseImponible, alicuota, impuesto };
   });
@@ -1529,6 +1529,26 @@ function getCoef(client, jurName, period) {
   const v = getCoefVigencia(client, period);
   return v ? num(v.valores[jurName]) / 100 : 0;
 }
+// Alícuotas con vigencia (IIBB CM y Local). La alícuota "base" es la que está
+// cargada en Configuración (rige hasta la primera actualización); cada
+// actualización anual agrega una vigencia {desde, valores} (CM) o
+// {desde, valor} (Local, dentro de la actividad). Para un período se usa la
+// vigencia más nueva cuyo "desde" no lo supere; así, actualizar las alícuotas
+// de enero no cambia los períodos ya cerrados. Devuelve % (1.5 = 1,5%).
+function alicCM(client, jurName, code, period) {
+  const vigs = (client.iibbCM.alicVig || []).filter((v) => v.desde && (!period || v.desde <= period)).sort((a, b) => b.desde.localeCompare(a.desde));
+  for (const v of vigs) {
+    const x = v.valores && v.valores[jurName] && v.valores[jurName][code];
+    if (x !== undefined && x !== null && x !== "") return num(x);
+  }
+  const j = (client.iibbCM.jurisdictions || []).find((y) => y.name === jurName);
+  return num(j && j.alicuotas && j.alicuotas[code]);
+}
+function alicLocal(a, period) {
+  const vigs = (a.alicHist || []).filter((v) => v.desde && (!period || v.desde <= period)).sort((x, y) => y.desde.localeCompare(x.desde));
+  return vigs.length ? num(vigs[0].valor) : num(a.alicuota);
+}
+
 // Qué fracción de la base nacional de una actividad le corresponde a una
 // jurisdicción. Las actividades bajo Art. 2 (régimen general, el default)
 // usan el coeficiente de distribución único del cliente; las de régimen
@@ -1562,7 +1582,7 @@ function computeIibbCMPeriod(client, doc, carryIn) {
       const hasOverride = overrideRaw !== undefined && overrideRaw !== null && overrideRaw !== "";
       const baseImponible = hasOverride ? num(overrideRaw) : round2(montoNacional * attrib);
       const base = round2(baseImponible + ajuste);
-      const alicuota = num(j.alicuotas && j.alicuotas[a.code]) / 100;
+      const alicuota = alicCM(client, j.name, a.code, period) / 100;
       const impuesto = round2(base * alicuota);
       return { code: a.code, desc: a.desc, montoNacional, ajuste, attrib, regimen: a.regimen || "general", baseImponible, base, alicuota, impuesto, baseOverridden: hasOverride };
     });
@@ -1778,6 +1798,7 @@ function renderSidebar() {
       <button class="nav-btn ${state.view === "panel" ? "active" : ""}" data-action="nav-view" data-view="panel">📊 Panel de clientes</button>
       <button class="nav-btn ${state.view === "calendario" ? "active" : ""}" data-action="nav-view" data-view="calendario">📅 Calendario de vencimientos</button>
     </div>
+    ${state.clients.some((c) => (c.iibbCM && c.iibbCM.enabled) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<div class="side-section nav-side"><div class="side-label">IIBB</div>${state.clients.some((c) => c.iibbCM && (c.iibbCM.enabled || listPeriodsWithTax(c.id, "iibbCM").length)) ? `<button class="nav-btn ${state.view === "cm05" ? "active" : ""}" data-action="nav-view" data-view="cm05">📑 CM05 · DDJJ anual</button>` : ""}<button class="nav-btn ${state.view === "alic" ? "active" : ""}" data-action="nav-view" data-view="alic">🏷️ Actualizar alícuotas</button></div>` : ""}
     ${state.clients.some((c) => monoEnabled(c)) ? `<div class="side-section nav-side"><div class="side-label">Monotributo</div><button class="nav-btn ${state.view === "recat" ? "active" : ""}" data-action="nav-view" data-view="recat">🧾 Recategorización</button></div>` : ""}
     <div class="side-section">
       <div class="side-label-row">
@@ -1818,6 +1839,8 @@ function renderMain() {
   if (state.view === "panel") { main.innerHTML = renderPanelView(); return; }
   if (state.view === "calendario") { main.innerHTML = renderCalendarioView(); return; }
   if (state.view === "recat") { main.innerHTML = renderRecatView(); return; }
+  if (state.view === "alic") { main.innerHTML = renderAlicView(); return; }
+  if (state.view === "cm05") { main.innerHTML = renderCm05View(); return; }
   const client = currentClient();
   if (!client) {
     main.innerHTML = `
@@ -1960,7 +1983,7 @@ function renderResumenTab(client) {
       </div>`;
   }
 
-  if (!kpis) return `<div class="empty"><h2>Este cliente no tiene impuestos activados</h2><p>Andá a la pestaña Configuración para activar IVA, IIBB Local o Convenio Multilateral.</p></div>`;
+  if (!kpis) return monoEnabled(client) ? "" : `<div class="empty"><h2>Este cliente no tiene impuestos activados</h2><p>Andá a la pestaña Configuración para activar IVA, IIBB Local, Convenio Multilateral o Monotributo.</p></div>`;
 
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
@@ -2716,6 +2739,8 @@ function renderIibbCMTab(client) {
   return `
     <div style="display:flex;flex-direction:column;gap:16px;">
       ${cmEncuadreBannerHtml(client)}
+      ${cm05PresentacionHtml(client, period)}
+      ${cm05CardHtml(client, period)}
       <div class="card">
         <div class="card-head"><h3>Actividades — Ventas netas (según libro IVA Ventas)</h3><span class="hint">Art. 2 (general) se distribuye según el coeficiente ${coefLabel}; las actividades con régimen especial o Art. 14 usan su propio reparto (Configuración)</span></div>
         <div class="card-body">
@@ -2967,6 +2992,7 @@ function renderConfigTab(client) {
 
           <div class="subsection">
             <h4 class="subhead">Jurisdicciones y alícuotas</h4>
+            <p class="hint-sm" style="margin:0 0 8px;">Alícuotas base (rigen hasta la primera actualización). Los cambios de cada año se cargan desde "Actualizar alícuotas" en el menú, sin tocar los períodos anteriores.${(client.iibbCM.alicVig || []).length ? ` Vigencias cargadas: ${client.iibbCM.alicVig.map((v) => periodLabel(v.desde)).sort().join(", ")}.` : ""}</p>
             <div class="table-scroll"><table>
               <tr><th style="text-align:left">Jurisdicción</th>${(client.iibbCM.activities || []).map((a) => `<th style="text-align:center;" title="${escapeHtml(a.code)} — ${escapeHtml(a.desc)}">${escapeHtml(a.code)}</th>`).join("")}<th></th></tr>
               ${jurRows}
@@ -3155,11 +3181,13 @@ const VENC_NQN = {
 const VENC_RN = { 2:[13,18,19,20], 3:[13,16,17,18], 4:[15,16,17,20], 5:[15,18,19,20], 6:[16,17,18,19], 7:[15,16,17,20], 8:[14,18,19,20], 9:[15,16,17,18], 10:[15,16,19,20], 11:[13,16,17,18], 12:[15,16,17,18] };
 const TAX_LABEL = { iva: "IVA", iibbLocal: "IIBB Local", iibbCM: "IIBB Conv. Mult.", mono: "Monotributo" };
 function monoEnabled(c) { return !!(c && c.mono && c.mono.enabled); }
-function impuestosActivos(c) {
+function impuestosActivos(c, period) {
   const a = [];
   if (c.iva.enabled) a.push("iva");
   if (c.iibbLocal.enabled) a.push("iibbLocal");
-  if (c.iibbCM.enabled) a.push("iibbCM");
+  // Cliente que dejó Convenio Multilateral: desde el período siguiente a
+  // "hasta" ya no tiene IIBB CM mensual (el historial queda intacto).
+  if (c.iibbCM.enabled && !(period && c.iibbCM.hasta && period > c.iibbCM.hasta)) a.push("iibbCM");
   if (monoEnabled(c)) a.push("mono");
   return a;
 }
@@ -3335,6 +3363,11 @@ function variacionBannerHtml(client, period) {
 }
 function alertasCliente(client, period) {
   const out = [];
+  if (client.iibbCM && client.iibbCM.enabled) {
+    const ya = cm05Info(client, period), prox = cm05Info(client, addMonths(period, 1));
+    if (ya && ya.usados.length && !ya.yaAplicado) out.push({ nivel: "warn", texto: `CM05: falta cargar el ajuste en IIBB CM (${monoRango(periodYear(period) + "-01", addMonths(period, -1))})` });
+    else if (prox && prox.usados.length && !prox.yaAplicado) out.push({ nivel: "warn", texto: `CM05: el período ${periodLabel(addMonths(period, 1))} lleva ajuste de coeficientes` });
+  }
   if (monoEnabled(client)) {
     const m = monoCalc(client, period);
     if (m.pctMax != null && m.pctMax >= 1) out.push({ nivel: "bad", texto: "Monotributo: superó el tope máximo (exclusión)" });
@@ -3816,7 +3849,7 @@ state.calMonth = todayPeriod();
 
 function panelFilas(period) {
   return state.clients.slice().sort((a, b) => a.name.localeCompare(b.name, "es")).map((c) => {
-    const taxes = impuestosActivos(c).map((k) => {
+    const taxes = impuestosActivos(c, period).map((k) => {
       const est = estadoImpuesto(c, k, period);
       const vto = vencimientoDe(c, k, period);
       return Object.assign({ key: k, vto, dias: diasHasta(vto) }, est);
@@ -3860,7 +3893,7 @@ function renderPanelView() {
     const alertas = f.alertas.map((a) => `<div class="al al-${a.nivel}">${a.nivel === "bad" ? "⛔" : "⚠"} ${escapeHtml(a.texto)}</div>`).join("");
     return `<tr>
       <td style="text-align:left;"><button type="button" class="linklike" data-action="panel-abrir" data-client="${c.id}" data-tab="resumen"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div></td>
-      <td style="text-align:left;"><div class="ests">${f.taxes.map((t) => chipEstadoHtml(t, c.id, period)).join("") || `<span class="hint-sm">Sin impuestos</span>`}</div></td>
+      <td style="text-align:left;"><div class="ests">${(f.taxes.map((t) => chipEstadoHtml(t, c.id, period)).join("") + cm05ChipHtml(c, period)) || `<span class="hint-sm">Sin impuestos</span>`}</div></td>
       <td style="text-align:left;">${f.taxes.map(saldoCeldaHtml).join("") || ""}</td>
       <td style="text-align:left;">${prox}</td>
       <td style="text-align:left;">${alertas}</td>
@@ -3876,7 +3909,7 @@ function renderPanelView() {
         <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Pendientes que vencen en ≤ 7 días o vencidas</span><span class="k-value">${urgentes}</span><span class="k-sub">sin presentar todavía</span></div>
       </div>
       <div class="card"><div class="card-head"><h3>Estado por cliente</h3><div class="seg">${pill("todos", "Todos")}${pill("faltan", "Pendientes")}${pill("pronto", "Vencen pronto")}</div></div>
-        <div class="card-body"><div class="table-scroll"><table class="panel-table"><tr><th style="text-align:left;">Cliente</th><th style="text-align:left;">Presentación en ARCA</th><th style="text-align:left;">Saldos</th><th style="text-align:left;">Próximo vencimiento</th><th style="text-align:left;">Monotributo</th></tr>${rows}</table></div></div>
+        <div class="card-body"><div class="table-scroll"><table class="panel-table"><tr><th style="text-align:left;">Cliente</th><th style="text-align:left;">Presentación en ARCA</th><th style="text-align:left;">Saldos</th><th style="text-align:left;">Próximo vencimiento</th><th style="text-align:left;">Alertas</th></tr>${rows}</table></div></div>
         <p class="foot-note">Tocá cada impuesto para marcarlo como presentado en ARCA (o el VEP como enviado, en Monotributo). ✓ presentado · ◐ pendiente con datos ya cargados en el panel · ○ pendiente sin datos · ⛔ vencido sin presentar.</p>
       </div>
     </div>`;
@@ -3891,11 +3924,12 @@ function renderCalendarioView() {
   const sinCal = !VENC_CAL[y];
   const porDia = {};
   state.clients.forEach((c) => {
-    impuestosActivos(c).forEach((k) => {
+    impuestosActivos(c, fp).forEach((k) => {
       const iso = vencimientoDe(c, k, fp);
       if (!iso || iso.slice(0, 7) !== vm) return;
       const est = estadoImpuesto(c, k, fp);
-      (porDia[iso] = porDia[iso] || []).push({ c, k, iso, est });
+      const ci = k === "iibbCM" ? cm05Info(c, fp) : null;
+      (porDia[iso] = porDia[iso] || []).push({ c, k, iso, est, aj: !!(ci && ci.usados.length && !ci.yaAplicado) });
     });
   });
   const hoy = hoyISO();
@@ -3910,7 +3944,8 @@ function renderCalendarioView() {
       const it = items.filter((x) => x.k === k); if (!it.length) return "";
       const pres = it.filter((x) => x.est.pres).length, dd = diasHasta(iso);
       const cls = pres === it.length ? "ok" : dd < 0 ? "venc" : dd <= 3 ? "urg" : dd <= 7 ? "pron" : "pend";
-      return `<span class="cchip cchip-${cls}" title="${TAX_LABEL[k]}: ${pres} de ${it.length} presentadas">${TAX_CORTO[k]} ${pres}/${it.length}</span>`;
+      const aj = it.some((x) => x.aj);
+      return `<span class="cchip cchip-${cls}" title="${TAX_LABEL[k]}: ${pres} de ${it.length} presentadas${aj ? " · lleva ajuste CM05" : ""}">${TAX_CORTO[k]} ${pres}/${it.length}${aj ? " ⚠" : ""}</span>`;
     }).join("");
     celdas += `<button type="button" class="cal-c ${dow >= 5 ? "finde" : ""} ${iso === hoy ? "hoy" : ""} ${iso === state.calDia ? "sel" : ""}" data-action="cal-dia" data-iso="${iso}"><span class="cal-n">${d}</span>${chips}</button>`;
   }
@@ -3919,7 +3954,7 @@ function renderCalendarioView() {
   const fechaLarga = (() => { const [yy, mm, dd] = state.calDia.split("-").map(Number); return new Date(yy, mm - 1, dd).toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" }); })();
   const detalle = sel.length ? sel.map((i) => `
       <div class="cal-item"><button type="button" class="linklike" data-action="panel-abrir" data-client="${i.c.id}" data-tab="${i.k}" data-period="${fp}"><b>${escapeHtml(i.c.name)}</b></button>
-        <span class="chip on">${TAX_LABEL[i.k]}</span>
+        <span class="chip on">${TAX_LABEL[i.k]}</span>${i.aj ? `<span class="chip" style="border-color:var(--warn,#b45309);color:var(--warn,#b45309);" title="Los coeficientes nuevos del CM05 rigen desde este período">⚠ Lleva ajuste CM05</span>` : ""}
         <button type="button" class="est ${i.est.pres ? "est-ok" : i.est.status === "ok" ? "est-parcial" : "est-falta"}" style="margin-left:auto;" data-action="presentado-toggle" data-client="${i.c.id}" data-tax="${i.k}" data-period="${fp}" title="Click para cambiar">${i.est.pres ? "✓ " + (i.k === "mono" ? "VEP enviado" : "Presentada") : "○ Marcar como " + (i.k === "mono" ? "VEP enviado" : "presentada")}</button></div>`).join("")
     : `<p style="color:var(--muted);font-size:13px;margin:0;">No hay vencimientos de tus clientes este día.</p>`;
   return `
@@ -4541,6 +4576,12 @@ document.addEventListener("click", (e) => {
   else if (a === "mono-escala-abrir") renderMonoEscalaModal();
   else if (a === "mono-cred-abrir") renderMonoCredModal(btn.dataset.clientid);
   else if (a === "mono-recat-abrir") renderMonoRecatModal();
+  else if (a === "alic-aplicar") alicAplicar();
+  else if (a === "cm05-coef") renderCm05CoefModal(btn.dataset.clientid, btn.dataset.anio);
+  else if (a === "cm05-coef-guardar") cm05CoefGuardar(btn.dataset.clientid, btn.dataset.anio);
+  else if (a === "cm05-pres-chip") { const r = cm05Reg(getClient(btn.dataset.clientid), btn.dataset.anio); cm05Set(btn.dataset.clientid, btn.dataset.anio, "presentado", !r.presentado); render(); }
+  else if (a === "cm05-aplicar") cm05Aplicar(btn.dataset.clientid, btn.dataset.period, false);
+  else if (a === "cm05-quitar") cm05Aplicar(btn.dataset.clientid, btn.dataset.period, true);
   else if (a === "mono-recat-exportar-vista") { if (state.recatSel) { const [i, f, r] = state.recatSel.split("|"); exportarRecategorizacion(i, f, r); } }
   else if (a === "modal-cerrar-simple") { document.getElementById("modal-root").innerHTML = ""; }
   else if (a === "mono-recat-exportar") { const sel = document.getElementById("mono-recat-sel"); if (sel) { const [i, f, r] = sel.value.split("|"); document.getElementById("modal-root").innerHTML = ""; exportarRecategorizacion(i, f, r); } }
@@ -4573,10 +4614,24 @@ document.addEventListener("change", (e) => {
   } else if (a === "evo-range") { state.evoRange = Number(t.value); render(); }
   else if (a === "evo-tax") { state.evoTax = t.value; render(); }
   else if (a === "recat-sel") { state.recatSel = t.value; render(); }
+  else if (a === "cm05-anio") { state.cm05Anio = t.value; render(); }
+  else if (a === "cm05-hasta") { mutateClient(t.dataset.clientid, (c) => { c.iibbCM.hasta = /^\d{4}-\d{2}$/.test(t.value) ? t.value : null; }); render(); }
+  else if (a === "cm05-agregar") { if (t.value) { cm05Set(t.value, state.cm05Anio, "incluido", true); render(); } }
+  else if (a === "cm05-vence") { cm05Set(t.dataset.clientid, t.dataset.anio, "vence", t.value); render(); }
+  else if (a === "cm05-pres") { cm05Set(t.dataset.clientid, t.dataset.anio, "presentado", t.checked); render(); }
+  else if (a === "cm05-fecha") { cm05Set(t.dataset.clientid, t.dataset.anio, "fecha", t.value); render(); }
+  else if (a === "cm05-ultimo") { cm05Set(t.dataset.clientid, t.dataset.anio, "ultimo", /^\d{4}-\d{2}$/.test(t.value) ? t.value : ""); render(); if (t.dataset.modal) renderCm05CoefModal(t.dataset.clientid, t.dataset.anio); }
+  else if (a === "alic-desde") { if (/^\d{4}-\d{2}$/.test(t.value)) { state.alicDesde = t.value; state.alicMsg = ""; render(); } }
 });
 document.addEventListener("input", (e) => {
   const t = e.target, a = t.dataset && t.dataset.action;
-  if (a === "mono-fact") {
+  if (a === "cm05-coef-input") cm05CoefSuma();
+  else if (a === "alic-nueva") {
+    state.alicNuevas = state.alicNuevas || {};
+    state.alicNuevas[t.dataset.key] = t.value;
+    const b = document.querySelector('[data-action="alic-aplicar"]');
+    if (b) { const n = Object.values(state.alicNuevas).filter((x) => String(x).trim() !== "").length; b.disabled = !n; b.textContent = "Aplicar" + (n ? ` (${n})` : ""); }
+  } else if (a === "mono-fact") {
     touchDoc(t.dataset.clientid, t.dataset.period, (doc) => setDeep(doc, "mono.facturacion", t.value));
     const el = document.getElementById("mono-summary"), c = getClient(t.dataset.clientid);
     if (el && c) el.innerHTML = monoSummaryHtml(c, state.currentPeriod);
@@ -5009,6 +5064,7 @@ function renderCoefVigenciaModal(clientId, editDesde) {
         <div class="modal-head"><h3>${existing ? "Editar vigencia" : "Nueva vigencia de coeficientes"}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
         <div class="modal-body">
           <p style="font-size:11.5px;color:var(--muted);margin:0;">Definí desde y hasta qué período rige este coeficiente. Fuera de ese rango, la herramienta no lo va a aplicar — así te avisa si te quedó un hueco sin cargar, en vez de arrastrar uno viejo que ya no corresponde.</p>
+          ${existing ? "" : `<div class="field"><label>Último período declarado con los coeficientes anteriores</label><input type="month" id="coef-vig-ultimo" min="${MIN_PERIOD}"><span class="hint-sm" id="coef-vig-ultimo-hint">Si presentaste el CM05 antes de declarar enero, dejalo vacío: no hay ajuste.</span></div>`}
           <div class="field"><label>Desde (AAAA-MM)</label><input type="text" id="coef-vig-desde" placeholder="Ej: 2025-05" value="${escapeHtml(existing ? existing.desde : "")}"></div>
           <div class="field"><label><input type="checkbox" id="coef-vig-sigue" ${!existing || !existing.hasta ? "checked" : ""}> Sigue vigente (sin fecha de fin todavía)</label></div>
           <div class="field" id="coef-vig-hasta-field" style="${(!existing || !existing.hasta) ? "display:none;" : ""}">
@@ -5025,6 +5081,16 @@ function renderCoefVigenciaModal(clientId, editDesde) {
       </div>
     </div>`;
   wireModalBackdropClose();
+  const ult = document.getElementById("coef-vig-ultimo");
+  if (ult) ult.addEventListener("input", () => {
+    const hint = document.getElementById("coef-vig-ultimo-hint"), d = document.getElementById("coef-vig-desde");
+    if (!/^\d{4}-\d{2}$/.test(ult.value)) { hint.textContent = "Si presentaste el CM05 antes de declarar enero, dejalo vacío: no hay ajuste."; return; }
+    const desde = addMonths(ult.value, 1);
+    d.value = desde;
+    hint.innerHTML = periodMonth(desde) === 1
+      ? `Los coeficientes nuevos rigen desde <b>${periodLabel(desde)}</b>. No hay ajuste.`
+      : `Los coeficientes nuevos rigen desde <b>${periodLabel(desde)}</b>. En ese período vas a ver el ajuste de <b>${monoRango(periodYear(desde) + "-01", ult.value)}</b> (también aparece como alerta en el Panel y el Calendario).`;
+  });
   document.getElementById("coef-vig-sigue").addEventListener("change", (e) => {
     document.getElementById("coef-vig-hasta-field").style.display = e.target.checked ? "none" : "";
   });
@@ -6314,6 +6380,325 @@ function recatCuotas(client, cal) {
 function recatSituacion(cal) {
   return cal.catNew === "EXCLUIDO" ? "excluido" : cal.catNew === cal.catAct ? "igual" : cal.catNew > cal.catAct ? "sube" : "baja";
 }
+// ---- Actualización anual de alícuotas IIBB (CM y Local) ----
+function alicDesdeDefault() {
+  const t = todayPeriod(), y = periodYear(t);
+  return periodMonth(t) === 1 ? `${y}-01` : `${y + 1}-01`;
+}
+function alicFilas(desde) {
+  const prev = addMonths(desde, -1), map = new Map();
+  const add = (tipo, jur, code, desc, c, actual, vigs) => {
+    const k = tipo + "|" + jur + "|" + code;
+    let f = map.get(k);
+    if (!f) { f = { k, tipo, jur, code, desc, clientes: [], vig: new Map() }; map.set(k, f); }
+    f.clientes.push({ id: c.id, name: c.name, actual });
+    vigs.forEach((v) => f.vig.set(v.desde + "|" + v.valor, v));
+  };
+  state.clients.forEach((c) => {
+    if (c.iibbCM && c.iibbCM.enabled) (c.iibbCM.jurisdictions || []).forEach((j) => (c.iibbCM.activities || []).forEach((a) => {
+      const raw = j.alicuotas && j.alicuotas[a.code];
+      const vigs = (c.iibbCM.alicVig || []).filter((v) => { const x = v.valores && v.valores[j.name] && v.valores[j.name][a.code]; return x !== undefined && x !== null && x !== ""; })
+        .map((v) => ({ desde: v.desde, valor: num(v.valores[j.name][a.code]) }));
+      if ((raw === undefined || raw === null || raw === "") && !vigs.length) return;
+      add("CM", j.name, a.code, a.desc, c, alicCM(c, j.name, a.code, prev), vigs);
+    }));
+    if (c.iibbLocal && c.iibbLocal.enabled) (c.iibbLocal.activities || []).forEach((a) => {
+      if (!a.code) return;
+      add("Local", c.iibbLocal.jurisdiccion || "(sin jurisdicción)", a.code, a.desc, c, alicLocal(a, prev), (a.alicHist || []).map((v) => ({ desde: v.desde, valor: num(v.valor) })));
+    });
+  });
+  return Array.from(map.values()).sort((a, b) => (a.tipo === b.tipo ? 0 : a.tipo === "CM" ? -1 : 1) || jurSortIndex(a.jur) - jurSortIndex(b.jur) || a.jur.localeCompare(b.jur, "es") || a.code.localeCompare(b.code));
+}
+function alicAplicar() {
+  const desde = state.alicDesde;
+  const nuevas = state.alicNuevas || {};
+  const filas = alicFilas(desde).filter((f) => nuevas[f.k] !== undefined && String(nuevas[f.k]).trim() !== "");
+  const clientes = new Set();
+  filas.forEach((f) => {
+    const val = num(nuevas[f.k]);
+    f.clientes.forEach((ci) => {
+      mutateClient(ci.id, (c) => {
+        if (f.tipo === "CM") {
+          c.iibbCM.alicVig = c.iibbCM.alicVig || [];
+          let v = c.iibbCM.alicVig.find((x) => x.desde === desde);
+          if (!v) { v = { desde, valores: {} }; c.iibbCM.alicVig.push(v); }
+          v.valores[f.jur] = v.valores[f.jur] || {};
+          v.valores[f.jur][f.code] = val;
+        } else {
+          const a = (c.iibbLocal.activities || []).find((x) => x.code === f.code);
+          if (a) {
+            a.alicHist = a.alicHist || [];
+            const h = a.alicHist.find((x) => x.desde === desde);
+            if (h) h.valor = val; else a.alicHist.push({ desde, valor: val });
+          }
+        }
+      });
+      clientes.add(ci.id);
+    });
+  });
+  state.alicNuevas = {};
+  state.alicMsg = filas.length ? `Se cargó la vigencia desde ${periodLabel(desde)}: ${filas.length} alícuota${filas.length === 1 ? "" : "s"} en ${clientes.size} cliente${clientes.size === 1 ? "" : "s"}.` : "No había alícuotas nuevas para cargar.";
+  render();
+}
+function renderAlicView() {
+  if (!state.alicDesde) state.alicDesde = alicDesdeDefault();
+  if (!state.alicNuevas) state.alicNuevas = {};
+  const desde = state.alicDesde, prev = addMonths(desde, -1);
+  const filas = alicFilas(desde);
+  const pct = (v) => fmtPctRaw(v) + "%";
+  const trs = filas.map((f) => {
+    const actuales = Array.from(new Set(f.clientes.map((c) => c.actual))).sort((a, b) => a - b).map(pct).join(" / ");
+    const vigs = Array.from(f.vig.values()).sort((a, b) => a.desde.localeCompare(b.desde)).map((v) => `${periodLabel(v.desde)}: ${pct(v.valor)}`).join(" · ");
+    const cambia = String(state.alicNuevas[f.k] || "").trim() !== "";
+    return `<tr${cambia ? ` style="background:var(--surface-2);"` : ""}>
+      <td style="text-align:center;">${f.tipo === "CM" ? "CM" : "Local"}</td>
+      <td style="text-align:left;">${escapeHtml(f.jur)}</td>
+      <td style="text-align:left;"><b>${escapeHtml(f.code)}</b><div class="hint-sm">${escapeHtml(f.desc || "")}</div></td>
+      <td style="text-align:left;"><span class="hint-sm">${f.clientes.map((c) => escapeHtml(c.name)).join(", ")}</span></td>
+      <td style="text-align:center;">${actuales}</td>
+      <td style="text-align:center;"><span class="pct-field"><input type="text" inputmode="decimal" data-kind="percent" value="${escapeHtml(state.alicNuevas[f.k] || "")}" placeholder="—" data-action="alic-nueva" data-key="${escapeHtml(f.k)}" style="width:80px;"><span class="pct-suffix">%</span></span></td>
+      <td style="text-align:left;"><span class="hint-sm">${vigs || "—"}</span></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Ningún cliente tiene alícuotas de IIBB cargadas.</td></tr>`;
+  const nCambios = filas.filter((f) => String(state.alicNuevas[f.k] || "").trim() !== "").length;
+  return `
+    <div class="topbar"><div class="client-title"><h1>Actualización de alícuotas IIBB</h1><div class="meta"><span>Convenio Multilateral y jurisdicción local</span></div></div>
+      <div class="topbar-actions"><label class="hint-sm" style="display:flex;align-items:center;gap:6px;">Vigente desde <input type="month" data-action="alic-desde" value="${desde}" min="${MIN_PERIOD}"></label>
+        <button class="btn btn-accent" data-action="alic-aplicar" ${nCambios ? "" : "disabled"}>Aplicar${nCambios ? ` (${nCambios})` : ""}</button></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      ${state.alicMsg ? `<div class="card"><div class="card-body" style="color:var(--accent-strong);">✔ ${escapeHtml(state.alicMsg)}</div></div>` : ""}
+      <div class="card"><div class="card-head"><h3>Alícuotas por jurisdicción y actividad</h3><span class="hint">Completá sólo las que cambian; las vacías quedan igual</span></div>
+        <div class="card-body"><div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th></th><th style="text-align:left;">Jurisdicción</th><th style="text-align:left;">Actividad</th><th style="text-align:left;">Clientes</th><th title="Alícuota vigente a ${periodLabel(prev)}">Actual</th><th title="Nueva alícuota desde ${periodLabel(desde)}">Nueva</th><th style="text-align:left;">Historial</th></tr>${trs}</table></div></div></div>
+      <p class="foot-note">La actualización crea una vigencia nueva y no modifica los períodos anteriores a la fecha elegida. Si aplicás de nuevo con la misma fecha, reemplaza el valor cargado.</p>
+    </div>`;
+}
+
+// ---- Ajuste por presentación del CM05 ----
+// Los coeficientes del CM05 rigen desde enero, pero si se presentó después de
+// declarar los primeros meses, esos meses quedaron con los coeficientes
+// viejos: la diferencia se ajusta en el primer período que ya usa los nuevos
+// (el "desde" de la vigencia). Ajuste = base con coeficiente nuevo - base ya
+// declarada, por jurisdicción y actividad (Art. 2); suma cero entre jurisdicciones.
+// ¿El cliente estuvo en Convenio durante el año fiscal del CM05? ("cierre" =
+// el año en que dejó el régimen: se presenta igual, pero sin coeficientes
+// nuevos ni ajuste.)
+// Un cliente entra en el CM05 de un año si estuvo en Convenio ese año: sigue
+// activo en CM, o tiene períodos de IIBB CM cargados ese año (aunque ya lo
+// haya desactivado), o se lo agregó a mano a ese CM05.
+function cm05TuvoDatos(c, anio) { return listPeriodsWithTax(c.id, "iibbCM").some((p) => periodYear(p) === Number(anio)); }
+function cm05Aplica(c, anio) {
+  if (!c.iibbCM) return false;
+  const y = Number(anio);
+  if (c.iibbCM.enabled && (!c.iibbCM.hasta || periodYear(c.iibbCM.hasta) >= y)) return true;
+  return cm05TuvoDatos(c, anio) || !!cm05Reg(c, anio).incluido;
+}
+function cm05EsCierre(c, anio) { return !!(c.iibbCM && ((c.iibbCM.hasta && periodYear(c.iibbCM.hasta) === Number(anio)) || !c.iibbCM.enabled)); }
+function cm05Info(client, period) {
+  if (client.iibbCM.hasta && period > client.iibbCM.hasta) return null;
+  const v = getCoefVigencia(client, period);
+  if (!v || v.desde !== period || periodMonth(period) === 1) return null;
+  const meses = [];
+  for (let p = `${periodYear(period)}-01`; p < period; p = addMonths(p, 1)) meses.push(p);
+  const acts = (client.iibbCM.activities || []).filter((a) => a.regimen !== "especial" && a.regimen !== "art14");
+  const sinCoef = [], usados = [];
+  const ventas = {};
+  meses.forEach((p) => {
+    const d = getDoc(client.id, p), act = (d && d.iibbCM && d.iibbCM.actividades) || {};
+    if (!acts.some((a) => num(act[a.code]) > 0)) return;
+    if (!getCoefVigencia(client, p)) { sinCoef.push(p); return; }
+    usados.push(p); ventas[p] = act;
+  });
+  const doc = getDoc(client.id, period), aplicado = (doc && doc.iibbCM && doc.iibbCM.cm05Aplicado) || {};
+  const filas = [];
+  const ctrl = {};
+  sortedJurisdictions(client.iibbCM.jurisdictions).forEach((j) => acts.forEach((a) => {
+    let declarada = 0, nueva = 0;
+    usados.forEach((p) => {
+      const m = num(ventas[p][a.code]);
+      declarada += m * getCoef(client, j.name, p);
+      nueva += m * (num(v.valores[j.name]) / 100);
+    });
+    ctrl[a.code] = (ctrl[a.code] || 0) + (nueva - declarada);
+    if (!declarada && !nueva) return;
+    const ajuste = round2(nueva - declarada);
+    const alic = alicCM(client, j.name, a.code, period);
+    filas.push({ jur: j.name, code: a.code, declarada: round2(declarada), nueva: round2(nueva), ajuste, alic, impuesto: round2(ajuste * alic / 100), aplicado: aplicado[j.name + "|" + a.code] });
+  }));
+  const controlOk = Object.keys(ctrl).every((k) => Math.abs(ctrl[k]) < 1);
+  return { v, meses, usados, sinCoef, filas, controlOk, yaAplicado: Object.keys(aplicado).length > 0 };
+}
+// Registro de la presentación del CM05 (DDJJ anual). Se guarda por año fiscal
+// del CM05: el de un período del año Y es el CM05 del año Y-1.
+function cm05Anio(period) { return String(periodYear(period) - 1); }
+function cm05Reg(client, anio) { return (client.iibbCM.cm05 && client.iibbCM.cm05[anio]) || {}; }
+function cm05PresentacionHtml(client, period) {
+  const anio = cm05Anio(period), r = cm05Reg(client, anio), pres = !!r.presentado;
+  const desde = r.ultimo ? addMonths(r.ultimo, 1) : "";
+  const nota = !r.ultimo ? "Indicá el último período declarado con los coeficientes anteriores para calcular el ajuste. Dejalo vacío si lo presentaste antes de declarar enero (sin ajuste)."
+    : periodMonth(desde) === 1 ? `Coeficientes nuevos desde ${periodLabel(desde)}. Sin ajuste.`
+    : `Coeficientes nuevos desde <b>${periodLabel(desde)}</b>: ese período lleva el ajuste de ${monoRango(periodYear(desde) + "-01", r.ultimo)}.`;
+  return `<div class="pres-bar ${pres ? "on" : ""}"><label class="switch"><input type="checkbox" ${pres ? "checked" : ""} data-action="cm05-pres" data-clientid="${client.id}" data-anio="${anio}"><span class="slider"></span></label>
+    <div><b>CM05 ${anio} presentado</b> <span class="hint-sm" style="font-size:12px;">· DDJJ anual de Convenio Multilateral</span><div class="hint-sm" style="font-size:12px;">${pres ? "Presentado" + (r.fecha ? " el " + fmtFechaCorta(r.fecha) : "") : "Pendiente"}</div></div></div>
+    ${pres ? `<div class="card"><div class="card-body"><div class="form-grid">
+      <div class="field"><label>Fecha de presentación</label><input type="date" style="width:118px;padding:4px 5px;font-size:12px;" data-action="cm05-fecha" data-clientid="${client.id}" data-anio="${anio}" value="${escapeHtml(r.fecha || "")}"></div>
+      <div class="field"><label>Último período declarado con los coeficientes anteriores</label><input type="month" data-action="cm05-ultimo" data-clientid="${client.id}" data-anio="${anio}" value="${escapeHtml(r.ultimo || "")}" min="${MIN_PERIOD}"></div>
+    </div><p class="hint-sm" style="margin:8px 0 0;">${nota}</p></div></div>` : ""}`;
+}
+function cm05Desde(c, anio) { const r = cm05Reg(c, anio); return r.ultimo ? addMonths(r.ultimo, 1) : `${Number(anio) + 1}-01`; }
+function cm05Estado(c, anio) {
+  const r = cm05Reg(c, anio);
+  if (!r.presentado) return { txt: "—", tipo: "none" };
+  if (cm05EsCierre(c, anio)) return { txt: "No aplica (cierre)", tipo: "none", cierre: true };
+  if (!r.ultimo) return { txt: "Falta el último período declarado", tipo: "warn", falta: true, desde: cm05Desde(c, anio) };
+  const desde = cm05Desde(c, anio);
+  const v = (c.iibbCM.coeficientes || []).find((x) => x.desde === desde);
+  if (!v) return { txt: `Faltan coeficientes (desde ${periodLabel(desde)})`, tipo: "warn", desde, falta: true };
+  if (periodMonth(desde) === 1) return { txt: "Sin ajuste", tipo: "ok", desde };
+  const info = cm05Info(c, desde);
+  if (!info || !info.usados.length) return { txt: "Sin ventas para ajustar", tipo: "ok", desde };
+  if (info.yaAplicado) return { txt: `✔ Ajuste cargado en ${periodLabel(desde)}`, tipo: "ok", desde, tab: "iibbCM" };
+  return { txt: `Ajuste pendiente en ${periodLabel(desde)}`, tipo: "warn", desde, tab: "iibbCM" };
+}
+function renderCm05CoefModal(clientId, anio) {
+  const c = getClient(clientId); if (!c) return;
+  const desde = cm05Desde(c, anio);
+  const v = (c.iibbCM.coeficientes || []).find((x) => x.desde === desde);
+  const jurs = sortedJurisdictions(c.iibbCM.jurisdictions);
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-backdrop"><div class="modal" style="max-width:420px;">
+      <div class="modal-head"><h3>Coeficientes del CM05 ${anio}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+      <div class="modal-body">
+        <p class="hint-sm" style="margin:0;"><b>${escapeHtml(c.name)}</b></p>
+        <div class="field"><label>Último período declarado con los coeficientes anteriores</label><input type="month" data-action="cm05-ultimo" data-modal="1" data-clientid="${c.id}" data-anio="${anio}" value="${escapeHtml(cm05Reg(c, anio).ultimo || "")}"><span class="hint-sm">Si lo presentaste antes de declarar enero, poné diciembre ${anio} (sin ajuste).</span></div>
+        <p class="hint-sm" style="margin:0;">Coeficientes nuevos desde <b>${periodLabel(desde)}</b>${periodMonth(desde) === 1 ? ". Sin ajuste." : `. Ese período lleva el ajuste de ${monoRango(periodYear(desde) + "-01", addMonths(desde, -1))}.`}</p>
+        <table style="min-width:0;width:100%;table-layout:fixed;"><tr><th style="text-align:left;">Jurisdicción</th><th>Coeficiente</th></tr>
+          ${jurs.map((j, i) => `<tr><td style="text-align:left;">${escapeHtml(j.name)}</td><td style="text-align:center;"><span class="pct-field"><input type="text" inputmode="decimal" data-kind="percent" data-action="cm05-coef-input" data-jur="${escapeHtml(j.name)}" value="${rawOrBlank(v && v.valores && v.valores[j.name], "percent")}" placeholder="0" style="width:90px;"><span class="pct-suffix">%</span></span></td></tr>`).join("")}
+          <tr class="total-row"><td>Suma</td><td style="text-align:center;" id="cm05-coef-suma"></td></tr>
+        </table>
+        <p class="hint-sm" id="cm05-coef-aviso" style="margin:0;"></p>
+      </div>
+      <div class="modal-foot"><div style="display:flex;gap:8px;margin-left:auto;"><button class="btn" data-action="close-modal">Cancelar</button><button class="btn btn-accent" data-action="cm05-coef-guardar" data-clientid="${c.id}" data-anio="${anio}">${v ? "Guardar" : "Crear vigencia"}</button></div></div>
+    </div></div>`;
+  wireModalBackdropClose();
+  cm05CoefSuma();
+}
+function cm05CoefSuma() {
+  const ins = [...document.querySelectorAll('#modal-root [data-action="cm05-coef-input"]')];
+  const suma = round2(ins.reduce((t, i) => t + num(i.value), 0));
+  const el = document.getElementById("cm05-coef-suma"), av = document.getElementById("cm05-coef-aviso");
+  if (el) el.innerHTML = `<b>${fmtPctRaw(suma)}%</b>`;
+  if (av) av.innerHTML = Math.abs(suma - 100) < 0.015 ? `<span class="evo-t-favor">✔ Suman 100%</span>` : `<span class="u-urg">⚠ Los coeficientes deberían sumar 100% (faltan ${fmtPctRaw(round2(100 - suma))}%)</span>`;
+}
+function cm05CoefGuardar(clientId, anio) {
+  const c = getClient(clientId); if (!c) return;
+  const desde = cm05Desde(c, anio), valores = {};
+  document.querySelectorAll('#modal-root [data-action="cm05-coef-input"]').forEach((i) => { valores[i.dataset.jur] = num(i.value); });
+  mutateClient(clientId, (cl) => {
+    cl.iibbCM.coeficientes = cl.iibbCM.coeficientes || [];
+    const v = cl.iibbCM.coeficientes.find((x) => x.desde === desde);
+    if (v) v.valores = valores; else cl.iibbCM.coeficientes.push({ desde, hasta: null, valores });
+  });
+  document.getElementById("modal-root").innerHTML = "";
+  render();
+}
+function renderCm05View() {
+  const hoyY = periodYear(todayPeriod());
+  if (!state.cm05Anio) state.cm05Anio = String(hoyY - 1);
+  const anio = state.cm05Anio;
+  const anios = []; for (let y = 2025; y <= hoyY; y++) anios.push(String(y));
+  if (!anios.includes(anio)) anios.push(anio);
+  const clientes = state.clients.filter((c) => cm05Aplica(c, anio)).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const filas = clientes.map((c) => ({ c, r: cm05Reg(c, anio), est: cm05Estado(c, anio) }));
+  const nPres = filas.filter((f) => f.r.presentado).length;
+  const nAj = filas.filter((f) => f.est.tipo === "warn" && f.r.presentado).length;
+  const trs = filas.map(({ c, r, est }) => {
+    const dias = r.vence ? diasHasta(r.vence) : null;
+    const u = dias == null ? "" : urgenciaDe(dias);
+    const link = est.tab ? `<button type="button" class="linklike" data-action="panel-abrir" data-client="${c.id}" data-tab="${est.tab}" data-period="${est.desde || state.currentPeriod}">${est.txt}</button>` : est.txt;
+    const cierre = cm05EsCierre(c, anio);
+    const coefBtn = cierre ? `<span class="hint-sm">No aplica</span>` : r.presentado ? `<button type="button" class="btn btn-sm ${est.falta ? "btn-accent" : ""}" data-action="cm05-coef" data-clientid="${c.id}" data-anio="${anio}">${est.falta ? "Cargar" : "Editar"}</button>` : `<span class="hint-sm">—</span>`;
+    return `<tr>
+      <td style="text-align:left;"><button type="button" class="linklike" data-action="panel-abrir" data-client="${c.id}" data-tab="iibbCM" data-period="${state.currentPeriod}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div>${cierre ? `<div class="hint-sm" style="color:var(--diff);font-weight:600;">CM05 de cierre</div>` : ""}<label class="hint-sm" style="display:flex;align-items:center;gap:4px;margin-top:3px;font-size:11px;">En CM hasta <input type="month" style="width:112px;padding:2px 4px;font-size:11px;" data-action="cm05-hasta" data-clientid="${c.id}" value="${escapeHtml(c.iibbCM.hasta || "")}" title="Último período en Convenio Multilateral (vacío = sigue en Convenio)"></label></td>
+      <td style="text-align:center;"><button type="button" class="est ${r.presentado ? "est-ok" : r.vence && dias < 0 ? "est-venc" : "est-falta"}" data-action="cm05-pres-chip" data-clientid="${c.id}" data-anio="${anio}">${r.presentado ? "✓ Presentado" : "○ Pendiente"}</button></td>
+      <td style="text-align:center;"><input type="date" style="width:118px;padding:4px 5px;font-size:12px;" data-action="cm05-vence" data-clientid="${c.id}" data-anio="${anio}" value="${escapeHtml(r.vence || "")}">${r.vence && !r.presentado ? `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(dias)}</div>` : ""}</td>
+      <td style="text-align:center;">${r.presentado ? `<input type="date" style="width:118px;padding:4px 5px;font-size:12px;" data-action="cm05-fecha" data-clientid="${c.id}" data-anio="${anio}" value="${escapeHtml(r.fecha || "")}">` : `<span class="hint-sm">—</span>`}</td>
+      <td style="text-align:center;">${coefBtn}</td>
+      <td style="text-align:left;white-space:normal;line-height:1.3;"><span class="${est.tipo === "warn" ? "u-urg" : est.tipo === "ok" ? "evo-t-favor" : "hint-sm"}">${link}</span></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px;">Ningún cliente tiene Convenio Multilateral activado.</td></tr>`;
+  return `
+    <div class="topbar"><div class="client-title"><h1>CM05 · DDJJ anual</h1><div class="meta"><span>Convenio Multilateral</span><span>·</span><span>año fiscal ${anio}</span></div></div>
+      <div class="topbar-actions">${(() => { const fuera = state.clients.filter((c) => c.iibbCM && !cm05Aplica(c, anio)).sort((a, b) => a.name.localeCompare(b.name, "es")); return fuera.length ? `<select data-action="cm05-agregar" title="Cliente que estuvo en Convenio ese año y no figura"><option value="">+ Agregar cliente…</option>${fuera.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}</select>` : ""; })()}<select data-action="cm05-anio" title="Año del CM05">${anios.map((y) => `<option value="${y}" ${y === anio ? "selected" : ""}>CM05 ${y}</option>`).join("")}</select></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="kpi-row">
+        <div class="kpi"><span class="k-label">Clientes con CM</span><span class="k-value">${filas.length}</span><span class="k-sub">DDJJ anual ${anio}</span></div>
+        <div class="kpi"><span class="k-label">Presentados</span><span class="k-value">${nPres} / ${filas.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${filas.length ? Math.round(nPres / filas.length * 100) : 0}%;background:var(--favor);"></i></div></div>
+        <div class="kpi ${nAj ? "state-pagar" : ""}"><span class="k-label">Con tarea pendiente</span><span class="k-value">${nAj}</span><span class="k-sub">coeficientes o ajuste por cargar</span></div>
+      </div>
+      <div class="card"><div class="card-head"><h3>Presentación del CM05 ${anio}</h3><span class="hint">Entran los clientes que estuvieron en Convenio ese año, aunque ya no lo estén</span></div>
+        <div class="card-body"><div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Cliente</th><th>Estado</th><th>Vence</th><th>Presentado</th><th>Coef. nuevos</th><th style="text-align:left;">Ajuste de base</th></tr>${trs}</table></div></div></div>
+      <p class="foot-note">Al presentar el CM05, cargá acá los coeficientes nuevos: rigen desde el mes siguiente al último período declarado (si lo dejás vacío, desde enero del año siguiente). Ese período lleva el ajuste de enero hasta el último declarado, que se calcula y se carga en la solapa IIBB CM.</p>
+    </div>`;
+}
+function cm05ChipHtml(client, period) {
+  const anio = cm05Anio(period);
+  if (!cm05Aplica(client, anio)) return "";
+  const pres = !!cm05Reg(client, anio).presentado;
+  return `<button type="button" class="est ${pres ? "est-ok" : "est-falta"}" title="${pres ? "CM05 " + anio + " presentado. Click para desmarcar." : "CM05 " + anio + " sin presentar. Click para marcarlo como presentado."}" data-action="cm05-pres-chip" data-clientid="${client.id}" data-anio="${anio}">${pres ? "✓" : "○"} CM05 ${anio}${cm05EsCierre(client, anio) ? " (cierre)" : ""}</button>`;
+}
+function cm05Set(clientId, anio, campo, valor) {
+  mutateClient(clientId, (c) => {
+    c.iibbCM.cm05 = c.iibbCM.cm05 || {};
+    const r = (c.iibbCM.cm05[anio] = c.iibbCM.cm05[anio] || {});
+    r[campo] = valor;
+    if (campo === "presentado" && valor && !r.fecha) r.fecha = hoyISO();
+  });
+}
+function cm05CardHtml(client, period) {
+  const info = cm05Info(client, period);
+  if (!info) return "";
+  const rango = monoRango(`${periodYear(period)}-01`, addMonths(period, -1));
+  const signo = (n) => (n > 0 ? "+" : "") + fmtMoney(n);
+  const trs = info.filas.map((f) => `<tr><td style="text-align:left;">${escapeHtml(f.jur)}</td><td style="text-align:left;">${escapeHtml(f.code)}</td><td class="num">${fmtMoney(f.declarada)}</td><td class="num">${fmtMoney(f.nueva)}</td><td class="num"><b>${signo(f.ajuste)}</b></td><td class="num">${fmtPct(f.alic / 100)}</td><td class="num">${signo(f.impuesto)}</td></tr>`).join("");
+  const totImp = round2(info.filas.reduce((s, f) => s + f.impuesto, 0));
+  return `<div class="card">
+    <div class="card-head"><h3>Ajuste por presentación del CM05</h3><span class="hint">Coeficientes nuevos desde ${periodLabel(period)} · se reprocesan ${rango}</span></div>
+    <div class="card-body">
+      ${info.usados.length ? `<div class="table-scroll"><table style="min-width:0;width:100%;">
+        <tr><th style="text-align:left;">Jurisdicción</th><th style="text-align:left;">Actividad</th><th>Base ya declarada</th><th>Base con coef. nuevo</th><th>Ajuste a la base</th><th>Alícuota</th><th>Efecto en impuesto</th></tr>
+        ${trs}
+        <tr class="total-row"><td colspan="6">Efecto total en el impuesto (positivo = más a pagar)</td><td class="num">${signo(totImp)}</td></tr>
+      </table></div>
+      <p class="hint-sm" style="margin:8px 0;">${info.controlOk ? "✔ Control: los ajustes de cada actividad suman cero entre jurisdicciones." : "⚠ Los ajustes no suman cero: revisá que los coeficientes (anterior y nuevo) sumen 100%."} Meses reprocesados: ${info.usados.map(periodLabel).join(", ")}.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-accent btn-sm" data-action="cm05-aplicar" data-clientid="${client.id}" data-period="${period}">${info.yaAplicado ? "Actualizar ajuste cargado" : "Cargar ajuste en este período"}</button>${info.yaAplicado ? `<button class="btn btn-ghost btn-danger btn-sm" data-action="cm05-quitar" data-clientid="${client.id}" data-period="${period}">Quitar ajuste CM05</button>` : ""}</div>`
+      : `<p class="hint-sm" style="margin:0;">No hay ventas cargadas en ${rango} con los coeficientes anteriores, por eso no hay nada para ajustar.</p>`}
+      ${info.sinCoef.length ? `<p class="hint-sm" style="margin:8px 0 0;">⚠ ${info.sinCoef.map(periodLabel).join(", ")}: tienen ventas pero no había coeficiente cargado, no se incluyeron.</p>` : ""}
+      <p class="hint-sm" style="margin:8px 0 0;">El ajuste se carga en la columna "Ajuste a la Base" de cada jurisdicción (podés seguir editándola a mano).</p>
+    </div></div>`;
+}
+function cm05Aplicar(clientId, period, quitar) {
+  const c = getClient(clientId), info = c && cm05Info(c, period);
+  if (!info) return;
+  touchDoc(clientId, period, (d) => {
+    d.iibbCM = d.iibbCM || {};
+    const ap = (d.iibbCM.cm05Aplicado = d.iibbCM.cm05Aplicado || {});
+    d.iibbCM.jurisdicciones = d.iibbCM.jurisdicciones || {};
+    const claves = new Set(info.filas.map((f) => f.jur + "|" + f.code));
+    Object.keys(ap).forEach((k) => claves.add(k));
+    claves.forEach((k) => {
+      const [jur, code] = k.split("|");
+      const fl = info.filas.find((f) => f.jur === jur && f.code === code);
+      const nuevo = quitar || !fl ? 0 : fl.ajuste;
+      const jd = (d.iibbCM.jurisdicciones[jur] = d.iibbCM.jurisdicciones[jur] || {});
+      jd.ajustes = jd.ajustes || {};
+      const val = round2(num(jd.ajustes[code]) - num(ap[k]) + nuevo);
+      if (Math.abs(val) < 0.005) delete jd.ajustes[code]; else jd.ajustes[code] = val;
+      if (quitar || !nuevo) delete ap[k]; else ap[k] = nuevo;
+    });
+  });
+  render();
+}
+
 function renderRecatView() {
   const { lista, def } = monoRecatOpciones();
   const key = (o) => o.ini + "|" + o.fin + "|" + o.recat;
@@ -6950,7 +7335,7 @@ function buildIibbLocalSheet(wb, client) {
     const actFormulas = new Map();
     actRows.push([]);
     const header = ["Período"];
-    activities.forEach((a) => header.push(`${a.code} — ${a.desc} — Ventas netas`, `${a.code} — Impuesto (${fmtPctRaw(a.alicuota)}%)`));
+    activities.forEach((a) => header.push(`${a.code} — ${a.desc} — Ventas netas`, (a.alicHist || []).length ? `${a.code} — Impuesto` : `${a.code} — Impuesto (${fmtPctRaw(a.alicuota)}%)`));
     header.push("TOTAL Base", "TOTAL Impuesto");
     actRows.push(header);
     const actHeaderRow = actRows.length - 1;
@@ -6966,15 +7351,16 @@ function buildIibbLocalSheet(wb, client) {
         const baseCol = 1 + i * 2, impCol = 2 + i * 2;
         baseCols.push(baseCol); impCols.push(impCol);
         const baseVal = num(actData[a.code]);
-        const impVal = round2(baseVal * (num(a.alicuota) / 100));
-        actFormulas.set(R + ":" + impCol, `${XLSX.utils.encode_col(baseCol)}${R + 1}*${num(a.alicuota) / 100}`);
+        const alicP = alicLocal(a, p) / 100;
+        const impVal = round2(baseVal * alicP);
+        actFormulas.set(R + ":" + impCol, `${XLSX.utils.encode_col(baseCol)}${R + 1}*${alicP}`);
         row.push(baseVal, impVal);
       });
       const totalBaseCol = 1 + activities.length * 2, totalImpCol = 2 + activities.length * 2;
       actFormulas.set(R + ":" + totalBaseCol, `SUM(${baseCols.map((c) => XLSX.utils.encode_col(c) + (R + 1)).join(",")})`);
       actFormulas.set(R + ":" + totalImpCol, `SUM(${impCols.map((c) => XLSX.utils.encode_col(c) + (R + 1)).join(",")})`);
       const totalBase = round2(baseCols.reduce((s, c, i) => s + num(actData[activities[i].code]), 0));
-      const totalImp = round2(impCols.reduce((s, c, i) => s + round2(num(actData[activities[i].code]) * (num(activities[i].alicuota) / 100)), 0));
+      const totalImp = round2(impCols.reduce((s, c, i) => s + round2(num(actData[activities[i].code]) * (alicLocal(activities[i], p) / 100)), 0));
       row.push(totalBase, totalImp);
       actMeta[p] = { totalBaseCell: [R, totalBaseCol], totalImpuestoCell: [R, totalImpCol] };
       if (resaltarActual && p === state.currentPeriod) actHighlights.set(R, COLOR_ACTUAL);
@@ -7200,7 +7586,7 @@ function buildIibbCMSheets(wb, client) {
         const ajuste = num(jdoc.ajustes && jdoc.ajustes[a.code]);
         const coefGeneral = coefVigencia ? num(coefVigencia.valores[j.name]) / 100 : 0;
         const attrib = getActivityAttribution(a, j.name, coefGeneral);
-        const alicuota = num(j.alicuotas && j.alicuotas[a.code]) / 100;
+        const alicuota = alicCM(client, j.name, a.code, p) / 100;
         const base = round2(montoNacional * attrib + ajuste);
         const impuesto = round2(base * alicuota);
         if (actCell[p] && actCell[p][a.code]) detFormulas.set(R + ":2", xsheetRef(baseSheetName, ...actCell[p][a.code]));
