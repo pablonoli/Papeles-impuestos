@@ -1807,7 +1807,7 @@ function taxTabsFor(client) {
   if (client.iibbLocal.enabled) tabs.push({ key: "iibbLocal", label: "IIBB Local" });
   if (client.iibbCM.enabled) tabs.push({ key: "iibbCM", label: "IIBB Conv. Multilateral" });
   if (monoEnabled(client)) tabs.push({ key: "mono", label: "Monotributo" });
-  if (client.iva.enabled || client.iibbLocal.enabled || client.iibbCM.enabled) tabs.push({ key: "evolucion", label: "Evolución" });
+  if (client.iva.enabled || client.iibbLocal.enabled || client.iibbCM.enabled || monoEnabled(client)) tabs.push({ key: "evolucion", label: "Evolución" });
   tabs.push({ key: "config", label: "Configuración" });
   return tabs;
 }
@@ -3777,7 +3777,7 @@ function renderEvolucionTab(client) {
   const ctrl = `
     <div class="evo-ctrl">
       <label>Rango <select data-action="evo-range">${[6, 12, 18, 24].map((n) => `<option value="${n}" ${state.evoRange === n ? "selected" : ""}>${n} meses</option>`).join("")}</select></label>
-      <label>Saldo de <select data-action="evo-tax">${taxes.map((t) => `<option value="${t[0]}" ${state.evoTax === t[0] ? "selected" : ""}>${t[1]}</option>`).join("")}</select></label>
+      ${taxes.length ? `<label>Saldo de <select data-action="evo-tax">${taxes.map((t) => `<option value="${t[0]}" ${state.evoTax === t[0] ? "selected" : ""}>${t[1]}</option>`).join("")}</select></label>` : ""}
       ${hayVentas && state.evoView === "grafico" ? `${ivaOn ? `<div class="seg" title="Base de comparación de ventas y compras"><button class="${state.evoBase === "neto" ? "on" : ""}" data-action="evo-base" data-base="neto">Neto</button><button class="${state.evoBase === "total" ? "on" : ""}" data-action="evo-base" data-base="total">Total</button></div>` : ""}<div class="seg" title="Forma del gráfico"><button class="${state.evoForma === "barras" ? "on" : ""}" data-action="evo-forma" data-forma="barras">▥ Barras</button><button class="${state.evoForma === "lineas" ? "on" : ""}" data-action="evo-forma" data-forma="lineas">📈 Líneas</button></div>` : ""}
       <span class="hint-sm">hasta ${periodLabel(end)}</span>
       <span style="flex:1"></span>
@@ -3787,16 +3787,16 @@ function renderEvolucionTab(client) {
   if (state.evoView === "tabla") {
     const f = (v) => (v == null ? `<span class="hint-sm">—</span>` : fmtMoney(v));
     const sal = (v) => (v == null ? `<span class="hint-sm">—</span>` : v > 0 ? `<span class="evo-t-pagar">▲ ${fmtMoney(v)} a pagar</span>` : v < 0 ? `<span class="evo-t-favor">▼ ${fmtMoney(-v)} a favor</span>` : "Saldo cero");
-    body = `<div class="card"><div class="card-body"><div class="table-scroll"><table style="min-width:860px;"><tr><th style="text-align:left;">Período</th>${ivaOn ? "<th>Ventas netas</th><th>Ventas totales</th><th>Compras netas</th><th>Compras totales</th><th>Ventas − compras (netas)</th>" : hayVentas ? "<th>Ventas</th>" : ""}<th>Saldo ${escapeHtml((taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1])}</th></tr>
-      ${datos.slice().reverse().map((d) => `<tr><td style="text-align:left;">${periodLabel(d.period)}</td>${ivaOn ? `<td class="num">${f(d.ventasNetas)}</td><td class="num">${f(d.ventasTotales)}</td><td class="num">${f(d.comprasNetas)}</td><td class="num">${f(d.comprasTotales)}</td><td class="num">${d.ventasNetas == null || d.comprasNetas == null ? f(null) : fmtMoney(round2(d.ventasNetas - d.comprasNetas))}</td>` : hayVentas ? `<td class="num">${f(d.ventasNetas)}</td>` : ""}<td class="num">${sal(d.saldo)}</td></tr>`).join("")}
+    body = `<div class="card"><div class="card-body"><div class="table-scroll"><table style="min-width:860px;"><tr><th style="text-align:left;">Período</th>${ivaOn ? "<th>Ventas netas</th><th>Ventas totales</th><th>Compras netas</th><th>Compras totales</th><th>Ventas − compras (netas)</th>" : hayVentas ? "<th>Ventas</th>" : ""}${taxes.length ? `<th>Saldo ${escapeHtml((taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1])}</th>` : ""}</tr>
+      ${datos.slice().reverse().map((d) => `<tr><td style="text-align:left;">${periodLabel(d.period)}</td>${ivaOn ? `<td class="num">${f(d.ventasNetas)}</td><td class="num">${f(d.ventasTotales)}</td><td class="num">${f(d.comprasNetas)}</td><td class="num">${f(d.comprasTotales)}</td><td class="num">${d.ventasNetas == null || d.comprasNetas == null ? f(null) : fmtMoney(round2(d.ventasNetas - d.comprasNetas))}</td>` : hayVentas ? `<td class="num">${f(d.ventasNetas)}</td>` : ""}${taxes.length ? `<td class="num">${sal(d.saldo)}</td>` : ""}</tr>`).join("")}
     </table></div></div></div>`;
   } else {
     const card = (titulo, hint, svg) => `<div class="card"><div class="card-head"><h3>${titulo}</h3><span class="hint">${hint}</span></div><div class="card-body">${svg}</div></div>`;
     const kb = ivaOn && state.evoBase === "total" ? "Totales" : "Netas";
     const vv = col("ventas" + kb), cc = col("compras" + kb);
-    body = (!ivaOn && hayVentas ? card("Ventas", `Según ${fuenteVentas}`, evoChartSvg({ tipo: state.evoForma === "lineas" ? "line" : "gbar", title: "Ventas", labels, series: [{ name: "Ventas", values: vv }] })) : "")
+    body = (!ivaOn && (hayVentas || !taxes.length) ? card("Ventas", `Según ${fuenteVentas || "facturación de Monotributo"}`, evoChartSvg({ tipo: state.evoForma === "lineas" ? "line" : "gbar", title: "Ventas", labels, series: [{ name: "Ventas", values: vv }] })) : "")
       + (ivaOn ? card("Ventas vs Compras", state.evoBase === "total" ? "Totales (neto + IVA), netas de notas de crédito" : "Netas de IVA y de notas de crédito", evoChartSvg({ tipo: state.evoForma === "lineas" ? "line" : "gbar", title: "Ventas vs Compras", labels, series: [{ name: "Ventas", values: vv }, { name: "Compras", values: cc }], extraTip: (i) => (vv[i] != null && cc[i] != null ? `Ventas − compras: ${fmtMoney(round2(vv[i] - cc[i]))}` : "") })) : "")
-      + card(`Saldo ${(taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1]}`, "Barras hacia arriba: a pagar · hacia abajo: a favor del contribuyente", evoChartSvg({ tipo: "bar", title: "Saldo", labels, series: [{ name: "Saldo", values: col("saldo") }] }));
+      + (taxes.length ? card(`Saldo ${(taxes.find((t) => t[0] === state.evoTax) || [0, ""])[1]}`, "Barras hacia arriba: a pagar · hacia abajo: a favor del contribuyente", evoChartSvg({ tipo: "bar", title: "Saldo", labels, series: [{ name: "Saldo", values: col("saldo") }] })) : "");
   }
   return `<div style="display:flex;flex-direction:column;gap:16px;max-width:960px;">${ctrl}${body}</div>`;
 }
