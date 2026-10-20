@@ -1778,6 +1778,7 @@ function renderSidebar() {
       <button class="nav-btn ${state.view === "panel" ? "active" : ""}" data-action="nav-view" data-view="panel">📊 Panel de clientes</button>
       <button class="nav-btn ${state.view === "calendario" ? "active" : ""}" data-action="nav-view" data-view="calendario">📅 Calendario de vencimientos</button>
     </div>
+    ${state.clients.some((c) => monoEnabled(c)) ? `<div class="side-section nav-side"><div class="side-label">Monotributo</div><button class="nav-btn ${state.view === "recat" ? "active" : ""}" data-action="nav-view" data-view="recat">🧾 Recategorización</button></div>` : ""}
     <div class="side-section">
       <div class="side-label-row">
         <div class="side-label">Clientes<span>${state.clients.length}</span></div>
@@ -1816,6 +1817,7 @@ function renderMain() {
   const main = document.getElementById("main");
   if (state.view === "panel") { main.innerHTML = renderPanelView(); return; }
   if (state.view === "calendario") { main.innerHTML = renderCalendarioView(); return; }
+  if (state.view === "recat") { main.innerHTML = renderRecatView(); return; }
   const client = currentClient();
   if (!client) {
     main.innerHTML = `
@@ -3418,7 +3420,7 @@ function monoCalc(client, period) {
   const muniNombre = String(m.muniNombre || "").trim();
   const muni = comp.muni ? num(m.muniMonto) : 0;
   const cuotaTotal = round2(cuota + iibb + muni);
-  const permitidas = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0 && (m.tipo === "bienes" || "ABCDEFGH".indexOf(c) !== -1); });
+  const permitidas = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0; });   // desde la reforma, servicios y bienes llegan hasta la K
   let sugerida = null, catProy = null;
   if (monoEscalaCargada()) {
     sugerida = permitidas.find((c) => total <= num(monoRow(c).tope)) || null;
@@ -3462,7 +3464,7 @@ function monoMargenHtml(c, m) {
   if (c.maxTope > 0) {
     const cercaE = c.pctMax >= 0.85, excl = c.pctMax >= 1;
     f2 = fila(excl ? "⛔" : cercaE ? "⚠" : "🛡", excl ? `Superaste el tope máximo del Monotributo (cat. ${c.maxCat}) por ${fmtMoney(-c.faltaExclusion)}` : `Para la exclusión del Monotributo faltan ${fmtMoney(c.faltaExclusion)}`,
-      excl ? "Corresponde la exclusión: pasar al Régimen General (responsable inscripto)." : `Control con los últimos 12 meses (${fmtMoney(c.total12)}). Tope máximo ${m.tipo === "bienes" ? "(venta de bienes)" : "(servicios)"}: categoría ${c.maxCat}, ${fmtMoney(c.maxTope)} · usaste ${Math.round(c.pctMax * 100)}%.${cercaE ? " ¡Riesgo de exclusión!" : ""}`, excl || cercaE ? "var(--pagar)" : "var(--ink)");
+      excl ? "Corresponde la exclusión: pasar al Régimen General (responsable inscripto)." : `Control con los últimos 12 meses (${fmtMoney(c.total12)}). Tope máximo: categoría ${c.maxCat}, ${fmtMoney(c.maxTope)} · usaste ${Math.round(c.pctMax * 100)}%.${cercaE ? " ¡Riesgo de exclusión!" : ""}`, excl || cercaE ? "var(--pagar)" : "var(--ink)");
   }
   if (c.proyeccion != null && c.tope > 0) {
     const sup = c.proyeccion > c.tope;
@@ -3491,7 +3493,7 @@ function renderMonoTab(client) {
   let reco = "";
   if (escalaOk && c.cargados >= 1) {
     const rango = monoRango(c.vent.ini, c.vent.fin);
-    if (c.excedeMax) reco = `<div class="warn-banner" style="border-color:var(--pagar);color:var(--pagar);background:var(--pagar-soft);"><div class="wb-text"><b>⛔ La facturación de los últimos 12 meses supera el máximo de la escala${m.tipo === "bienes" ? "" : " para servicios"}.</b> Corresponde la salida del Monotributo (Régimen General).</div></div>`;
+    if (c.excedeMax) reco = `<div class="warn-banner" style="border-color:var(--pagar);color:var(--pagar);background:var(--pagar-soft);"><div class="wb-text"><b>⛔ La facturación de los últimos 12 meses supera el máximo de la escala (categoría ${c.maxCat}).</b> Corresponde la salida del Monotributo (Régimen General).</div></div>`;
     else if (c.tope > 0 && c.total > c.tope && c.sugerida) reco = `<div class="warn-banner"><div class="wb-text"><b>Categoría sugerida: ${c.sugerida}</b> (hoy: ${escapeHtml(m.categoria)}). Ya superaste el tope de la ${escapeHtml(m.categoria)} con ${fmtMoney(c.total)} facturados en el período de la recategorización de ${c.vent.recat} (${rango}).</div></div>`;
     else if (c.mesesRest === 0 && c.sugerida && m.categoria && c.sugerida !== m.categoria) reco = `<div class="warn-banner"><div class="wb-text"><b>Categoría sugerida: ${c.sugerida}</b> (hoy: ${escapeHtml(m.categoria)}). Con ${fmtMoney(c.total)} facturados en ${rango}, podría recategorizar hacia abajo en la recategorización de ${c.vent.recat}.</div></div>`;
   }
@@ -3632,7 +3634,7 @@ function renderMonoEscalaModal() {
         <div class="modal-body">
           <div class="field"><label>Vigencia (texto libre, ej. "desde agosto 2026")</label><input type="text" value="${escapeHtml(e.vigencia || "")}" data-action="mono-escala-vigencia"></div>
           <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Cat.</th><th>Ingresos brutos (12 m)</th><th>Integrado servicios</th><th>Integrado bienes</th><th>Aportes SIPA</th><th>Obra social</th><th>Cuota total servicios</th><th>Cuota total bienes</th>${iibbProvs.map((pv) => `<th>IIBB ${escapeHtml(pv)} (por mes)</th>`).join("")}</tr>${filas}</table></div>
-          <p class="hint-sm">Se guarda al escribir. La escala es global: vale para todos los clientes. Las cuotas totales se calculan solas (integrado + SIPA + obra social, sin adherentes ni exenciones) y el desglose es el que permite tildar cada componente en la credencial de pago del cliente. Las categorías I, J y K sólo aplican a venta de bienes. La columna de IIBB es lo que se paga dentro de la cuota del Monotributo unificado (Régimen Simplificado provincial): se suma en los clientes que lo tengan activado y que no tributen por Convenio Multilateral.</p>
+          <p class="hint-sm">Se guarda al escribir. La escala es global: vale para todos los clientes. Las cuotas totales se calculan solas (integrado + SIPA + obra social, sin adherentes ni exenciones) y el desglose es el que permite tildar cada componente en la credencial de pago del cliente. La columna de IIBB es lo que se paga dentro de la cuota del Monotributo unificado (Régimen Simplificado provincial): se suma en los clientes que lo tengan activado y que no tributen por Convenio Multilateral.</p>
         </div>
     <div class="modal-foot"><button class="btn btn-accent" data-action="mono-escala-cerrar">Listo</button></div>
       </div>
@@ -3827,10 +3829,9 @@ function chipEstadoHtml(t, clientId, period) {
   const vencida = !t.pres && t.dias != null && t.dias < 0;
   const cls = t.pres ? "est-ok" : vencida ? "est-venc" : t.status === "ok" ? "est-parcial" : "est-falta";
   const ico = t.pres ? "✓" : vencida ? "⛔" : t.status === "ok" ? "◐" : "○";
-  const extra = t.key === "mono" && t.mono && t.mono.pct != null ? ` ${Math.round(t.mono.pct * 100)}%` : "";
   const queEs = t.key === "mono" ? "VEP enviado" : "presentada en ARCA";
   const tip = t.key === "mono" ? (t.pres ? "Monotributo: VEP enviado al cliente. Click para desmarcar." : "Monotributo: VEP sin enviar. Click para marcarlo como enviado.") : t.pres ? `${TAX_LABEL[t.key]}: ${queEs}. Click para desmarcar.` : `${TAX_LABEL[t.key]}: pendiente (${t.status === "ok" ? "datos cargados en el panel, falta presentar" : t.status === "parcial" ? "carga parcial en el panel" : "sin datos cargados"}). Click para marcar como ${queEs}.`;
-  return `<button type="button" class="est ${cls}" title="${escapeHtml(tip)}" data-action="presentado-toggle" data-client="${clientId}" data-tax="${t.key}" data-period="${period}">${ico} ${TAX_LABEL[t.key]}${extra}</button>`;
+  return `<button type="button" class="est ${cls}" title="${escapeHtml(tip)}" data-action="presentado-toggle" data-client="${clientId}" data-tax="${t.key}" data-period="${period}">${ico} ${TAX_LABEL[t.key]}</button>`;
 }
 function saldoCeldaHtml(t) {
   if (!t.saldo || t.key === "mono") return "";
@@ -3867,7 +3868,7 @@ function renderPanelView() {
   }).join("") || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">${state.clients.length ? "Ningún cliente cumple el filtro." : "Todavía no cargaste clientes."}</td></tr>`;
   return `
     <div class="topbar"><div class="client-title"><h1>Panel de clientes</h1><div class="meta"><span>Período fiscal ${periodLabel(period)}</span><span>·</span><span>vencimientos de ${MESES[periodMonth(vp) - 1].toLowerCase()} ${periodYear(vp)}</span></div></div>
-      <div class="topbar-actions">${state.clients.some((c) => monoEnabled(c)) ? `<button class="btn btn-accent" data-action="mono-recat-abrir" title="Excel con todos los monotributistas: facturación, categoría que les corresponde y cuota">⬇ Recategorización Monotributo</button>` : ""}<div class="period-nav"><button data-action="panel-prev" ${period <= MIN_PERIOD ? "disabled" : ""}>‹</button><span class="label">${periodLabel(period)}</span><button data-action="panel-next">›</button></div></div></div>
+      <div class="topbar-actions"><div class="period-nav"><button data-action="panel-prev" ${period <= MIN_PERIOD ? "disabled" : ""}>‹</button><span class="label">${periodLabel(period)}</span><button data-action="panel-next">›</button></div></div></div>
     <div style="display:flex;flex-direction:column;gap:16px;">
       <div class="kpi-row">
         <div class="kpi"><span class="k-label">Clientes</span><span class="k-value">${filas.length === state.clients.length ? state.clients.length : filas.length + " / " + state.clients.length}</span><span class="k-sub">${todasTax.length} declaraciones en total</span></div>
@@ -4540,6 +4541,7 @@ document.addEventListener("click", (e) => {
   else if (a === "mono-escala-abrir") renderMonoEscalaModal();
   else if (a === "mono-cred-abrir") renderMonoCredModal(btn.dataset.clientid);
   else if (a === "mono-recat-abrir") renderMonoRecatModal();
+  else if (a === "mono-recat-exportar-vista") { if (state.recatSel) { const [i, f, r] = state.recatSel.split("|"); exportarRecategorizacion(i, f, r); } }
   else if (a === "modal-cerrar-simple") { document.getElementById("modal-root").innerHTML = ""; }
   else if (a === "mono-recat-exportar") { const sel = document.getElementById("mono-recat-sel"); if (sel) { const [i, f, r] = sel.value.split("|"); document.getElementById("modal-root").innerHTML = ""; exportarRecategorizacion(i, f, r); } }
   else if (a === "mono-cred-reset") { mutateClient(btn.dataset.clientid, (cl) => { if (cl.mono && cl.mono.compMontos) { cl.mono.compMontos = Object.assign({}, cl.mono.compMontos); delete cl.mono.compMontos[btn.dataset.comp]; } }); renderMonoCredModal(btn.dataset.clientid); }
@@ -4570,6 +4572,7 @@ document.addEventListener("change", (e) => {
     persistExtras(); render();
   } else if (a === "evo-range") { state.evoRange = Number(t.value); render(); }
   else if (a === "evo-tax") { state.evoTax = t.value; render(); }
+  else if (a === "recat-sel") { state.recatSel = t.value; render(); }
 });
 document.addEventListener("input", (e) => {
   const t = e.target, a = t.dataset && t.dataset.action;
@@ -6295,6 +6298,70 @@ function monoRecatOpciones() {
   const def = lista.find((o) => o.fin >= hoy) || lista[lista.length - 1];
   return { lista, def };
 }
+// Cuota mensual actual y la que correspondería con la categoría nueva (escala vigente, con los componentes que paga el cliente).
+function recatCuotas(client, cal) {
+  const comp = monoComp(client), iibbCM = !!(client.iibbCM && client.iibbCM.enabled);
+  const prov = iibbCM ? "" : monoIibbProv(client), m = client.mono || {};
+  const muni = comp.muni ? num(m.muniMonto) : 0;
+  const una = (c) => {
+    const r = monoRow(c); if (c === "EXCLUIDO" || !r) return 0;
+    const d = recatDesglose(r, cal.bienes);
+    const ib = prov && getExtras().monoIibb[prov] ? num(getExtras().monoIibb[prov][c]) : 0;
+    return round2((comp.integrado ? d.integ : 0) + (comp.sipa ? d.sipa : 0) + (comp.os ? d.os : 0) + (prov && comp.iibb ? ib : 0) + muni);
+  };
+  return [una(cal.catAct), una(cal.catNew)];
+}
+function recatSituacion(cal) {
+  return cal.catNew === "EXCLUIDO" ? "excluido" : cal.catNew === cal.catAct ? "igual" : cal.catNew > cal.catAct ? "sube" : "baja";
+}
+function renderRecatView() {
+  const { lista, def } = monoRecatOpciones();
+  const key = (o) => o.ini + "|" + o.fin + "|" + o.recat;
+  if (!state.recatSel || !lista.some((o) => key(o) === state.recatSel)) state.recatSel = key(def);
+  const [ini, fin, recat] = state.recatSel.split("|"), v = { ini, fin, recat };
+  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+  const clientes = state.clients.filter((c) => monoEnabled(c)).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const filas = [], sinCat = [];
+  clientes.forEach((c) => {
+    if (!c.mono || !c.mono.categoria || !monoRow(c.mono.categoria)) { sinCat.push(c); return; }
+    const cal = recatCalcCliente(c, v), tc = recatCuotas(c, cal);
+    filas.push({ c, cal, tc, sit: recatSituacion(cal) });
+  });
+  const n = (k) => filas.filter((f) => f.sit === k).length;
+  const pill = (sit, cal) => sit === "sube" ? `<span class="pill pagar">▲ Sube a la ${cal.catNew}</span>`
+    : sit === "baja" ? `<span class="pill favor">▼ Baja a la ${cal.catNew}</span>`
+    : sit === "excluido" ? `<span class="pill pagar">⛔ Excluido</span>`
+    : `<span class="pill" style="background:var(--surface-2);color:var(--muted);border:1px solid var(--border);">= Se mantiene</span>`;
+  const trs = filas.map((f) => {
+    const dif = f.sit === "excluido" ? null : round2(f.tc[1] - f.tc[0]);
+    return `<tr>
+      <td style="text-align:left;"><button type="button" class="linklike" data-action="panel-abrir" data-client="${f.c.id}" data-tab="mono" data-period="${fin}"><b>${escapeHtml(f.c.name)}</b></button><div class="hint-sm">${escapeHtml(f.c.cuit || "CUIT sin cargar")}</div></td>
+      <td style="text-align:center;">${escapeHtml(f.cal.catAct)}</td>
+      <td class="num">${fmtMoney(f.cal.total)}</td>
+      <td style="text-align:center;"><b>${f.cal.catNew === "EXCLUIDO" ? "—" : f.cal.catNew}</b></td>
+      <td class="num">${fmtMoney(f.tc[0])}</td>
+      <td class="num">${f.sit === "excluido" ? "—" : fmtMoney(f.tc[1])}</td>
+      <td class="num">${dif == null ? "—" : (dif > 0 ? "+" : "") + fmtMoney(dif)}</td>
+      <td style="text-align:center;">${pill(f.sit, f.cal)}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Ningún cliente tiene la categoría de Monotributo asignada.</td></tr>`;
+  return `
+    <div class="topbar"><div class="client-title"><h1>Recategorización de Monotributo</h1><div class="meta"><span>${cap(recat)}</span><span>·</span><span>ventas de ${monoRango(ini, fin)}</span></div></div>
+      <div class="topbar-actions"><select data-action="recat-sel" title="Recategorización a evaluar">${lista.map((o) => `<option value="${key(o)}" ${key(o) === state.recatSel ? "selected" : ""}>${cap(o.recat)} · ventas ${monoRango(o.ini, o.fin)}</option>`).join("")}</select>
+        <button class="btn btn-accent" data-action="mono-recat-exportar-vista" title="Un Excel con el Resumen y una hoja por cliente con el detalle de su facturación">⬇ Exportar Excel</button></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="kpi-row" style="grid-template-columns:repeat(5,minmax(0,1fr));">
+        <div class="kpi"><span class="k-label">Monotributistas</span><span class="k-value">${filas.length}</span><span class="k-sub">${sinCat.length ? sinCat.length + " sin categoría asignada" : "con categoría asignada"}</span></div>
+        <div class="kpi ${n("sube") ? "state-pagar" : ""}"><span class="k-label">Suben de categoría</span><span class="k-value">${n("sube")}</span><span class="k-sub">pagan más de cuota</span></div>
+        <div class="kpi"><span class="k-label">Se mantienen</span><span class="k-value">${n("igual")}</span><span class="k-sub">sin cambios</span></div>
+        <div class="kpi"><span class="k-label">Bajan de categoría</span><span class="k-value">${n("baja")}</span><span class="k-sub">pagan menos de cuota</span></div>
+        <div class="kpi ${n("excluido") ? "state-pagar" : ""}"><span class="k-label">Excluidos</span><span class="k-value">${n("excluido")}</span><span class="k-sub">pasan al Régimen General</span></div>
+      </div>
+      <div class="card"><div class="card-head"><h3>Categoría que corresponde según las ventas del período</h3><span class="hint">Ventas cargadas a la fecha · cuotas según la escala vigente</span></div>
+        <div class="card-body"><div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Cliente</th><th>Cat. actual</th><th>Ventas del período</th><th>Cat. nueva</th><th>Cuota actual</th><th>Cuota nueva</th><th>Diferencia</th><th>Situación</th></tr>${trs}</table></div></div></div>
+      ${sinCat.length ? `<p class="foot-note">Sin categoría asignada (no figuran en la tabla): ${sinCat.map((c) => escapeHtml(c.name)).join(", ")}.</p>` : ""}
+    </div>`;
+}
 function renderMonoRecatModal() {
   const { lista, def } = monoRecatOpciones();
   const n = state.clients.filter((c) => monoEnabled(c)).length;
@@ -6319,7 +6386,7 @@ function recatCalcCliente(client, v) {
     meses.push({ period: p, cargado, valor: cargado ? num(raw) : 0 });
   }
   const rows = getExtras().monoEscala.rows;
-  const permitidas = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0 && (bienes || "ABCDEFGH".indexOf(c) !== -1); });
+  const permitidas = MONO_CATS.filter((c) => { const r = monoRow(c); return r && num(r.tope) > 0; });
   const catPara = (t) => permitidas.find((c) => t <= num(monoRow(c).tope)) || "EXCLUIDO";
   const total = round2(meses.reduce((s, x) => s + x.valor, 0));
   const cargados = meses.filter((x) => x.cargado).length;
