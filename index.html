@@ -7039,11 +7039,21 @@ function renderNqnDetalleModal(clientId, anio) {
     </div></div>`;
   wireModalBackdropClose();
 }
+// Chip del CM05 en el Panel: sólo en el período que corresponde, según el vencimiento cargado
+// (sin presentar: desde el mes de vencimientos de esa fecha hasta que se presente; presentado: sólo ese mes).
 function cm05ChipHtml(client, period) {
-  const anio = cm05Anio(period);
-  if (!cm05Aplica(client, anio)) return "";
-  const pres = !!cm05Reg(client, anio).presentado;
-  return `<button type="button" class="est ${pres ? "est-ok" : "est-falta"}" title="${pres ? "CM05 " + anio + " presentado. Click para desmarcar." : "CM05 " + anio + " sin presentar. Click para marcarlo como presentado."}" data-action="cm05-pres-chip" data-clientid="${client.id}" data-anio="${anio}">${pres ? "✓" : "○"} CM05 ${anio}${cm05EsCierre(client, anio) ? " (cierre)" : ""}</button>`;
+  if (!client.iibbCM) return "";
+  const vp = addMonths(period, 1), reg = client.iibbCM.cm05 || {};
+  return Object.keys(reg).sort().filter((anio) => {
+    const r = reg[anio];
+    const ref = r && (r.vence || (r.presentado ? r.fecha : ""));
+    if (!ref || !cm05Aplica(client, anio)) return false;
+    const m = ref.slice(0, 7);
+    return r.presentado ? m === vp : m <= vp;
+  }).map((anio) => {
+    const r = reg[anio], pres = !!r.presentado, venc = !pres && !!r.vence && diasHasta(r.vence) < 0;
+    return `<button type="button" class="est ${pres ? "est-ok" : venc ? "est-venc" : "est-falta"}" title="${pres ? "CM05 " + anio + " presentado. Click para desmarcar." : "CM05 " + anio + " sin presentar (vence " + fmtFechaCorta(r.vence) + "). Click para marcarlo como presentado."}" data-action="cm05-pres-chip" data-clientid="${client.id}" data-anio="${anio}">${pres ? "✓" : venc ? "⛔" : "○"} CM05 ${anio}${cm05EsCierre(client, anio) ? " (cierre)" : ""}</button>`;
+  }).join("");
 }
 function cm05Set(clientId, anio, campo, valor) {
   mutateClient(clientId, (c) => {
