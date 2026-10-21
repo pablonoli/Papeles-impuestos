@@ -118,6 +118,8 @@
 
   .side-section{ display:flex; flex-direction:column; gap:8px; }
   .side-label{ font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted-soft); padding:0 4px; display:flex; justify-content:space-between; align-items:center; }
+  .side-toggle{ width:100%; background:none; border:none; cursor:pointer; font:inherit; font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted-soft); padding:4px; border-radius:6px; }
+  .side-toggle:hover{ color:var(--ink); background:var(--surface-2); }
   .side-label-row{ display:flex; align-items:center; gap:8px; }
   .side-label-row .side-label{ flex:1; }
   .icon-btn-sm{ width:22px; height:22px; min-width:22px; border-radius:6px; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:15px; line-height:1; border:none; cursor:pointer; flex-shrink:0; }
@@ -814,6 +816,11 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 // orden en el que se presentan las DDJJ.
 const AR_JURISDICCIONES = ["CABA","Buenos Aires","Catamarca","Córdoba","Corrientes","Chaco","Chubut","Entre Ríos","Formosa","Jujuy","La Pampa","La Rioja","Mendoza","Misiones","Neuquén","Rio Negro","Salta","San Juan","San Luis","Santa Cruz","Santa Fé","Santiago del Estero","Tierra del Fuego","Tucumán"];
 const AR_JURISDICCION_ORDER = new Map(AR_JURISDICCIONES.map((name, i) => [name, i]));
+// Menú lateral: el bloque IIBB se despliega/contrae; se abre solo si estás dentro de una de sus pantallas.
+function sideIibbAbierto() {
+  if (state.sideIibb === undefined) { try { state.sideIibb = localStorage.getItem("papeles_side_iibb") === "1"; } catch (e) { state.sideIibb = false; } }
+  return !!state.sideIibb;
+}
 function jurSortIndex(name) { return AR_JURISDICCION_ORDER.has(name) ? AR_JURISDICCION_ORDER.get(name) : 999; }
 function sortedJurisdictions(list) { return (list || []).slice().sort((a, b) => jurSortIndex(a.name) - jurSortIndex(b.name)); }
 // Nomenclador de actividades económicas (Formulario 883 / AFIP) para el
@@ -1859,7 +1866,7 @@ function renderSidebar() {
       <button class="nav-btn ${state.view === "panel" ? "active" : ""}" data-action="nav-view" data-view="panel">📊 Panel de clientes</button>
       <button class="nav-btn ${state.view === "calendario" ? "active" : ""}" data-action="nav-view" data-view="calendario">📅 Calendario de vencimientos</button>
     </div>
-    ${state.clients.some((c) => (c.iibbCM && c.iibbCM.enabled) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<div class="side-section nav-side"><div class="side-label">IIBB</div>${state.clients.some((c) => c.iibbCM && (c.iibbCM.enabled || listPeriodsWithTax(c.id, "iibbCM").length)) ? `<button class="nav-btn ${state.view === "cm05" ? "active" : ""}" data-action="nav-view" data-view="cm05">📑 CM05 · DDJJ anual</button>` : ""}${state.clients.some((c) => nqnDdjjAplica(c, null) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<button class="nav-btn ${state.view === "nqn" ? "active" : ""}" data-action="nav-view" data-view="nqn">📄 DDJJ anual · Neuquén</button>` : ""}<button class="nav-btn ${state.view === "alic" ? "active" : ""}" data-action="nav-view" data-view="alic">🏷️ Actualizar alícuotas</button></div>` : ""}
+    ${state.clients.some((c) => (c.iibbCM && c.iibbCM.enabled) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<div class="side-section nav-side">${(() => { const ab = sideIibbAbierto(); return `<button type="button" class="side-label side-toggle" data-action="side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>IIBB</span><span>${ab ? "▾" : "▸"}</span></button>`; })()}${sideIibbAbierto() ? `${state.clients.some((c) => c.iibbCM && (c.iibbCM.enabled || listPeriodsWithTax(c.id, "iibbCM").length)) ? `<button class="nav-btn ${state.view === "cm05" ? "active" : ""}" data-action="nav-view" data-view="cm05">📑 CM05 · DDJJ anual</button>` : ""}${state.clients.some((c) => nqnDdjjAplica(c, null) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<button class="nav-btn ${state.view === "nqn" ? "active" : ""}" data-action="nav-view" data-view="nqn">📄 DDJJ anual · Neuquén</button>` : ""}<button class="nav-btn ${state.view === "alic" ? "active" : ""}" data-action="nav-view" data-view="alic">🏷️ Actualizar alícuotas</button>` : ""}</div>` : ""}
     ${state.clients.some((c) => monoEnabled(c)) ? `<div class="side-section nav-side"><div class="side-label">Monotributo</div><button class="nav-btn ${state.view === "recat" ? "active" : ""}" data-action="nav-view" data-view="recat">🧾 Recategorización</button></div>` : ""}
     <div class="side-section">
       <div class="side-label-row">
@@ -4636,7 +4643,7 @@ document.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const a = btn.dataset.action;
-  if (a === "nav-view") { state.view = btn.dataset.view; render(); }
+  if (a === "nav-view") { state.view = btn.dataset.view; if (["cm05", "nqn", "alic"].includes(state.view)) state.sideIibb = true; render(); }
   else if (a === "panel-abrir") {
     state.view = "client"; state.currentClientId = btn.dataset.client;
     state.currentPeriod = btn.dataset.period || state.panelPeriod;
@@ -4659,6 +4666,7 @@ document.addEventListener("click", (e) => {
   else if (a === "evo-view") { state.evoView = btn.dataset.view; render(); }
   else if (a === "evo-forma") { state.evoForma = btn.dataset.forma; render(); }
   else if (a === "evo-base") { state.evoBase = btn.dataset.base; render(); }
+  else if (a === "side-toggle") { state.sideIibb = !sideIibbAbierto(); try { localStorage.setItem("papeles_side_iibb", state.sideIibb ? "1" : "0"); } catch (e) {} render(); }
   else if (a === "mono-otros") { state.monoOtros = state.monoOtros || {}; state.monoOtros[state.currentClientId] = !state.monoOtros[state.currentClientId]; render(); }
   else if (a === "mono-escala-abrir") renderMonoEscalaModal();
   else if (a === "mono-cred-abrir") renderMonoCredModal(btn.dataset.clientid);
