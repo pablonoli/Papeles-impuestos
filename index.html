@@ -6647,13 +6647,11 @@ function exportAlicExcel() {
         cell.s = Object.assign({}, cell.s || {}, { fill: { patternType: "solid", fgColor: { rgb: AMAR } }, font: Object.assign({}, (cell.s || {}).font || {}, { bold: true }) });
       }
     }
-    // la celda combinada del cliente se pinta amarilla si alguna de sus actividades cambió
-    merges.forEach((m) => {
-      if (m.s.c !== 0 || m.s.r < 4) return;
-      let alguno = false; for (let r = m.s.r; r <= m.e.r; r++) if (cambia.indexOf(r) !== -1) alguno = true;
-      const cell = ws[XLSX.utils.encode_cell({ r: m.s.r, c: 0 })];
-      if (cell) cell.s = Object.assign({}, cell.s || {}, { font: Object.assign({}, (cell.s || {}).font || {}, { bold: true }), alignment: { horizontal: "left", vertical: "center", wrapText: true } });
-    });
+    // nombre del cliente siempre en negrita (tenga una o varias actividades)
+    for (let R = 4; R < rows.length; R++) {
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: 0 })];
+      if (cell && rows[R][0] !== "") cell.s = Object.assign({}, cell.s || {}, { font: Object.assign({}, (cell.s || {}).font || {}, { bold: true }), alignment: { horizontal: "left", vertical: "center", wrapText: true } });
+    }
     let nombreHoja = jur.replace(/[\\\/\?\*\[\]:]/g, "").slice(0, 31) || "Hoja";
     let k = 2; while (wb.SheetNames.indexOf(nombreHoja) !== -1) nombreHoja = nombreHoja.slice(0, 28) + " " + k++;
     XLSX.utils.book_append_sheet(wb, ws, nombreHoja);
