@@ -3432,7 +3432,7 @@ function alertasCliente(client, period) {
   }
   if (monoEnabled(client)) {
     const m = monoCalc(client, period);
-    if (m.pctMax != null && m.pctMax >= 1) out.push({ nivel: "bad", texto: "Monotributo: superó el tope máximo (exclusión)" });
+    if (m.pctMax != null && m.pctMax >= 1) out.push({ nivel: "bad", texto: `Monotributo: superó el tope máximo (exclusión) · ${monoRango(m.meses[0].period, period)}: ${fmtCompact(m.total12)} de ${fmtCompact(m.maxTope)}` });
     else if (m.pctMax != null && m.pctMax >= 0.85) out.push({ nivel: "bad", texto: `Monotributo: cerca de la exclusión (faltan ${fmtCompact(m.faltaExclusion)})` });
     if (m.nivel === "excede") out.push({ nivel: "bad", texto: `Monotributo: superó el tope${m.sugerida ? " — pasa a cat. " + m.sugerida : ""}` });
     else if (m.nivel === "cerca") out.push({ nivel: "warn", texto: `Monotributo: faltan ${fmtCompact(m.faltaSubir)} para subir${m.siguiente ? " a " + m.siguiente : ""}` });
@@ -3700,7 +3700,7 @@ function monoSummaryHtml(client, period) {
       <div class="kpi"><span class="k-label">Categoría</span><span class="k-value">${m.categoria ? escapeHtml(m.categoria) : "—"}</span><span class="k-sub">${m.tipo === "bienes" ? "Venta de bienes" : "Prestación de servicios"}</span></div>
       <div class="kpi"><span class="k-label">Para recategorizar (${c.vent.recat})</span><span class="k-value">${fmtMoney(c.total)}</span><span class="k-sub">${rangoTrans} · ${c.cargadosV} de ${c.trans.length} meses cargados</span></div>
       <div class="kpi"><span class="k-label">Tope de la categoría</span><span class="k-value">${c.tope > 0 ? fmtMoney(c.tope) : "—"}</span><span class="k-sub">${c.tope > 0 ? (c.total <= c.tope ? "Margen: " + fmtMoney(c.tope - c.total) : "Excedido en " + fmtMoney(c.total - c.tope)) : "Sin escala o categoría"}</span></div>
-      <div class="kpi"><span class="k-label">12 meses (exclusión)</span><span class="k-value">${fmtMoney(c.total12)}</span><span class="k-sub">${c.pctMax != null ? Math.round(c.pctMax * 100) + "% del tope máximo (" + c.maxCat + ")" : c.cargados + " de 12 meses cargados"}</span></div>
+      <div class="kpi"><span class="k-label">12 meses (exclusión)</span><span class="k-value">${fmtMoney(c.total12)}</span><span class="k-sub">${c.pctMax != null ? Math.round(c.pctMax * 100) + "% del tope máximo (" + c.maxCat + ") · " + monoRango(c.meses[0].period, c.meses[11].period) : c.cargados + " de 12 meses cargados"}</span></div>
       <div class="kpi" role="button" tabindex="0" style="cursor:pointer;" title="Ver y editar los componentes de la cuota" data-action="mono-cred-abrir" data-clientid="${client.id}"><span class="k-label">Cuota mensual · componentes ›</span><span class="k-value">${c.cuotaTotal > 0 ? fmtMoney(c.cuotaTotal) : "—"}</span><span class="k-sub">${c.desglose ? ([c.comp.integrado && "Integrado", c.comp.sipa && "SIPA", c.comp.os && "Obra social", c.iibb > 0 && "IIBB " + c.iibbProv, c.muni > 0 && "Municipal"].filter(Boolean).join(" + ") || "Sin componentes") : (c.iibb > 0 ? "Incluye IIBB " + escapeHtml(c.iibbProv) : "Integrado + SIPA + obra social")}</span></div>
     </div>
     ${barra}
