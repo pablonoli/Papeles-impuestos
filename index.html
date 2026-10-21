@@ -4649,6 +4649,14 @@ document.addEventListener("click", (e) => {
   else if (a === "alic-jur") { state.alicJur = btn.dataset.key; render(); }
   else if (a === "cm05-coef") renderCm05CoefModal(btn.dataset.clientid, btn.dataset.anio);
   else if (a === "cm05-coef-guardar") cm05CoefGuardar(btn.dataset.clientid, btn.dataset.anio);
+  else if (a === "cm05-vence-todos") {
+    const v = (document.getElementById("cm05-vence-todos") || {}).value, anio = btn.dataset.anio;
+    if (!v) { showToast("Elegí primero la fecha de vencimiento."); return; }
+    state.cm05VenceTodos = state.cm05VenceTodos || {}; state.cm05VenceTodos[anio] = v;
+    const cl = state.clients.filter((c) => cm05Aplica(c, anio) && !cm05Reg(c, anio).presentado);
+    cl.forEach((c) => cm05Set(c.id, anio, "vence", v));
+    render(); showToast(`Vencimiento ${fmtFechaCorta(v)} aplicado a ${cl.length} cliente${cl.length === 1 ? "" : "s"} (los ya presentados no se tocan).`);
+  }
   else if (a === "cm05-pres-chip") { const r = cm05Reg(getClient(btn.dataset.clientid), btn.dataset.anio); cm05Set(btn.dataset.clientid, btn.dataset.anio, "presentado", !r.presentado); render(); }
   else if (a === "cm05-aplicar") cm05Aplicar(btn.dataset.clientid, btn.dataset.period, false);
   else if (a === "cm05-quitar") cm05Aplicar(btn.dataset.clientid, btn.dataset.period, true);
@@ -6857,9 +6865,12 @@ function cm05CoefGuardar(clientId, anio) {
 }
 function renderCm05View() {
   const hoyY = periodYear(todayPeriod());
-  if (!state.cm05Anio) state.cm05Anio = String(hoyY - 1);
+  // Años visibles: desde el primero con clientes sin presentar (los años ya presentados para todos se ocultan).
+  const completo = (y) => { const cl = state.clients.filter((c) => cm05Aplica(c, String(y))); return cl.every((c) => cm05Reg(c, String(y)).presentado); };
+  const anios = []; let y0 = Number(MIN_PERIOD.slice(0, 4)) - 1; while (y0 < hoyY && completo(y0)) y0++;
+  for (let y = y0; y <= hoyY; y++) anios.push(String(y));
+  if (!state.cm05Anio) state.cm05Anio = anios.find((y) => Number(y) >= Number(MIN_PERIOD.slice(0, 4)) && !completo(y)) || anios[anios.length - 1];
   const anio = state.cm05Anio;
-  const anios = []; for (let y = 2025; y <= hoyY; y++) anios.push(String(y));
   if (!anios.includes(anio)) anios.push(anio);
   const clientes = state.clients.filter((c) => cm05Aplica(c, anio)).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
   const filas = clientes.map((c) => ({ c, r: cm05Reg(c, anio), est: cm05Estado(c, anio) }));
@@ -6889,7 +6900,7 @@ function renderCm05View() {
         <div class="kpi"><span class="k-label">Presentados</span><span class="k-value">${nPres} / ${filas.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${filas.length ? Math.round(nPres / filas.length * 100) : 0}%;background:var(--favor);"></i></div></div>
         <div class="kpi ${nAj ? "state-pagar" : ""}"><span class="k-label">Con tarea pendiente</span><span class="k-value">${nAj}</span><span class="k-sub">coeficientes o ajuste por cargar</span></div>
       </div>
-      <div class="card"><div class="card-head"><h3>Presentación del CM05 ${anio}</h3><span class="hint">Entran los clientes que estuvieron en Convenio ese año, aunque ya no lo estén</span></div>
+      <div class="card"><div class="card-head"><h3>Presentación del CM05 ${anio}</h3>${filas.length ? `<span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><span class="hint-sm">Vencimiento para todos</span><input type="date" id="cm05-vence-todos" style="width:132px;padding:5px 6px;font-size:12.5px;" value="${escapeHtml((state.cm05VenceTodos || {})[anio] || (() => { const c = {}; filas.forEach((f) => { if (f.r.vence) c[f.r.vence] = (c[f.r.vence] || 0) + 1; }); return Object.keys(c).sort((a, b) => c[b] - c[a])[0] || ""; })())}"><button type="button" class="btn btn-sm btn-accent" data-action="cm05-vence-todos" data-anio="${anio}" title="Pone esta fecha a todos los clientes que todavía no presentaron">Aplicar a todos</button></span>` : ""}</div>
         <div class="card-body"><div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Cliente</th><th>Estado</th><th>Vence</th><th>Presentado</th><th>Coef. nuevos</th><th style="text-align:left;">Ajuste de base</th></tr>${trs}</table></div></div></div>
       <p class="foot-note">Al presentar el CM05, cargá acá los coeficientes nuevos: rigen desde el mes siguiente al último período declarado (si lo dejás vacío, desde enero del año siguiente). Ese período lleva el ajuste de enero hasta el último declarado, que se calcula y se carga en la solapa IIBB CM.</p>
     </div>`;
