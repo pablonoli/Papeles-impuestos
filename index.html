@@ -4672,6 +4672,7 @@ document.addEventListener("click", (e) => {
   else if (a === "mono-cred-abrir") renderMonoCredModal(btn.dataset.clientid);
   else if (a === "mono-recat-abrir") renderMonoRecatModal();
   else if (a === "alic-aplicar") alicAplicar();
+  else if (a === "alic-excel") exportAlicExcel();
   else if (a === "alic-esc") renderAlicEscModal(btn.dataset.key, false);
   else if (a === "alic-esc-nqn") alicEscalaNqnCargar();
   else if (a === "alic-tramo-agregar") { alicEscDraftLeer(); state.escDraft.tramos.splice(state.escDraft.tramos.length - 1, 0, { hasta: "", alic: "" }); renderAlicEscModal(null, true); }
@@ -6597,6 +6598,84 @@ function alicAplicar() {
   state.alicMsg = filas.length ? `Se cargó la vigencia desde ${periodLabel(desde)}: ${filas.length} alícuota${filas.length === 1 ? "" : "s"} en ${clientes.size} cliente${clientes.size === 1 ? "" : "s"}.` : "No había alícuotas nuevas para cargar.";
   render();
 }
+// ---- Exportar a Excel el registro de alícuotas (vigentes a la fecha elegida) ----
+function alicOrigen(client, ci, f, desde) {
+  const jur = ci.tipo === "CM" ? ci.jurName : client.iibbLocal.jurisdiccion;
+  let exp = null;
+  if (ci.tipo === "CM") {
+    const vigs = (client.iibbCM.alicVig || []).filter((v) => v.desde && v.desde <= desde).sort((a, b) => b.desde.localeCompare(a.desde));
+    for (const v of vigs) { const x = v.valores && v.valores[ci.jurName] && v.valores[ci.jurName][f.code]; if (x !== undefined && x !== null && x !== "") { exp = { desde: v.desde, forzada: !!(v.forzar && v.forzar[ci.jurName] && v.forzar[ci.jurName][f.code]) }; break; } }
+  } else {
+    const a = (client.iibbLocal.activities || []).find((x) => x.code === f.code);
+    const h = a ? (a.alicHist || []).filter((v) => v.desde && v.desde <= desde).sort((x, y) => y.desde.localeCompare(x.desde))[0] : null;
+    if (h) exp = { desde: h.desde, forzada: !!h.forzada };
+  }
+  const tv = alicTramosVig(jur, f.code, desde);
+  if (tv && !(exp && exp.forzada && exp.desde >= tv.desde)) {
+    if (!clienteCumple(client, tv.req)) return `${tv.esc.nombre}: no aplica (no es ${tv.req === "micro" ? "microempresa" : "micro/pequeña empresa"})`;
+    const anio = periodYear(desde) - 1, ing = ingresosJur(client, anio, jur);
+    if (!ing) return `${tv.esc.nombre}: falta el ingreso ${anio}`;
+    if (alicDeTramos(tv.tramos, ing.monto) !== null) return `${tv.esc.nombre} (ingresos ${anio}: ${fmtMoney(ing.monto)})`;
+  }
+  if (exp) return exp.forzada ? "Valor propio del cliente" : `Actualización desde ${periodLabel(exp.desde)}`;
+  return "Alícuota base";
+}
+function exportAlicExcel() {
+  if (typeof XLSX === "undefined") { showToast("No se pudo cargar el generador de Excel"); return; }
+  const desde = state.alicDesde || alicDesdeDefault(), prev = addMonths(desde, -1);
+  const filas = alicFilas(desde);
+  const hoyTxt = new Date().toLocaleDateString("es-AR");
+  const alicEn = (c, ci, f, p) => ci.tipo === "CM" ? alicCM(c, ci.jurName, f.code, p) : alicLocal((c.iibbLocal.activities || []).find((x) => x.code === f.code) || {}, p, c);
+  const uno = (arr) => { const u = Array.from(new Set(arr)); return u.length === 1 ? u[0] : "varía"; };
+  const wb = XLSX.utils.book_new();
+  // Hoja 1: resumen por jurisdicción y actividad
+  const r1 = [[`Alícuotas de IIBB — vigentes desde ${periodLabel(desde)}`], [`Generado el ${hoyTxt}. "Anterior" = alícuota vigente a ${periodLabel(prev)}.`], [], ["Jurisdicción", "Actividad", "Descripción", "Clientes", "Alícuota anterior", "Alícuota nueva", "Escala", "Cambia"]];
+  const fmts = new Map(), pctF = '0.00"%"';
+  filas.forEach((f) => {
+    const pares = f.clientes.map((ci) => { const c = getClient(ci.id); return { a: alicEn(c, ci, f, prev), n: alicEn(c, ci, f, desde) }; });
+    const es = alicEscalaDe(f.jur, f.code);
+    const R = r1.length;
+    const ant = uno(pares.map((x) => x.a)), nue = uno(pares.map((x) => x.n));
+    r1.push([f.jur, f.code, f.desc || "", new Set(f.clientes.map((c) => c.id)).size, ant, nue, es ? es.nombre : "", pares.some((x) => x.a !== x.n) ? "Sí" : ""]);
+    if (typeof ant === "number") fmts.set(R + ":4", pctF); if (typeof nue === "number") fmts.set(R + ":5", pctF);
+  });
+  const ws1 = newSheet(r1, { colWidths: [16, 11, 60, 10, 16, 16, 18, 9], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } }], headerRows: [3], skipCols: [1, 3], formats: fmts, wrapCols: [2] });
+  recatAlinear(ws1, true);
+  XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
+  // Hoja 2: por cliente
+  const r2 = [[`Detalle por cliente — vigente desde ${periodLabel(desde)}`], [`Generado el ${hoyTxt}`], [], ["Cliente", "CUIT", "Tipo", "Jurisdicción", "Actividad", "Descripción", "Alícuota anterior", "Alícuota nueva", "Origen de la alícuota nueva"]];
+  const fmts2 = new Map();
+  filas.forEach((f) => f.clientes.slice().sort((a, b) => a.name.localeCompare(b.name, "es")).forEach((ci) => {
+    const c = getClient(ci.id), R = r2.length;
+    r2.push([c.name, c.cuit || "", ci.tipo === "CM" ? "Convenio Multilateral" : "Local", f.jur, f.code, f.desc || "", alicEn(c, ci, f, prev), alicEn(c, ci, f, desde), alicOrigen(c, ci, f, desde)]);
+    fmts2.set(R + ":6", pctF); fmts2.set(R + ":7", pctF);
+  }));
+  const ws2 = newSheet(r2, { colWidths: [30, 15, 20, 16, 11, 50, 15, 15, 52], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } }], headerRows: [3], skipCols: [4], formats: fmts2, wrapCols: [0] });
+  recatAlinear(ws2, true);
+  XLSX.utils.book_append_sheet(wb, ws2, "Por cliente");
+  // Hoja 3: escalas
+  const esc = Object.values(getExtras().alicEscalas || {});
+  const r3 = [["Escalas por ingresos"], [`Alícuota según los ingresos del ejercicio anterior atribuidos a la jurisdicción. Generado el ${hoyTxt}.`], [], ["Escala", "Jurisdicción", "Alcanza a", "Vigente desde", "Ingresos hasta", "Alícuota", "Actividades en uso"]];
+  const fmts3 = new Map(), usados = new Set(filas.map((f) => f.jur + "|" + f.code));
+  esc.forEach((e) => (e.vig || []).slice().sort((a, b) => b.desde.localeCompare(a.desde)).forEach((v) => {
+    const enUso = (e.codes || []).filter((cd) => usados.has(e.jur + "|" + cd));
+    v.tramos.forEach((t, i) => {
+      const R = r3.length;
+      r3.push([e.nombre, e.jur, e.req === "micro" ? "Sólo microempresas" : e.req === "micropeq" ? "Micro o pequeñas empresas" : "Todos", periodLabel(v.desde), t.hasta == null ? "Más del tramo anterior" : t.hasta, t.alic == null ? "La de la actividad" : t.alic, i === 0 ? (enUso.join(", ") || "Ninguna") + ` (${(e.codes || []).length} códigos en total)` : ""]);
+      if (t.alic != null) fmts3.set(R + ":5", pctF);
+      if (t.hasta != null) fmts3.set(R + ":4", "#,##0.00");
+    });
+  }));
+  if (!esc.length) r3.push(["No hay escalas cargadas", "", "", "", "", "", ""]);
+  const ws3 = newSheet(r3, { colWidths: [18, 16, 26, 16, 22, 20, 60], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } }], headerRows: [3], formats: fmts3, wrapCols: [6] });
+  recatAlinear(ws3, true);
+  XLSX.utils.book_append_sheet(wb, ws3, "Escalas");
+  const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const filename = `Alicuotas_IIBB_desde_${desde}.xlsx`;
+  if (state.downloads) state.downloads.save({ filename, data: blob }).then(() => showToast("Excel descargado")).catch((err) => { if (!(err && err.code === "declined")) showToast("No se pudo descargar el Excel"); });
+  else { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); }
+}
 function alicCambia(f) {
   const n = state.alicNuevas || {}, c = state.alicCli || {};
   return String(n[f.k] || "").trim() !== "" || f.clientes.some((ci) => String(c[f.k + "|" + ci.id + "|" + ci.tipo] || "").trim() !== "");
@@ -6776,9 +6855,10 @@ function renderAlicView() {
   return `
     <div class="topbar"><div class="client-title"><h1>Actualización de alícuotas IIBB</h1><div class="meta"><span>Elegí la jurisdicción y completá sólo las alícuotas que cambian</span></div></div>
       <div class="topbar-actions"><label class="hint-sm" style="display:flex;align-items:center;gap:6px;">Vigente desde <input type="month" data-action="alic-desde" value="${desde}" min="${MIN_PERIOD}"></label>
+        <button class="btn" data-action="alic-excel" title="Excel con las alícuotas vigentes desde esta fecha (resumen, detalle por cliente y escalas)">⬇ Exportar a Excel</button>
         <button class="btn btn-accent" data-action="alic-aplicar" ${nCambios ? "" : "disabled"}>Aplicar${nCambios ? ` (${nCambios})` : ""}</button></div></div>
     <div style="display:flex;flex-direction:column;gap:16px;">
-      ${state.alicMsg ? `<div class="card"><div class="card-body" style="color:var(--accent-strong);">✔ ${escapeHtml(state.alicMsg)}</div></div>` : ""}
+      ${state.alicMsg ? `<div class="card"><div class="card-body" style="color:var(--accent-strong);display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;"><span>✔ ${escapeHtml(state.alicMsg)}</span><button class="btn btn-sm" data-action="alic-excel">⬇ Descargar registro</button></div></div>` : ""}
       ${cuerpo}
       <p class="foot-note">Las vacías quedan igual. La actualización crea una vigencia nueva y no modifica los períodos anteriores a la fecha elegida.</p>
     </div>`;
