@@ -1859,7 +1859,7 @@ function renderSidebar() {
       <button class="nav-btn ${state.view === "panel" ? "active" : ""}" data-action="nav-view" data-view="panel">📊 Panel de clientes</button>
       <button class="nav-btn ${state.view === "calendario" ? "active" : ""}" data-action="nav-view" data-view="calendario">📅 Calendario de vencimientos</button>
     </div>
-    ${state.clients.some((c) => (c.iibbCM && c.iibbCM.enabled) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<div class="side-section nav-side"><div class="side-label">IIBB</div>${state.clients.some((c) => c.iibbCM && (c.iibbCM.enabled || listPeriodsWithTax(c.id, "iibbCM").length)) ? `<button class="nav-btn ${state.view === "cm05" ? "active" : ""}" data-action="nav-view" data-view="cm05">📑 CM05 · DDJJ anual</button>` : ""}${state.clients.some((c) => nqnDdjjAplica(c, null)) ? `<button class="nav-btn ${state.view === "nqn" ? "active" : ""}" data-action="nav-view" data-view="nqn">📄 DDJJ anual · Neuquén</button>` : ""}<button class="nav-btn ${state.view === "alic" ? "active" : ""}" data-action="nav-view" data-view="alic">🏷️ Actualizar alícuotas</button></div>` : ""}
+    ${state.clients.some((c) => (c.iibbCM && c.iibbCM.enabled) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<div class="side-section nav-side"><div class="side-label">IIBB</div>${state.clients.some((c) => c.iibbCM && (c.iibbCM.enabled || listPeriodsWithTax(c.id, "iibbCM").length)) ? `<button class="nav-btn ${state.view === "cm05" ? "active" : ""}" data-action="nav-view" data-view="cm05">📑 CM05 · DDJJ anual</button>` : ""}${state.clients.some((c) => nqnDdjjAplica(c, null) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<button class="nav-btn ${state.view === "nqn" ? "active" : ""}" data-action="nav-view" data-view="nqn">📄 DDJJ anual · Neuquén</button>` : ""}<button class="nav-btn ${state.view === "alic" ? "active" : ""}" data-action="nav-view" data-view="alic">🏷️ Actualizar alícuotas</button></div>` : ""}
     ${state.clients.some((c) => monoEnabled(c)) ? `<div class="side-section nav-side"><div class="side-label">Monotributo</div><button class="nav-btn ${state.view === "recat" ? "active" : ""}" data-action="nav-view" data-view="recat">🧾 Recategorización</button></div>` : ""}
     <div class="side-section">
       <div class="side-label-row">
@@ -6964,7 +6964,7 @@ function nqnVencimientos(client) {
   return Object.keys(reg).filter((a) => reg[a] && reg[a].vence).map((a) => ({ anio: a, iso: reg[a].vence, pres: !!reg[a].presentado }));
 }
 function nqnDdjjAplica(client, anio) {
-  if (!client.iibbLocal || jurCanon(client.iibbLocal.jurisdiccion) !== "Neuquén") return false;
+  if (!client.iibbLocal || !normalizeSearch(String(client.iibbLocal.jurisdiccion || "")).includes("neuquen")) return false;
   if (!anio) return !!client.iibbLocal.enabled || listPeriodsWithTax(client.id, "iibbLocal").length > 0;
   return !!client.iibbLocal.enabled || listPeriodsWithTax(client.id, "iibbLocal").some((p) => periodYear(p) === Number(anio));
 }
@@ -7006,7 +7006,7 @@ function renderNqnView() {
       <td class="num">${fmtMoney(d.impuesto)}</td>
       <td style="text-align:center;"><button type="button" class="btn btn-sm" data-action="nqn-detalle" data-clientid="${c.id}" data-anio="${anio}">Ver detalle</button></td>
     </tr>`;
-  }).join("") || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Ningún cliente tiene IIBB local en Neuquén.</td></tr>`;
+  }).join("") || `<tr><td colspan="7" style="text-align:left;color:var(--muted);padding:20px;">Ningún cliente tiene IIBB local en Neuquén. Para que aparezca, en Configuración → IIBB Local del cliente tiene que estar activado y con la jurisdicción <b>Neuquén</b>.${(() => { const otros = state.clients.filter((c) => c.iibbLocal && c.iibbLocal.enabled); return otros.length ? `<div class="hint-sm" style="margin-top:8px;">Clientes con IIBB local cargado: ${otros.map((c) => escapeHtml(c.name) + " (" + escapeHtml(c.iibbLocal.jurisdiccion || "sin jurisdicción") + ")").join(" · ")}</div>` : ""; })()}</td></tr>`;
   return `
     <div class="topbar"><div class="client-title"><h1>DDJJ anual · IIBB Neuquén</h1><div class="meta"><span>Régimen general · IIBB local</span><span>·</span><span>ejercicio ${anio}</span></div></div>
       <div class="topbar-actions"><select data-action="nqn-anio" title="Ejercicio">${anios.map((y) => `<option value="${y}" ${y === anio ? "selected" : ""}>DDJJ ${y}</option>`).join("")}</select></div></div>
