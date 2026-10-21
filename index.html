@@ -3432,10 +3432,10 @@ function alertasCliente(client, period) {
   }
   if (monoEnabled(client)) {
     const m = monoCalc(client, period);
-    if (m.pctMax != null && m.pctMax >= 1) out.push({ nivel: "bad", texto: `Monotributo: superó el tope máximo (exclusión) · ${monoRango(m.meses[0].period, period)}: ${fmtCompact(m.total12)} de ${fmtCompact(m.maxTope)}` });
-    else if (m.pctMax != null && m.pctMax >= 0.85) out.push({ nivel: "bad", texto: `Monotributo: cerca de la exclusión (faltan ${fmtCompact(m.faltaExclusion)})` });
-    if (m.nivel === "excede") out.push({ nivel: "bad", texto: `Monotributo: superó el tope${m.sugerida ? " — pasa a cat. " + m.sugerida : ""}` });
-    else if (m.nivel === "cerca") out.push({ nivel: "warn", texto: `Monotributo: faltan ${fmtCompact(m.faltaSubir)} para subir${m.siguiente ? " a " + m.siguiente : ""}` });
+    if (m.pctMax != null && m.pctMax >= 1) out.push({ tab: "mono", nivel: "bad", texto: `Monotributo: superó el tope máximo (exclusión) · ${monoRango(m.meses[0].period, period)}: ${fmtCompact(m.total12)} de ${fmtCompact(m.maxTope)}` });
+    else if (m.pctMax != null && m.pctMax >= 0.85) out.push({ tab: "mono", nivel: "bad", texto: `Monotributo: cerca de la exclusión (faltan ${fmtCompact(m.faltaExclusion)})` });
+    if (m.nivel === "excede") out.push({ tab: "mono", nivel: "bad", texto: `Monotributo: superó el tope${m.sugerida ? " — pasa a cat. " + m.sugerida : ""}` });
+    else if (m.nivel === "cerca") out.push({ tab: "mono", nivel: "warn", texto: `Monotributo: faltan ${fmtCompact(m.faltaSubir)} para subir${m.siguiente ? " a " + m.siguiente : ""}` });
   }
   return out;
 }
@@ -3575,13 +3575,8 @@ function monoNivelHtml(c) {
   if (c.nivel === "ok") return `<span class="pill favor">✓ Dentro del tope</span>`;
   return "";
 }
-function renderMonoTab(client) {
-  const period = state.currentPeriod;
-  const c = monoCalc(client, period);
-  const m = client.mono || {};
-  const escalaOk = monoEscalaCargada();
-  const vto = vencimientoDe(client, "mono", period);
-  const dias = diasHasta(vto);
+function monoAvisosHtml(client, period) {
+  const c = monoCalc(client, period), m = client.mono || {}, escalaOk = monoEscalaCargada();
   const aviso = !escalaOk
     ? `<div class="warn-banner"><div class="wb-text"><b>Falta cargar la escala vigente de Monotributo.</b> Sin la escala no se puede calcular el tope, la cuota ni la categoría que corresponde.</div><div class="wb-actions"><button class="btn btn-sm" data-action="mono-escala-abrir">Cargar escala</button></div></div>`
     : !m.categoria ? `<div class="warn-banner"><div class="wb-text"><b>Este cliente no tiene categoría asignada.</b> Elegila en "Datos del Monotributo", más abajo.</div></div>` : "";
@@ -3592,7 +3587,18 @@ function renderMonoTab(client) {
     else if (c.tope > 0 && c.total > c.tope && c.sugerida) reco = `<div class="warn-banner"><div class="wb-text"><b>Categoría sugerida: ${c.sugerida}</b> (hoy: ${escapeHtml(m.categoria)}). Ya superaste el tope de la ${escapeHtml(m.categoria)} con ${fmtMoney(c.total)} facturados en el período de la recategorización de ${c.vent.recat} (${rango}).</div></div>`;
     else if (c.mesesRest === 0 && c.sugerida && m.categoria && c.sugerida !== m.categoria) reco = `<div class="warn-banner"><div class="wb-text"><b>Categoría sugerida: ${c.sugerida}</b> (hoy: ${escapeHtml(m.categoria)}). Con ${fmtMoney(c.total)} facturados en ${rango}, podría recategorizar hacia abajo en la recategorización de ${c.vent.recat}.</div></div>`;
   }
+  return aviso + reco;
+}
+function renderMonoTab(client) {
+  const period = state.currentPeriod;
+  const c = monoCalc(client, period);
+  const m = client.mono || {};
+  const escalaOk = monoEscalaCargada();
+  const vto = vencimientoDe(client, "mono", period);
+  const dias = diasHasta(vto);
   const enVent = {}; c.vent && c.trans.forEach((p) => { enVent[p] = true; });
+  const en12 = new Set(c.meses.map((x) => x.period)), abiertoOtros = !!(state.monoOtros || {})[client.id];
+  const otros = Object.keys(state.periods[client.id] || {}).filter((p) => !en12.has(p)).sort().reverse().map((p) => { const d = getDoc(client.id, p), raw = d && d.mono ? d.mono.facturacion : undefined; return { period: p, raw, valor: num(raw) }; }).filter((x) => x.raw !== undefined && x.raw !== null && String(x.raw).trim() !== "");
   const filas = c.meses.slice().reverse().map((x) => `
     <tr>
       <td style="text-align:left;">${enVent[x.period] ? `<span title="Entra en el período de la recategorización de ${c.vent.recat}" style="color:var(--accent);">●</span> ` : ""}${periodLabel(x.period)}</td>
@@ -3600,7 +3606,7 @@ function renderMonoTab(client) {
     </tr>`).join("");
   return `
     <div id="mono-wrap" style="display:flex;flex-direction:column;gap:16px;max-width:900px;">
-      ${aviso}${reco}
+      <div id="mono-avisos" style="display:contents;">${monoAvisosHtml(client, period)}</div>
       <div id="mono-summary">${monoSummaryHtml(client, period)}</div>
       <div class="card">
         <div class="card-head"><h3>Datos del Monotributo</h3><span class="hint">Valen para todos los períodos de este cliente</span></div>
@@ -3618,9 +3624,13 @@ function renderMonoTab(client) {
           <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Mes</th><th>Facturado</th></tr>${filas}</table></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
             <label class="btn btn-sm" style="display:inline-flex;cursor:pointer;">📂 Importar ventas del año (Excel o CSV de ARCA)<input type="file" accept=".xlsx,.xls,.csv" style="display:none;" data-action="import-mono-file" data-clientid="${client.id}" data-period="${period}"></label>
+            ${otros.length ? `<button class="btn btn-sm" data-action="mono-otros">🗓 ${abiertoOtros ? "Ocultar" : "Ver"} otros meses cargados (${otros.length})</button>` : ""}
             <button class="btn btn-sm" data-action="mono-escala-abrir">⚙ Escala vigente${getExtras().monoEscala.vigencia ? " (" + escapeHtml(getExtras().monoEscala.vigencia) + ")" : ""}</button>
             <span class="hint-sm">Cuota vence el ${vto ? fmtFechaCorta(vto) : "—"} ${vto ? `<span class="u-${urgenciaDe(dias)}">${URG_ICON[urgenciaDe(dias)]} ${diasTexto(dias)}</span>` : ""}</span>
           </div>
+          ${otros.length && abiertoOtros ? `<div style="margin-top:12px;"><h4 class="subhead" style="margin:0 0 4px;">Otros meses con facturación cargada</h4>
+            <p class="hint-sm" style="margin:0 0 6px;">Están fuera de los 12 meses de ${periodLabel(period)} (no cuentan acá), pero sí entran en otros períodos. Total: <b>${fmtMoney(round2(otros.reduce((t, x) => t + x.valor, 0)))}</b>. Podés corregirlos o borrarlos.</p>
+            <div class="table-scroll"><table style="min-width:0;"><tr><th style="text-align:left;">Mes</th><th>Facturado</th></tr>${otros.map((x) => `<tr><td style="text-align:left;">${periodLabel(x.period)}</td><td><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(getDeep(getDoc(client.id, x.period) || {}, "mono.facturacion", ""), "money")}" data-action="mono-fact" data-clientid="${client.id}" data-period="${x.period}"></td></tr>`).join("")}</table></div></div>` : ""}
         </div>
       </div>
     </div>`;
@@ -3952,7 +3962,7 @@ function renderPanelView() {
     const prox = f.proximo
       ? `<span class="u-${urgenciaDe(f.proximo.dias)}"><b>${URG_ICON[urgenciaDe(f.proximo.dias)]} ${fmtFechaCorta(f.proximo.vto)}</b></span><div class="hint-sm">${TAX_LABEL[f.proximo.key]} · ${diasTexto(f.proximo.dias)}</div>`
       : (f.taxes.length && !f.faltan ? `<span class="evo-t-favor">✓ Todo presentado</span>` : (f.faltan ? `<span class="hint-sm">Sin fecha de vencimiento</span>` : `<span class="hint-sm">—</span>`));
-    const alertas = f.alertas.map((a) => `<div class="al al-${a.nivel}">${a.nivel === "bad" ? "⛔" : "⚠"} ${escapeHtml(a.texto)}</div>`).join("");
+    const alertas = f.alertas.map((a) => `<div class="al al-${a.nivel}">${a.nivel === "bad" ? "⛔" : "⚠"} ${a.tab ? `<button type="button" class="linklike" style="color:inherit;text-align:left;" title="Ver el detalle mes a mes" data-action="panel-abrir" data-client="${c.id}" data-tab="${a.tab}" data-period="${period}">${escapeHtml(a.texto)}</button>` : escapeHtml(a.texto)}</div>`).join("");
     return `<tr>
       <td style="text-align:left;"><button type="button" class="linklike" data-action="panel-abrir" data-client="${c.id}" data-tab="resumen"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div></td>
       <td style="text-align:left;"><div class="ests">${(f.taxes.map((t) => chipEstadoHtml(t, c.id, period)).join("") + cm05ChipHtml(c, period)) || `<span class="hint-sm">Sin impuestos</span>`}</div></td>
@@ -4635,6 +4645,7 @@ document.addEventListener("click", (e) => {
   else if (a === "evo-view") { state.evoView = btn.dataset.view; render(); }
   else if (a === "evo-forma") { state.evoForma = btn.dataset.forma; render(); }
   else if (a === "evo-base") { state.evoBase = btn.dataset.base; render(); }
+  else if (a === "mono-otros") { state.monoOtros = state.monoOtros || {}; state.monoOtros[state.currentClientId] = !state.monoOtros[state.currentClientId]; render(); }
   else if (a === "mono-escala-abrir") renderMonoEscalaModal();
   else if (a === "mono-cred-abrir") renderMonoCredModal(btn.dataset.clientid);
   else if (a === "mono-recat-abrir") renderMonoRecatModal();
@@ -4646,7 +4657,7 @@ document.addEventListener("click", (e) => {
   else if (a === "alic-esc-guardar") alicEscGuardar();
   else if (a === "alic-esc-borrar") { const d = state.escDraft; if (d && d.id) { delete getExtras().alicEscalas[d.id]; persistExtras(); } state.escDraft = null; document.getElementById("modal-root").innerHTML = ""; render(); }
   else if (a === "alic-exp") { state.alicExp = state.alicExp || {}; state.alicExp[btn.dataset.key] = !state.alicExp[btn.dataset.key]; render(); }
-  else if (a === "alic-jur") { state.alicJur = btn.dataset.key; render(); }
+  else if (a === "alic-jur") { state.alicJur = btn.dataset.key; state.alicMsg = ""; render(); }
   else if (a === "cm05-coef") renderCm05CoefModal(btn.dataset.clientid, btn.dataset.anio);
   else if (a === "cm05-coef-guardar") cm05CoefGuardar(btn.dataset.clientid, btn.dataset.anio);
   else if (a === "cm05-vence-todos") {
@@ -4730,6 +4741,7 @@ document.addEventListener("input", (e) => {
     touchDoc(t.dataset.clientid, t.dataset.period, (doc) => setDeep(doc, "mono.facturacion", t.value));
     const el = document.getElementById("mono-summary"), c = getClient(t.dataset.clientid);
     if (el && c) el.innerHTML = monoSummaryHtml(c, state.currentPeriod);
+    const av = document.getElementById("mono-avisos"); if (av && c) av.innerHTML = monoAvisosHtml(c, state.currentPeriod);
   } else if (a === "mono-escala") {
     const e2 = getExtras().monoEscala;
     let r = e2.rows.find((x) => x.cat === t.dataset.cat);
@@ -6583,8 +6595,9 @@ function alicEscalaNqnCargar() {
   nueva("nqn_A", "Escala A", "micro", NQN_COD.A, [{ hasta: 250000000, alic: 2 }, { hasta: 500000000, alic: 2.5 }, { hasta: 750000000, alic: 3 }, { hasta: 1000000000, alic: 3.5 }, { hasta: null, alic: null }]);
   nueva("nqn_B", "Escala B", "micropeq", NQN_COD.B, [{ hasta: 150000000, alic: 2 }, { hasta: 300000000, alic: 2.5 }, { hasta: 450000000, alic: 3 }, { hasta: 600000000, alic: 3.5 }, { hasta: null, alic: null }]);
   persistExtras();
-  state.alicMsg = "Se cargaron las escalas A y B de la Ley 3541/2026 (Neuquén). Marcá el tamaño de cada cliente (micro / pequeña) desde el editor de la escala.";
+  state.alicMsg = "";
   render();
+  showToast("Escalas A y B de la Ley 3541/2026 cargadas. Marcá el tamaño de cada cliente (micro / pequeña) desde el editor de la escala.");
 }
 function alicEscDraftLeer() {
   const d = state.escDraft; if (!d) return;
@@ -6690,10 +6703,11 @@ function alicEscGuardar() {
   Object.values(e.alicEscalas).forEach((o) => { if (o !== esc && o.jur === esc.jur) o.codes = (o.codes || []).filter((c) => !esc.codes.includes(c)); });
   esc.vig = (esc.vig || []).filter((v) => v.desde !== state.alicDesde); esc.vig.push({ desde: state.alicDesde, tramos: tr });
   persistExtras();
-  state.alicMsg = `Escala "${esc.nombre}" guardada desde ${periodLabel(state.alicDesde)}.`;
+  state.alicMsg = "";
   state.escDraft = null;
   document.getElementById("modal-root").innerHTML = "";
   render();
+  showToast(`Escala "${esc.nombre}" guardada desde ${periodLabel(state.alicDesde)}.`);
 }
 function alicTablaHtml(filas, desde) {
   const prev = addMonths(desde, -1);
