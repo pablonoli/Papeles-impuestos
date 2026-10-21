@@ -6599,77 +6599,80 @@ function alicAplicar() {
   render();
 }
 // ---- Exportar a Excel el registro de alícuotas (vigentes a la fecha elegida) ----
-function alicOrigen(client, ci, f, desde) {
-  const jur = ci.tipo === "CM" ? ci.jurName : client.iibbLocal.jurisdiccion;
-  let exp = null;
-  if (ci.tipo === "CM") {
-    const vigs = (client.iibbCM.alicVig || []).filter((v) => v.desde && v.desde <= desde).sort((a, b) => b.desde.localeCompare(a.desde));
-    for (const v of vigs) { const x = v.valores && v.valores[ci.jurName] && v.valores[ci.jurName][f.code]; if (x !== undefined && x !== null && x !== "") { exp = { desde: v.desde, forzada: !!(v.forzar && v.forzar[ci.jurName] && v.forzar[ci.jurName][f.code]) }; break; } }
-  } else {
-    const a = (client.iibbLocal.activities || []).find((x) => x.code === f.code);
-    const h = a ? (a.alicHist || []).filter((v) => v.desde && v.desde <= desde).sort((x, y) => y.desde.localeCompare(x.desde))[0] : null;
-    if (h) exp = { desde: h.desde, forzada: !!h.forzada };
-  }
-  const tv = alicTramosVig(jur, f.code, desde);
-  if (tv && !(exp && exp.forzada && exp.desde >= tv.desde)) {
-    if (!clienteCumple(client, tv.req)) return `${tv.esc.nombre}: no aplica (no es ${tv.req === "micro" ? "microempresa" : "micro/pequeña empresa"})`;
-    const anio = periodYear(desde) - 1, ing = ingresosJur(client, anio, jur);
-    if (!ing) return `${tv.esc.nombre}: falta el ingreso ${anio}`;
-    if (alicDeTramos(tv.tramos, ing.monto) !== null) return `${tv.esc.nombre} (ingresos ${anio}: ${fmtMoney(ing.monto)})`;
-  }
-  if (exp) return exp.forzada ? "Valor propio del cliente" : `Actualización desde ${periodLabel(exp.desde)}`;
-  return "Alícuota base";
-}
 function exportAlicExcel() {
   if (typeof XLSX === "undefined") { showToast("No se pudo cargar el generador de Excel"); return; }
   const desde = state.alicDesde || alicDesdeDefault(), prev = addMonths(desde, -1);
   const filas = alicFilas(desde);
   const hoyTxt = new Date().toLocaleDateString("es-AR");
   const alicEn = (c, ci, f, p) => ci.tipo === "CM" ? alicCM(c, ci.jurName, f.code, p) : alicLocal((c.iibbLocal.activities || []).find((x) => x.code === f.code) || {}, p, c);
-  const uno = (arr) => { const u = Array.from(new Set(arr)); return u.length === 1 ? u[0] : "varía"; };
   const wb = XLSX.utils.book_new();
-  // Hoja 1: resumen por jurisdicción y actividad
-  const r1 = [[`Alícuotas de IIBB — vigentes desde ${periodLabel(desde)}`], [`Generado el ${hoyTxt}. "Anterior" = alícuota vigente a ${periodLabel(prev)}.`], [], ["Jurisdicción", "Actividad", "Descripción", "Clientes", "Alícuota anterior", "Alícuota nueva", "Escala", "Cambia"]];
-  const fmts = new Map(), pctF = '0.00"%"';
-  filas.forEach((f) => {
-    const pares = f.clientes.map((ci) => { const c = getClient(ci.id); return { a: alicEn(c, ci, f, prev), n: alicEn(c, ci, f, desde) }; });
-    const es = alicEscalaDe(f.jur, f.code);
-    const R = r1.length;
-    const ant = uno(pares.map((x) => x.a)), nue = uno(pares.map((x) => x.n));
-    r1.push([f.jur, f.code, f.desc || "", new Set(f.clientes.map((c) => c.id)).size, ant, nue, es ? es.nombre : "", pares.some((x) => x.a !== x.n) ? "Sí" : ""]);
-    if (typeof ant === "number") fmts.set(R + ":4", pctF); if (typeof nue === "number") fmts.set(R + ":5", pctF);
+  const pctF = '0.00"%"', AMAR = "FFF4C2";
+  const jurs = Array.from(new Set(filas.map((f) => f.jur)));
+  const usados = new Set();
+  if (!jurs.length) { showToast("No hay alícuotas para exportar"); return; }
+  jurs.forEach((jur) => {
+    // una entrada por cliente + actividad (+ régimen), ordenadas por cliente para poder combinar las celdas del cliente
+    const ents = [];
+    filas.filter((f) => f.jur === jur).forEach((f) => f.clientes.forEach((ci) => {
+      const c = getClient(ci.id);
+      ents.push({ c, tipo: ci.tipo, code: f.code, desc: f.desc || "", a: alicEn(c, ci, f, prev), n: alicEn(c, ci, f, desde) });
+      usados.add(jur + "|" + f.code);
+    }));
+    ents.sort((x, y) => x.c.name.localeCompare(y.c.name, "es") || x.code.localeCompare(y.code) || x.tipo.localeCompare(y.tipo));
+    const dosReg = new Set(ents.filter((e) => ents.some((o) => o.c.id === e.c.id && o.tipo !== e.tipo)).map((e) => e.c.id));
+    const rows = [[`${jur} — alícuotas vigentes desde ${periodLabel(desde)}`], [`Generado el ${hoyTxt} · "Anterior" = vigente a ${periodLabel(prev)} · amarillo = cambió`], [], ["Cliente", "Actividad", "Anterior", "Nueva", "Cambia"]];
+    const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } }], cambia = [], fmts = new Map();
+    let ini = -1;
+    ents.forEach((e, i) => {
+      const R = rows.length;
+      const nombre = i > 0 && ents[i - 1].c.id === e.c.id ? "" : e.c.name;
+      const dcorta = e.desc.length > 55 ? e.desc.slice(0, 54).trim() + "…" : e.desc;
+      const desc = `${e.code} – ${dcorta}${dosReg.has(e.c.id) ? (e.tipo === "CM" ? " (CM)" : " (Local)") : ""}`;
+      const ch = e.a !== e.n;
+      rows.push([nombre, desc, e.a, e.n, ch ? "Sí" : ""]);
+      fmts.set(R + ":2", pctF); fmts.set(R + ":3", pctF);
+      if (ch) cambia.push(R);
+      if (nombre) { if (ini >= 0 && R - 1 > ini) merges.push({ s: { r: ini, c: 0 }, e: { r: R - 1, c: 0 } }); ini = R; }
+    });
+    if (ini >= 0 && rows.length - 1 > ini) merges.push({ s: { r: ini, c: 0 }, e: { r: rows.length - 1, c: 0 } });
+    // las celdas combinadas de abajo quedan vacías pero con borde
+    merges.forEach((m) => { if (m.s.c === 0 && m.e.r > m.s.r && m.s.r >= 4) for (let r = m.s.r + 1; r <= m.e.r; r++) rows[r][0] = ""; });
+    const ws = newSheet(rows, { colWidths: [30, 66, 12, 12, 9], merges, headerRows: [3], skipCols: [1], formats: fmts, wrapCols: [0], freezeHeaderRow: 4 });
+    recatAlinear(ws, true);
+    for (let R = 4; R < rows.length; R++) {
+      const ca = ws[XLSX.utils.encode_cell({ r: R, c: 1 })];
+      if (ca) ca.s = Object.assign({}, ca.s || {}, { alignment: Object.assign({}, (ca.s || {}).alignment || {}, { horizontal: "left", vertical: "center" }) });
+      if (cambia.indexOf(R) !== -1) for (let C = 1; C <= 4; C++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })]; if (!cell) continue;
+        cell.s = Object.assign({}, cell.s || {}, { fill: { patternType: "solid", fgColor: { rgb: AMAR } }, font: Object.assign({}, (cell.s || {}).font || {}, { bold: true }) });
+      }
+    }
+    // la celda combinada del cliente se pinta amarilla si alguna de sus actividades cambió
+    merges.forEach((m) => {
+      if (m.s.c !== 0 || m.s.r < 4) return;
+      let alguno = false; for (let r = m.s.r; r <= m.e.r; r++) if (cambia.indexOf(r) !== -1) alguno = true;
+      const cell = ws[XLSX.utils.encode_cell({ r: m.s.r, c: 0 })];
+      if (cell) cell.s = Object.assign({}, cell.s || {}, { font: Object.assign({}, (cell.s || {}).font || {}, { bold: true }), alignment: { horizontal: "left", vertical: "center", wrapText: true } });
+    });
+    let nombreHoja = jur.replace(/[\\\/\?\*\[\]:]/g, "").slice(0, 31) || "Hoja";
+    let k = 2; while (wb.SheetNames.indexOf(nombreHoja) !== -1) nombreHoja = nombreHoja.slice(0, 28) + " " + k++;
+    XLSX.utils.book_append_sheet(wb, ws, nombreHoja);
   });
-  const ws1 = newSheet(r1, { colWidths: [16, 11, 60, 10, 16, 16, 18, 9], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } }], headerRows: [3], skipCols: [1, 3], formats: fmts, wrapCols: [2] });
-  recatAlinear(ws1, true);
-  XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
-  // Hoja 2: por cliente
-  const r2 = [[`Detalle por cliente — vigente desde ${periodLabel(desde)}`], [`Generado el ${hoyTxt}`], [], ["Cliente", "CUIT", "Tipo", "Jurisdicción", "Actividad", "Descripción", "Alícuota anterior", "Alícuota nueva", "Origen de la alícuota nueva"]];
-  const fmts2 = new Map();
-  filas.forEach((f) => f.clientes.slice().sort((a, b) => a.name.localeCompare(b.name, "es")).forEach((ci) => {
-    const c = getClient(ci.id), R = r2.length;
-    r2.push([c.name, c.cuit || "", ci.tipo === "CM" ? "Convenio Multilateral" : "Local", f.jur, f.code, f.desc || "", alicEn(c, ci, f, prev), alicEn(c, ci, f, desde), alicOrigen(c, ci, f, desde)]);
-    fmts2.set(R + ":6", pctF); fmts2.set(R + ":7", pctF);
-  }));
-  const ws2 = newSheet(r2, { colWidths: [30, 15, 20, 16, 11, 50, 15, 15, 52], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } }], headerRows: [3], skipCols: [4], formats: fmts2, wrapCols: [0] });
-  recatAlinear(ws2, true);
-  XLSX.utils.book_append_sheet(wb, ws2, "Por cliente");
-  // Hoja 3: escalas
-  const esc = Object.values(getExtras().alicEscalas || {});
-  const r3 = [["Escalas por ingresos"], [`Alícuota según los ingresos del ejercicio anterior atribuidos a la jurisdicción. Generado el ${hoyTxt}.`], [], ["Escala", "Jurisdicción", "Alcanza a", "Vigente desde", "Ingresos hasta", "Alícuota", "Actividades en uso"]];
-  const fmts3 = new Map(), usados = new Set(filas.map((f) => f.jur + "|" + f.code));
-  esc.forEach((e) => (e.vig || []).slice().sort((a, b) => b.desde.localeCompare(a.desde)).forEach((v) => {
-    const enUso = (e.codes || []).filter((cd) => usados.has(e.jur + "|" + cd));
-    v.tramos.forEach((t, i) => {
+  // Hoja de escalas (sólo si hay alguna en uso)
+  const esc = Object.values(getExtras().alicEscalas || {}).filter((e) => (e.codes || []).some((cd) => usados.has(e.jur + "|" + cd)));
+  if (esc.length) {
+    const r3 = [["Escalas por ingresos"], [`Alícuota según los ingresos del ejercicio anterior atribuidos a la jurisdicción. Generado el ${hoyTxt}.`], [], ["Escala", "Jurisdicción", "Alcanza a", "Vigente desde", "Ingresos hasta", "Alícuota"]];
+    const fmts3 = new Map();
+    esc.forEach((e) => (e.vig || []).slice().sort((a, b) => b.desde.localeCompare(a.desde)).forEach((v) => v.tramos.forEach((t) => {
       const R = r3.length;
-      r3.push([e.nombre, e.jur, e.req === "micro" ? "Sólo microempresas" : e.req === "micropeq" ? "Micro o pequeñas empresas" : "Todos", periodLabel(v.desde), t.hasta == null ? "Más del tramo anterior" : t.hasta, t.alic == null ? "La de la actividad" : t.alic, i === 0 ? (enUso.join(", ") || "Ninguna") + ` (${(e.codes || []).length} códigos en total)` : ""]);
+      r3.push([e.nombre, e.jur, e.req === "micro" ? "Sólo microempresas" : e.req === "micropeq" ? "Micro o pequeñas empresas" : "Todos", periodLabel(v.desde), t.hasta == null ? "Más del tramo anterior" : t.hasta, t.alic == null ? "La de la actividad" : t.alic]);
       if (t.alic != null) fmts3.set(R + ":5", pctF);
       if (t.hasta != null) fmts3.set(R + ":4", "#,##0.00");
-    });
-  }));
-  if (!esc.length) r3.push(["No hay escalas cargadas", "", "", "", "", "", ""]);
-  const ws3 = newSheet(r3, { colWidths: [18, 16, 26, 16, 22, 20, 60], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } }], headerRows: [3], formats: fmts3, wrapCols: [6] });
-  recatAlinear(ws3, true);
-  XLSX.utils.book_append_sheet(wb, ws3, "Escalas");
+    })));
+    const ws3 = newSheet(r3, { colWidths: [16, 16, 26, 16, 24, 20], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }], headerRows: [3], formats: fmts3, wrapCols: [], freezeHeaderRow: 4 });
+    recatAlinear(ws3, true);
+    XLSX.utils.book_append_sheet(wb, ws3, "Escalas");
+  }
   const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const filename = `Alicuotas_IIBB_desde_${desde}.xlsx`;
