@@ -1859,7 +1859,7 @@ function renderSidebar() {
       <button class="nav-btn ${state.view === "panel" ? "active" : ""}" data-action="nav-view" data-view="panel">📊 Panel de clientes</button>
       <button class="nav-btn ${state.view === "calendario" ? "active" : ""}" data-action="nav-view" data-view="calendario">📅 Calendario de vencimientos</button>
     </div>
-    ${state.clients.some((c) => (c.iibbCM && c.iibbCM.enabled) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<div class="side-section nav-side"><div class="side-label">IIBB</div>${state.clients.some((c) => c.iibbCM && (c.iibbCM.enabled || listPeriodsWithTax(c.id, "iibbCM").length)) ? `<button class="nav-btn ${state.view === "cm05" ? "active" : ""}" data-action="nav-view" data-view="cm05">📑 CM05 · DDJJ anual</button>` : ""}<button class="nav-btn ${state.view === "alic" ? "active" : ""}" data-action="nav-view" data-view="alic">🏷️ Actualizar alícuotas</button></div>` : ""}
+    ${state.clients.some((c) => (c.iibbCM && c.iibbCM.enabled) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<div class="side-section nav-side"><div class="side-label">IIBB</div>${state.clients.some((c) => c.iibbCM && (c.iibbCM.enabled || listPeriodsWithTax(c.id, "iibbCM").length)) ? `<button class="nav-btn ${state.view === "cm05" ? "active" : ""}" data-action="nav-view" data-view="cm05">📑 CM05 · DDJJ anual</button>` : ""}${state.clients.some((c) => nqnDdjjAplica(c, null)) ? `<button class="nav-btn ${state.view === "nqn" ? "active" : ""}" data-action="nav-view" data-view="nqn">📄 DDJJ anual · Neuquén</button>` : ""}<button class="nav-btn ${state.view === "alic" ? "active" : ""}" data-action="nav-view" data-view="alic">🏷️ Actualizar alícuotas</button></div>` : ""}
     ${state.clients.some((c) => monoEnabled(c)) ? `<div class="side-section nav-side"><div class="side-label">Monotributo</div><button class="nav-btn ${state.view === "recat" ? "active" : ""}" data-action="nav-view" data-view="recat">🧾 Recategorización</button></div>` : ""}
     <div class="side-section">
       <div class="side-label-row">
@@ -1902,6 +1902,7 @@ function renderMain() {
   if (state.view === "recat") { main.innerHTML = renderRecatView(); return; }
   if (state.view === "alic") { main.innerHTML = renderAlicView(); return; }
   if (state.view === "cm05") { main.innerHTML = renderCm05View(); return; }
+  if (state.view === "nqn") { main.innerHTML = renderNqnView(); return; }
   const client = currentClient();
   if (!client) {
     main.innerHTML = `
@@ -3241,7 +3242,7 @@ const VENC_NQN = {
 };
 // IIBB Local — Río Negro (anticipo mensual): día de vencimiento por mes de vencimiento (2026) y terminación (0-2, 3-5, 6-7, 8-9).
 const VENC_RN = { 2:[13,18,19,20], 3:[13,16,17,18], 4:[15,16,17,20], 5:[15,18,19,20], 6:[16,17,18,19], 7:[15,16,17,20], 8:[14,18,19,20], 9:[15,16,17,18], 10:[15,16,19,20], 11:[13,16,17,18], 12:[15,16,17,18] };
-const TAX_LABEL = { iva: "IVA", iibbLocal: "IIBB Local", iibbCM: "IIBB Conv. Mult.", mono: "Monotributo" };
+const TAX_LABEL = { iva: "IVA", iibbLocal: "IIBB Local", iibbCM: "IIBB Conv. Mult.", mono: "Monotributo", ddjjNqn: "DDJJ anual IIBB Neuquén" };
 function monoEnabled(c) { return !!(c && c.mono && c.mono.enabled); }
 function impuestosActivos(c, period) {
   const a = [];
@@ -3926,11 +3927,21 @@ function panelFilas(period) {
       const vto = vencimientoDe(c, k, period);
       return Object.assign({ key: k, vto, dias: diasHasta(vto) }, est);
     });
+    // DDJJ anual de Neuquén: aparece cuando tiene fecha de vencimiento cargada (sin presentar hasta el mes de vencimientos del Panel, o presentada ese mes)
+    const vp = addMonths(period, 1);
+    if (nqnDdjjAplica(c, null)) nqnVencimientos(c).forEach((v) => {
+      const m = v.iso.slice(0, 7);
+      if ((!v.pres && m <= vp) || (v.pres && m === vp)) taxes.push({ key: "ddjjNqn", anio: v.anio, vto: v.iso, dias: diasHasta(v.iso), pres: v.pres, status: v.pres ? "ok" : "falta" });
+    });
     const pend = taxes.filter((t) => !t.pres && t.vto).sort((a, b) => a.vto.localeCompare(b.vto));
     return { client: c, taxes, proximo: pend[0] || null, alertas: alertasCliente(c, period), faltan: taxes.some((t) => !t.pres) };
   });
 }
 function chipEstadoHtml(t, clientId, period) {
+  if (t.key === "ddjjNqn") {
+    const venc = !t.pres && t.dias != null && t.dias < 0;
+    return `<button type="button" class="est ${t.pres ? "est-ok" : venc ? "est-venc" : "est-falta"}" title="${t.pres ? "DDJJ anual IIBB Neuquén " + t.anio + ": presentada. Click para desmarcar." : "DDJJ anual IIBB Neuquén " + t.anio + ": sin presentar. Click para marcarla como presentada."}" data-action="nqn-pres" data-clientid="${clientId}" data-anio="${t.anio}">${t.pres ? "✓" : venc ? "⛔" : "○"} DDJJ Nqn ${t.anio}</button>`;
+  }
   const vencida = !t.pres && t.dias != null && t.dias < 0;
   const cls = t.pres ? "est-ok" : vencida ? "est-venc" : t.status === "ok" ? "est-parcial" : "est-falta";
   const ico = t.pres ? "✓" : vencida ? "⛔" : t.status === "ok" ? "◐" : "○";
@@ -3990,7 +4001,7 @@ function renderPanelView() {
 // ---------------------------------------------------------------------
 // Calendario de vencimientos
 // ---------------------------------------------------------------------
-const TAX_CORTO = { iva: "IVA", iibbLocal: "IIBB", iibbCM: "CM", mono: "Mono" };
+const TAX_CORTO = { iva: "IVA", iibbLocal: "IIBB", iibbCM: "CM", mono: "Mono", ddjjNqn: "DDJJ Nqn" };
 function renderCalendarioView() {
   const vm = state.calMonth, fp = addMonths(vm, -1), y = periodYear(vm), mo = periodMonth(vm);
   const sinCal = !VENC_CAL[y];
@@ -4004,10 +4015,11 @@ function renderCalendarioView() {
       (porDia[iso] = porDia[iso] || []).push({ c, k, iso, est, aj: !!(ci && ci.usados.length && !ci.yaAplicado) });
     });
   });
+  state.clients.forEach((c) => { if (nqnDdjjAplica(c, null)) nqnVencimientos(c).forEach((v) => { if (v.iso.slice(0, 7) === vm) (porDia[v.iso] = porDia[v.iso] || []).push({ c, k: "ddjjNqn", iso: v.iso, est: { pres: v.pres, status: v.pres ? "ok" : "falta" }, aj: false, anio: v.anio }); }); });
   const hoy = hoyISO();
   if (!state.calDia || state.calDia.slice(0, 7) !== vm) state.calDia = hoy.slice(0, 7) === vm ? hoy : (Object.keys(porDia).sort()[0] || isoDate(y, mo, 1));
   const primero = (new Date(y, mo - 1, 1).getDay() + 6) % 7, dias = new Date(y, mo, 0).getDate();
-  const orden = ["iva", "iibbCM", "iibbLocal", "mono"];
+  const orden = ["iva", "iibbCM", "iibbLocal", "mono", "ddjjNqn"];
   let celdas = "";
   for (let i = 0; i < primero; i++) celdas += `<div class="cal-c vacio"></div>`;
   for (let d = 1; d <= dias; d++) {
@@ -4025,9 +4037,11 @@ function renderCalendarioView() {
   const selDias = diasHasta(state.calDia), selU = urgenciaDe(selDias);
   const fechaLarga = (() => { const [yy, mm, dd] = state.calDia.split("-").map(Number); return new Date(yy, mm - 1, dd).toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" }); })();
   const detalle = sel.length ? sel.map((i) => `
-      <div class="cal-item"><button type="button" class="linklike" data-action="panel-abrir" data-client="${i.c.id}" data-tab="${i.k}" data-period="${fp}"><b>${escapeHtml(i.c.name)}</b></button>
+      ${i.k === "ddjjNqn" ? `<div class="cal-item"><button type="button" class="linklike" data-action="nav-view" data-view="nqn"><b>${escapeHtml(i.c.name)}</b></button>
+        <span class="chip on">${TAX_LABEL[i.k]} ${i.anio}</span>
+        <button type="button" class="est ${i.est.pres ? "est-ok" : "est-falta"}" style="margin-left:auto;" data-action="nqn-pres" data-clientid="${i.c.id}" data-anio="${i.anio}" title="Click para cambiar">${i.est.pres ? "✓ Presentada" : "○ Marcar como presentada"}</button></div>` : `<div class="cal-item"><button type="button" class="linklike" data-action="panel-abrir" data-client="${i.c.id}" data-tab="${i.k}" data-period="${fp}"><b>${escapeHtml(i.c.name)}</b></button>
         <span class="chip on">${TAX_LABEL[i.k]}</span>${i.aj ? `<span class="chip" style="border-color:var(--warn,#b45309);color:var(--warn,#b45309);" title="Los coeficientes nuevos del CM05 rigen desde este período">⚠ Lleva ajuste CM05</span>` : ""}
-        <button type="button" class="est ${i.est.pres ? "est-ok" : i.est.status === "ok" ? "est-parcial" : "est-falta"}" style="margin-left:auto;" data-action="presentado-toggle" data-client="${i.c.id}" data-tax="${i.k}" data-period="${fp}" title="Click para cambiar">${i.est.pres ? "✓ " + (i.k === "mono" ? "VEP enviado" : "Presentada") : "○ Marcar como " + (i.k === "mono" ? "VEP enviado" : "presentada")}</button></div>`).join("")
+        <button type="button" class="est ${i.est.pres ? "est-ok" : i.est.status === "ok" ? "est-parcial" : "est-falta"}" style="margin-left:auto;" data-action="presentado-toggle" data-client="${i.c.id}" data-tax="${i.k}" data-period="${fp}" title="Click para cambiar">${i.est.pres ? "✓ " + (i.k === "mono" ? "VEP enviado" : "Presentada") : "○ Marcar como " + (i.k === "mono" ? "VEP enviado" : "presentada")}</button></div>`}`).join("")
     : `<p style="color:var(--muted);font-size:13px;margin:0;">No hay vencimientos de tus clientes este día.</p>`;
   return `
     <div class="topbar"><div class="client-title"><h1>Calendario de vencimientos</h1><div class="meta"><span>Vencen en ${MESES[mo - 1].toLowerCase()} ${y}</span><span>·</span><span>período fiscal ${periodLabel(fp)}</span></div></div>
@@ -4660,6 +4674,16 @@ document.addEventListener("click", (e) => {
   else if (a === "alic-jur") { state.alicJur = btn.dataset.key; state.alicMsg = ""; render(); }
   else if (a === "cm05-coef") renderCm05CoefModal(btn.dataset.clientid, btn.dataset.anio);
   else if (a === "cm05-coef-guardar") cm05CoefGuardar(btn.dataset.clientid, btn.dataset.anio);
+  else if (a === "nqn-pres") { const r = nqnReg(getClient(btn.dataset.clientid), btn.dataset.anio); nqnSet(btn.dataset.clientid, btn.dataset.anio, "presentado", !r.presentado); render(); }
+  else if (a === "nqn-detalle") renderNqnDetalleModal(btn.dataset.clientid, btn.dataset.anio);
+  else if (a === "nqn-vence-todos") {
+    const v = (document.getElementById("nqn-vence-todos") || {}).value, anio = btn.dataset.anio;
+    if (!v) { showToast("Elegí primero la fecha de vencimiento."); return; }
+    state.nqnVenceTodos = state.nqnVenceTodos || {}; state.nqnVenceTodos[anio] = v;
+    const cl = state.clients.filter((c) => nqnDdjjAplica(c, anio) && !nqnReg(c, anio).presentado);
+    cl.forEach((c) => nqnSet(c.id, anio, "vence", v));
+    render(); showToast(`Vencimiento ${fmtFechaCorta(v)} aplicado a ${cl.length} cliente${cl.length === 1 ? "" : "s"} (los ya presentados no se tocan).`);
+  }
   else if (a === "cm05-vence-todos") {
     const v = (document.getElementById("cm05-vence-todos") || {}).value, anio = btn.dataset.anio;
     if (!v) { showToast("Elegí primero la fecha de vencimiento."); return; }
@@ -4703,6 +4727,9 @@ document.addEventListener("change", (e) => {
   } else if (a === "evo-range") { state.evoRange = Number(t.value); render(); }
   else if (a === "evo-tax") { state.evoTax = t.value; render(); }
   else if (a === "recat-sel") { state.recatSel = t.value; render(); }
+  else if (a === "nqn-anio") { state.nqnAnio = t.value; render(); }
+  else if (a === "nqn-vence") { nqnSet(t.dataset.clientid, t.dataset.anio, "vence", t.value); render(); }
+  else if (a === "nqn-fecha") { nqnSet(t.dataset.clientid, t.dataset.anio, "fecha", t.value); render(); }
   else if (a === "cm05-anio") { state.cm05Anio = t.value; render(); }
   else if (a === "cm05-hasta") { mutateClient(t.dataset.clientid, (c) => { c.iibbCM.hasta = /^\d{4}-\d{2}$/.test(t.value) ? t.value : null; }); render(); }
   else if (a === "cm05-agregar") { if (t.value) { cm05Set(t.value, state.cm05Anio, "incluido", true); render(); } }
@@ -6918,6 +6945,99 @@ function renderCm05View() {
         <div class="card-body"><div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Cliente</th><th>Estado</th><th>Vence</th><th>Presentado</th><th>Coef. nuevos</th><th style="text-align:left;">Ajuste de base</th></tr>${trs}</table></div></div></div>
       <p class="foot-note">Al presentar el CM05, cargá acá los coeficientes nuevos: rigen desde el mes siguiente al último período declarado (si lo dejás vacío, desde enero del año siguiente). Ese período lleva el ajuste de enero hasta el último declarado, que se calcula y se carga en la solapa IIBB CM.</p>
     </div>`;
+}
+// ---- DDJJ anual IIBB · Neuquén (régimen general, IIBB local) ----
+// Resume el año con las ventas netas declaradas mes a mes en la DDJJ de IIBB local.
+// Registro por cliente: client.iibbLocal.ddjj[año] = { presentado, fecha, vence }.
+function nqnReg(client, anio) { return (client.iibbLocal.ddjj && client.iibbLocal.ddjj[anio]) || {}; }
+function nqnSet(clientId, anio, campo, valor) {
+  mutateClient(clientId, (c) => {
+    c.iibbLocal.ddjj = c.iibbLocal.ddjj || {};
+    const r = (c.iibbLocal.ddjj[anio] = c.iibbLocal.ddjj[anio] || {});
+    r[campo] = valor;
+    if (campo === "presentado" && valor && !r.fecha) r.fecha = hoyISO();
+  });
+}
+// Vencimientos cargados de la DDJJ anual de Neuquén (para Panel y Calendario).
+function nqnVencimientos(client) {
+  const reg = (client.iibbLocal && client.iibbLocal.ddjj) || {};
+  return Object.keys(reg).filter((a) => reg[a] && reg[a].vence).map((a) => ({ anio: a, iso: reg[a].vence, pres: !!reg[a].presentado }));
+}
+function nqnDdjjAplica(client, anio) {
+  if (!client.iibbLocal || jurCanon(client.iibbLocal.jurisdiccion) !== "Neuquén") return false;
+  if (!anio) return !!client.iibbLocal.enabled || listPeriodsWithTax(client.id, "iibbLocal").length > 0;
+  return !!client.iibbLocal.enabled || listPeriodsWithTax(client.id, "iibbLocal").some((p) => periodYear(p) === Number(anio));
+}
+function nqnAnioDatos(client, anio) {
+  const con = new Set(listPeriodsWithTax(client.id, "iibbLocal"));
+  const meses = [], porAct = new Map();
+  for (let m = 1; m <= 12; m++) {
+    const p = `${anio}-${String(m).padStart(2, "0")}`;
+    if (!con.has(p)) { meses.push({ period: p, hay: false }); continue; }
+    const r = calcIibbLocalFor(client, p);
+    meses.push({ period: p, hay: true, base: r.baseImponible, impuesto: r.impuesto, ret: r.retenciones, perc: r.percepciones, rec: r.recaudacionesBancarias, saldo: r.saldoAPagar, favor: r.saldoAFavor });
+    r.actividadDetalle.forEach((a) => {
+      const x = porAct.get(a.code) || { code: a.code, desc: a.desc, base: 0, impuesto: 0 };
+      x.base = round2(x.base + a.baseImponible); x.impuesto = round2(x.impuesto + a.impuesto); porAct.set(a.code, x);
+    });
+  }
+  const tot = (k) => round2(meses.reduce((t, x) => t + (x.hay ? num(x[k]) : 0), 0));
+  return { meses, porAct: Array.from(porAct.values()), cargados: meses.filter((x) => x.hay).length, base: tot("base"), impuesto: tot("impuesto"), ret: tot("ret"), perc: tot("perc"), rec: tot("rec"), saldo: tot("saldo") };
+}
+function renderNqnView() {
+  const hoyY = periodYear(todayPeriod()), y0 = Number(MIN_PERIOD.slice(0, 4));
+  const anios = []; for (let y = y0; y <= hoyY; y++) anios.push(String(y));
+  const completo = (y) => state.clients.filter((c) => nqnDdjjAplica(c, y)).every((c) => nqnReg(c, y).presentado);
+  if (!state.nqnAnio) state.nqnAnio = anios.find((y) => !completo(y)) || anios[anios.length - 1];
+  const anio = state.nqnAnio;
+  if (!anios.includes(anio)) anios.push(anio);
+  const clientes = state.clients.filter((c) => nqnDdjjAplica(c, anio)).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const filas = clientes.map((c) => ({ c, r: nqnReg(c, anio), d: nqnAnioDatos(c, anio) }));
+  const nPres = filas.filter((f) => f.r.presentado).length;
+  const trs = filas.map(({ c, r, d }) => {
+    const dias = r.vence ? diasHasta(r.vence) : null, u = dias == null ? "" : urgenciaDe(dias);
+    const faltan = 12 - d.cargados;
+    return `<tr>
+      <td style="text-align:left;"><button type="button" class="linklike" data-action="panel-abrir" data-client="${c.id}" data-tab="iibbLocal" data-period="${anio}-12"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div></td>
+      <td style="text-align:center;"><button type="button" class="est ${r.presentado ? "est-ok" : r.vence && dias < 0 ? "est-venc" : "est-falta"}" data-action="nqn-pres" data-clientid="${c.id}" data-anio="${anio}">${r.presentado ? "✓ Presentada" : "○ Pendiente"}</button></td>
+      <td style="text-align:center;"><input type="date" style="width:118px;padding:4px 5px;font-size:12px;" data-action="nqn-vence" data-clientid="${c.id}" data-anio="${anio}" value="${escapeHtml(r.vence || "")}">${r.vence && !r.presentado ? `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(dias)}</div>` : ""}</td>
+      <td style="text-align:center;">${r.presentado ? `<input type="date" style="width:118px;padding:4px 5px;font-size:12px;" data-action="nqn-fecha" data-clientid="${c.id}" data-anio="${anio}" value="${escapeHtml(r.fecha || "")}">` : `<span class="hint-sm">—</span>`}</td>
+      <td class="num">${fmtMoney(d.base)}${faltan ? `<div class="hint-sm u-urg">${d.cargados} de 12 meses cargados</div>` : `<div class="hint-sm">12 de 12 meses</div>`}</td>
+      <td class="num">${fmtMoney(d.impuesto)}</td>
+      <td style="text-align:center;"><button type="button" class="btn btn-sm" data-action="nqn-detalle" data-clientid="${c.id}" data-anio="${anio}">Ver detalle</button></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Ningún cliente tiene IIBB local en Neuquén.</td></tr>`;
+  return `
+    <div class="topbar"><div class="client-title"><h1>DDJJ anual · IIBB Neuquén</h1><div class="meta"><span>Régimen general · IIBB local</span><span>·</span><span>ejercicio ${anio}</span></div></div>
+      <div class="topbar-actions"><select data-action="nqn-anio" title="Ejercicio">${anios.map((y) => `<option value="${y}" ${y === anio ? "selected" : ""}>DDJJ ${y}</option>`).join("")}</select></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="kpi-row">
+        <div class="kpi"><span class="k-label">Clientes en Neuquén</span><span class="k-value">${filas.length}</span><span class="k-sub">IIBB local · ejercicio ${anio}</span></div>
+        <div class="kpi"><span class="k-label">Presentadas</span><span class="k-value">${nPres} / ${filas.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${filas.length ? Math.round(nPres / filas.length * 100) : 0}%;background:var(--favor);"></i></div></div>
+      </div>
+      <div class="card"><div class="card-head"><h3>DDJJ anual ${anio}</h3>${filas.length ? `<span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><span class="hint-sm">Vencimiento para todos</span><input type="date" id="nqn-vence-todos" style="width:132px;padding:5px 6px;font-size:12.5px;" value="${escapeHtml((state.nqnVenceTodos || {})[anio] || (() => { const k = {}; filas.forEach((f) => { if (f.r.vence) k[f.r.vence] = (k[f.r.vence] || 0) + 1; }); return Object.keys(k).sort((a, b) => k[b] - k[a])[0] || ""; })())}"><button type="button" class="btn btn-sm btn-accent" data-action="nqn-vence-todos" data-anio="${anio}" title="Pone esta fecha a todos los clientes que todavía no presentaron">Aplicar a todos</button></span>` : ""}</div>
+        <div class="card-body"><div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Cliente</th><th>Estado</th><th>Vence</th><th>Presentada</th><th>Ventas netas ${anio}</th><th>Impuesto determinado</th><th></th></tr>${trs}</table></div></div></div>
+      <p class="foot-note">Las ventas netas salen de las DDJJ mensuales de IIBB local ya cargadas en cada cliente. Si faltan meses, completalos en la solapa IIBB local de ese cliente antes de presentar.</p>
+    </div>`;
+}
+function renderNqnDetalleModal(clientId, anio) {
+  const c = getClient(clientId); if (!c) return;
+  const d = nqnAnioDatos(c, anio);
+  const mes = (x) => `${MESES[periodMonth(x.period) - 1]}`;
+  const filas = d.meses.map((x) => x.hay ? `<tr><td style="text-align:left;">${mes(x)}</td><td class="num">${fmtMoney(x.base)}</td><td class="num">${fmtMoney(x.impuesto)}</td><td class="num">${fmtMoney(x.ret)}</td><td class="num">${fmtMoney(x.perc)}</td><td class="num">${fmtMoney(x.rec)}</td><td class="num"><b>${x.saldo > 0 ? fmtMoney(x.saldo) : x.favor > 0 ? "a favor " + fmtMoney(x.favor) : fmtMoney(0)}</b></td></tr>` : `<tr><td style="text-align:left;">${mes(x)}</td><td colspan="6" class="hint-sm" style="text-align:center;">sin DDJJ cargada</td></tr>`).join("");
+  const acts = d.porAct.map((a) => `<tr><td style="text-align:left;"><b>${escapeHtml(a.code)}</b> <span class="hint-sm">${escapeHtml((a.desc || "").slice(0, 60))}</span></td><td class="num">${fmtMoney(a.base)}</td><td class="num">${a.base ? fmtPctRaw(round2(a.impuesto / a.base * 100)) + "%" : "—"}</td><td class="num">${fmtMoney(a.impuesto)}</td></tr>`).join("");
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-backdrop"><div class="modal" style="max-width:1000px;width:96vw;max-height:92vh;overflow:auto;font-size:13px;">
+      <div class="modal-head"><h3>${escapeHtml(c.name)} · DDJJ anual IIBB ${anio}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+      <div class="modal-body" style="gap:14px;">
+        <div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Mes</th><th>Ventas netas</th><th>Impuesto</th><th>Retenciones</th><th>Percepciones</th><th>Rec. banc.</th><th>Saldo</th></tr>${filas}
+          <tr style="font-weight:700;"><td style="text-align:left;">Total ${anio}</td><td class="num">${fmtMoney(d.base)}</td><td class="num">${fmtMoney(d.impuesto)}</td><td class="num">${fmtMoney(d.ret)}</td><td class="num">${fmtMoney(d.perc)}</td><td class="num">${fmtMoney(d.rec)}</td><td class="num">${fmtMoney(d.saldo)}</td></tr></table></div>
+        <div><h4 class="subhead" style="margin:0 0 6px;">Por actividad</h4>
+          <div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Actividad</th><th>Ventas netas</th><th>Alícuota efectiva</th><th>Impuesto</th></tr>${acts || `<tr><td colspan="4" class="hint-sm" style="text-align:center;">Sin actividades cargadas</td></tr>`}</table></div></div>
+      </div>
+      <div class="modal-foot"><button class="btn" data-action="close-modal">Cerrar</button></div>
+    </div></div>`;
+  wireModalBackdropClose();
 }
 function cm05ChipHtml(client, period) {
   const anio = cm05Anio(period);
