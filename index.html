@@ -1867,7 +1867,7 @@ function renderSidebar() {
       <button class="nav-btn ${state.view === "calendario" ? "active" : ""}" data-action="nav-view" data-view="calendario">📅 Calendario de vencimientos</button>
     </div>
     ${state.clients.some((c) => (c.iibbCM && c.iibbCM.enabled) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<div class="side-section nav-side">${(() => { const ab = sideIibbAbierto(); return `<button type="button" class="side-label side-toggle" data-action="side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>IIBB</span><span>${ab ? "▾" : "▸"}</span></button>`; })()}${sideIibbAbierto() ? `${state.clients.some((c) => c.iibbCM && (c.iibbCM.enabled || listPeriodsWithTax(c.id, "iibbCM").length)) ? `<button class="nav-btn ${state.view === "cm05" ? "active" : ""}" data-action="nav-view" data-view="cm05">📑 CM05 · DDJJ anual</button>` : ""}${state.clients.some((c) => nqnDdjjAplica(c, null) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<button class="nav-btn ${state.view === "nqn" ? "active" : ""}" data-action="nav-view" data-view="nqn">📄 DDJJ anual · Neuquén</button>` : ""}<button class="nav-btn ${state.view === "alic" ? "active" : ""}" data-action="nav-view" data-view="alic">🧮 Actualizar alícuotas</button>` : ""}</div>` : ""}
-    ${state.clients.some((c) => monoEnabled(c)) ? `<div class="side-section nav-side"><div class="side-label">Monotributo</div><button class="nav-btn ${state.view === "recat" ? "active" : ""}" data-action="nav-view" data-view="recat">🧾 Recategorización</button></div>` : ""}
+    ${state.clients.some((c) => monoEnabled(c)) ? `<div class="side-section nav-side"><div class="side-label">Monotributo</div><button class="nav-btn ${state.view === "monoVep" ? "active" : ""}" data-action="nav-view" data-view="monoVep">💳 Monotributistas</button><button class="nav-btn ${state.view === "recat" ? "active" : ""}" data-action="nav-view" data-view="recat">🧾 Recategorización</button></div>` : ""}
     <div class="side-section">
       <div class="side-label-row">
         <div class="side-label">Clientes<span>${state.clients.length}</span></div>
@@ -1907,6 +1907,7 @@ function renderMain() {
   if (state.view === "panel") { main.innerHTML = renderPanelView(); return; }
   if (state.view === "calendario") { main.innerHTML = renderCalendarioView(); return; }
   if (state.view === "recat") { main.innerHTML = renderRecatView(); return; }
+  if (state.view === "monoVep") { main.innerHTML = renderMonoVepView(); return; }
   if (state.view === "alic") { main.innerHTML = renderAlicView(); return; }
   if (state.view === "cm05") { main.innerHTML = renderCm05View(); return; }
   if (state.view === "nqn") { main.innerHTML = renderNqnView(); return; }
@@ -4650,6 +4651,13 @@ document.addEventListener("click", (e) => {
     state.currentTab = btn.dataset.tab || "resumen"; render();
   }
   else if (a === "panel-prev") { if (state.panelPeriod > MIN_PERIOD) { state.panelPeriod = addMonths(state.panelPeriod, -1); render(); } }
+  else if (a === "mono-vep-detalle") renderMonoVepDetalle(btn.dataset.client, btn.dataset.period);
+  else if (a === "mono-vep-filtro") { state.monoVepFiltro = btn.dataset.filtro; render(); }
+  else if (a === "mono-vep-todos") {
+    const per = state.panelPeriod, f = state.monoVepFiltro || "todos";
+    const lista = state.clients.filter((c) => monoEnabled(c) && c.mono.categoria && monoRow(c.mono.categoria) && !presentadoDe(c, "mono", per) && f !== "env");
+    if (lista.length && confirm(`¿Marcar ${lista.length} VEP como enviados (${periodLabel(per)})?`)) { lista.forEach((c) => setPresentado(c.id, "mono", per, true)); showToast(`${lista.length} VEP marcados como enviados`); render(); }
+  }
   else if (a === "panel-next") { state.panelPeriod = addMonths(state.panelPeriod, 1); render(); }
   else if (a === "panel-filtro") { state.panelFiltro = btn.dataset.filtro; render(); }
   else if (a === "exen-todas") { state.exenTodas = state.exenTodas || {}; state.exenTodas[btn.dataset.code] = !state.exenTodas[btn.dataset.code]; refreshIvaActividadesModal(btn.dataset.clientid, btn.dataset.period); }
@@ -7197,6 +7205,70 @@ function cm05Aplicar(clientId, period, quitar) {
   render();
 }
 
+function renderMonoVepDetalle(clientId, period) {
+  const c = getClient(clientId); if (!c) return;
+  const mc = monoCalc(c, period), vto = vencimientoDe(c, "mono", period), pres = presentadoDe(c, "mono", period);
+  const fila = (txt, monto, sub) => `<tr><td style="text-align:left;">${txt}${sub ? `<div class="hint-sm">${sub}</div>` : ""}</td><td class="num">${fmtMoney(monto)}</td></tr>`;
+  let filas = "";
+  if (mc.desglose) {
+    if (mc.comp.integrado) filas += fila("Impuesto integrado", mc.integ, c.mono.tipo === "bienes" ? "Venta de bienes" : "Prestación de servicios");
+    if (mc.comp.sipa) filas += fila("Aportes al SIPA (jubilación)", mc.sipa);
+    if (mc.comp.os) filas += fila("Obra social", mc.obra);
+  } else filas += fila("Cuota del Monotributo", mc.cuota, "Categoría " + escapeHtml(c.mono.categoria));
+  if (mc.iibb > 0) filas += fila("Ingresos Brutos · " + escapeHtml(mc.iibbProv), mc.iibb, "Régimen simplificado, se paga junto con la cuota");
+  else if (mc.iibbPorCM) filas += `<tr><td style="text-align:left;">Ingresos Brutos</td><td class="num hint-sm">No incluido: tributa por Convenio Multilateral</td></tr>`;
+  if (mc.muni > 0) filas += fila("Contribución municipal" + (mc.muniNombre ? " · " + escapeHtml(mc.muniNombre) : ""), mc.muni);
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-backdrop"><div class="modal" style="max-width:520px;width:94vw;max-height:92vh;overflow:auto;font-size:13px;">
+      <div class="modal-head"><h3>${escapeHtml(c.name)} · VEP de ${periodLabel(period)}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+      <div class="modal-body" style="gap:12px;">
+        <div class="hint-sm">Categoría <b>${escapeHtml(c.mono.categoria || "—")}</b> · ${c.mono.tipo === "bienes" ? "bienes" : "servicios"}${vto ? " · vence " + fmtFechaCorta(vto) : ""} · ${pres ? "VEP enviado" : "VEP sin enviar"}</div>
+        <div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Concepto</th><th class="num">Importe</th></tr>${filas}
+          <tr style="font-weight:700;"><td style="text-align:left;">Total del VEP</td><td class="num">${fmtMoney(mc.cuotaTotal)}</td></tr></table></div>
+      </div>
+      <div class="modal-foot"><button class="btn" data-action="close-modal">Cerrar</button></div>
+    </div></div>`;
+  wireModalBackdropClose();
+}
+function renderMonoVepView() {
+  const period = state.panelPeriod, vp = addMonths(period, 1);
+  const filtro = state.monoVepFiltro || "todos";
+  const todas = state.clients.filter((c) => monoEnabled(c)).slice().sort((a, b) => a.name.localeCompare(b.name, "es")).map((c) => {
+    const mc = monoCalc(c, period), pres = presentadoDe(c, "mono", period), vto = vencimientoDe(c, "mono", period), dias = vto ? diasHasta(vto) : null;
+    const d = getDoc(c.id, period), fEnv = pres && d.presentado.mono && d.presentado.mono.fecha ? fmtFechaCorta(d.presentado.mono.fecha) : "";
+    return { c, mc, pres, vto, dias, fEnv, sinCat: !c.mono.categoria || !monoRow(c.mono.categoria) };
+  });
+  const filas = todas.filter((f) => filtro === "pend" ? !f.pres : filtro === "env" ? f.pres : true);
+  const env = todas.filter((f) => f.pres).length, pend = todas.filter((f) => !f.pres);
+  const sum = (arr, k) => round2(arr.reduce((t, f) => t + num(f.mc[k]), 0));
+  const totalMes = sum(todas, "cuotaTotal"), totalPend = sum(pend, "cuotaTotal");
+  const urgentes = pend.filter((f) => f.dias != null && f.dias <= 7).length;
+  const pct = todas.length ? Math.round(env / todas.length * 100) : 0;
+  const pill = (k, l) => `<button class="${filtro === k ? "on" : ""}" data-action="mono-vep-filtro" data-filtro="${k}">${l}</button>`;
+  const trs = filas.map((f) => {
+    const { c, mc } = f, u = f.dias != null ? urgenciaDe(f.dias) : "";
+    return `<tr>
+      <td style="text-align:left;"><button type="button" class="linklike" data-action="panel-abrir" data-client="${c.id}" data-tab="mono" data-period="${period}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div></td>
+      <td style="text-align:center;">${f.sinCat ? `<span class="hint-sm" style="color:var(--pagar);">Sin cat.</span>` : `<b>${escapeHtml(c.mono.categoria)}</b>`}</td>
+      <td style="text-align:center;">${f.sinCat ? "—" : `<button type="button" class="linklike" style="font-weight:700;" title="Ver el detalle de cada concepto" data-action="mono-vep-detalle" data-client="${c.id}" data-period="${period}">${fmtMoney(mc.cuotaTotal)} <span style="color:var(--accent);font-weight:400;">ⓘ</span></button>`}</td>
+      <td style="text-align:center;">${f.vto ? `${fmtFechaCorta(f.vto)}${f.pres ? "" : `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(f.dias)}</div>`}` : `<span class="hint-sm">Sin fecha</span>`}</td>
+      <td style="text-align:center;">${f.sinCat ? `<span class="hint-sm">—</span>` : `<button type="button" class="est ${f.pres ? "est-ok" : f.dias != null && f.dias < 0 ? "est-venc" : "est-falta"}" title="${f.pres ? "VEP enviado. Click para desmarcar." : "VEP sin enviar. Click para marcarlo como enviado."}" data-action="presentado-toggle" data-client="${c.id}" data-tax="mono" data-period="${period}">${f.pres ? "✓ Enviado" : f.dias != null && f.dias < 0 ? "⛔ Sin enviar" : "○ Sin enviar"}</button>${f.pres && f.fEnv ? `<div class="hint-sm">el ${f.fEnv}</div>` : ""}`}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">${todas.length ? "No hay clientes en este filtro." : "Ningún cliente tiene Monotributo activado."}</td></tr>`;
+  return `
+    <div class="topbar"><div class="client-title"><h1>Monotributistas</h1><div class="meta"><span>Cuota de ${periodLabel(period)}</span><span>·</span><span>VEP con vencimiento en ${MESES[periodMonth(vp) - 1].toLowerCase()} ${periodYear(vp)}</span></div></div>
+      <div class="topbar-actions"><div class="period-nav"><button data-action="panel-prev" ${period <= MIN_PERIOD ? "disabled" : ""}>‹</button><span class="label">${periodLabel(period)}</span><button data-action="panel-next">›</button></div></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="kpi-row">
+        <div class="kpi"><span class="k-label">VEP enviados</span><span class="k-value">${env} / ${todas.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pct}%;background:var(--favor);"></i></div><span class="k-sub">${pct}% enviado</span></div>
+        <div class="kpi"><span class="k-label">Total a cobrar del mes</span><span class="k-value">${fmtMoney(totalMes)}</span><span class="k-sub">${todas.filter((f) => !f.sinCat).length} VEP de ${periodLabel(period)}</span></div>
+        <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Pendientes de enviar</span><span class="k-value">${pend.length}</span><span class="k-sub">${fmtMoney(totalPend)}${urgentes ? " · " + urgentes + " vence" + (urgentes === 1 ? "" : "n") + " en ≤ 7 días" : ""}</span></div>
+      </div>
+      <div class="card"><div class="card-head"><h3>VEP por cliente</h3><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><div class="seg">${pill("todos", "Todos")}${pill("pend", "Pendientes")}${pill("env", "Enviados")}</div>${pend.length ? `<button class="btn btn-sm" data-action="mono-vep-todos" title="Marca como enviados todos los VEP pendientes que se ven en la lista">✓ Marcar pendientes como enviados</button>` : ""}</div></div>
+        <div class="card-body"><div class="table-scroll"><table class="panel-table" style="table-layout:fixed;width:100%;"><colgroup><col style="width:210px"><col style="width:56px"><col><col><col></colgroup><tr><th style="text-align:left;">Cliente</th><th style="text-align:center;">Cat.</th><th style="text-align:center;">Total del VEP</th><th style="text-align:center;">Vence</th><th style="text-align:center;">VEP enviado</th></tr>${trs}</table></div>
+        <p class="foot-note">Marcar acá es lo mismo que marcarlo en el Panel o en la ficha del cliente. Tocá el total de un VEP para ver cada concepto (integrado, SIPA, obra social, IIBB…).</p></div></div>
+    </div>`;
+}
 function renderRecatView() {
   const { lista, def } = monoRecatOpciones();
   const key = (o) => o.ini + "|" + o.fin + "|" + o.recat;
