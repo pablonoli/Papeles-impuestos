@@ -180,7 +180,7 @@
   .gan-t tr.sub > td{ font-weight:600; }
   .gan-m th, .gan-m td{ padding:4px 4px; font-size:12px; border-bottom:1px solid var(--border); text-align:right; vertical-align:middle; }
   .gan-m th{ color:var(--muted); font-weight:600; font-size:10.5px; white-space:normal; line-height:1.2; }
-  .gan-m th:first-child, .gan-m td:first-child{ padding-left:14px; min-width:84px; }
+  .gan-m th:first-child, .gan-m td:first-child{ padding-left:14px; min-width:112px; white-space:nowrap; }
   .gan-m td.auto, .gan-m tr.tot td{ font-size:11.5px; }
   .gan-m input[type=text]{ width:104px; text-align:right; padding:4px 5px; font-size:12px; }
   .gan-m th:last-child, .gan-m td:last-child{ padding-right:14px; }
@@ -7546,7 +7546,7 @@ function renderGanTabIE() {
   return `<p class="hint-sm" style="margin:0;">Los importes en <b style="color:var(--accent);">violeta</b> salen solos de lo que declaraste en IVA (ventas netas + exentas, compras del F.2083) e IIBB (impuesto de la DDJJ del mes). Si escribís un valor, reemplaza al automático. También podés <b>pegar desde Excel</b>.</p>
     ${renderGanActCard()}
     ${ganTablaMeses("ing", GAN_ING_COLS, "arcaIng", "ing", "ajI", "Ingresos", "Ventas netas + exentas, por categoría")}
-    ${ganTablaMeses("egr", GAN_EGR_COLS, "arcaEgr", "egr", "ajE", "Egresos", "Tocá el importe de sueldos para cargar el F.931")}`;
+    ${ganTablaMeses("egr", GAN_EGR_COLS, "arcaEgr", "egr", "ajE", "Egresos", `<button class="btn btn-sm" data-action="gan-f931-open" title="Cargar el F.931 (PDF o a mano)">📄 Cargar F.931</button>`)}`;
 }
 function renderGanTabRentas() {
   const c1 = ganCard("Primera categoría · Renta del suelo", ganRowAuto("Alquileres cobrados", "t.alq", "viene de Ingresos") + ganRowInp("Otros ingresos de 1ª", "c1.otros") + ganRowInp("Otros gastos reales", "c1.gastos") + ganRowInp("Amortizaciones", "c1.amort") + ganRowInp("Gastos presuntos", "c1.presuntos", "sólo si optás por ese método") + ganRowInp("Ajuste impositivo (+ / −)", "adj.c1") + ganRowTot("Resultado neto de 1ª categoría", "c1.neto"));
@@ -7679,13 +7679,62 @@ function ganRefrescar() {
   kp.forEach((l) => { if (/^Saldo/.test(l.textContent)) { const kpi = l.closest(".kpi"), val = kpi.querySelector(".k-value"); const fav = GV.saldoContrib > 0; l.textContent = fav ? "Saldo a favor" : "Saldo a pagar"; val.dataset.gv = fav ? "saldoContrib" : "saldoArca"; val.textContent = fmtMoneyRaw(fav ? GV.saldoContrib : GV.saldoArca); kpi.classList.toggle("state-pagar", GV.saldoArca > 0); kpi.classList.toggle("state-favor", fav); } });
 }
 
+
+// ---- Lectura del F.931 (PDF de "Declaración en línea") ----
+function ganCargarPdfJs() {
+  if (window.pdfjsLib && window.__ganPdfWorker) return Promise.resolve();
+  const base = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/";
+  const lib = window.pdfjsLib ? Promise.resolve() : new Promise((ok, ko) => { const s = document.createElement("script"); s.src = base + "pdf.min.js"; s.onload = ok; s.onerror = () => ko(new Error("No se pudo cargar el lector de PDF (¿hay conexión a internet?)")); document.head.appendChild(s); });
+  return lib.then(() => fetch(base + "pdf.worker.min.js")).then((r) => r.text()).then((t) => { window.__ganPdfWorker = URL.createObjectURL(new Blob([t], { type: "application/javascript" })); window.pdfjsLib.GlobalWorkerOptions.workerSrc = window.__ganPdfWorker; });
+}
+async function ganLeerPdfTexto(file) {
+  await ganCargarPdfJs();
+  const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  let out = "";
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const items = (await (await pdf.getPage(p)).getTextContent()).items.filter((i) => String(i.str).trim() !== "");
+    const lines = [];
+    items.forEach((i) => { const y = i.transform[5], l = lines.find((x) => Math.abs(x.y - y) < 3); if (l) l.it.push(i); else lines.push({ y, it: [i] }); });
+    lines.sort((a, b) => b.y - a.y).forEach((l) => { out += l.it.sort((a, b) => a.transform[4] - b.transform[4]).map((i) => i.str.trim()).join(" ") + "\n"; });
+  }
+  return out;
+}
+// Del F.931 se toma el costo del empleador: remuneraciones + contribuciones patronales (no los aportes del empleado).
+function ganParseF931(txt) {
+  const mon = "([\\d.]+,\\d{2})", f = (re) => { const m = txt.match(re); return m ? num(m[1]) : null; };
+  const per = txt.match(/\b(0[1-9]|1[0-2])\/(20\d{2})\b/), cuit = txt.match(/\b\d{2}-\d{8}-\d\b/);
+  const rem1 = f(new RegExp("Suma de Rem\\.\\s*1:\\s*" + mon)), rem9 = f(new RegExp("Suma de Rem\\.\\s*9:\\s*" + mon));
+  if (!per || rem1 === null || !/931/.test(txt)) return null;
+  const ss = f(new RegExp("351\\s*-\\s*Contribuciones de Seguridad Social\\s+" + mon)), os = f(new RegExp("352\\s*-\\s*Contribuciones de Obra Social\\s+" + mon));
+  const art = f(new RegExp("312\\s*-\\s*L\\.R\\.T\\.\\s+" + mon)), svo = f(new RegExp("028\\s*-\\s*Seguro Colectivo de Vida Obligatorio\\s+" + mon));
+  return { mm: per[1], anio: Number(per[2]), cuit: cuit ? cuit[0] : "", rect: /Rect\. \(1\/9\):\s*[1-9]/.test(txt),
+    rem: rem1, norem: Math.max(0, round2((rem9 === null ? rem1 : rem9) - rem1)), ss: ss || 0, os: os || 0, art: art || 0, svo: svo || 0 };
+}
+async function ganCargarF931Archivos(files) {
+  const cid = state.ganCli, c = getClient(cid), ok = [], fallas = [];
+  for (const file of Array.from(files)) {
+    try {
+      const d = ganParseF931(await ganLeerPdfTexto(file));
+      if (!d) { fallas.push(file.name + " (no parece un F.931 de Declaración en línea)"); continue; }
+      const dig = (x) => String(x || "").replace(/\D/g, "");
+      if (c && dig(c.cuit) && dig(d.cuit) && dig(c.cuit) !== dig(d.cuit) && !confirm(`El CUIT del F.931 (${d.cuit}) no coincide con el de ${c.name} (${c.cuit}). ¿Cargarlo igual?`)) continue;
+      GAN_F931_COLS.forEach(([k]) => ganSet(cid, d.anio, "f931." + d.mm + "." + k, fmtMoneyRaw(d[k])));
+      ganSet(cid, d.anio, "f931src." + d.mm, "F.931 " + d.mm + "/" + d.anio + (d.rect ? " (rectificativa)" : ""));
+      ok.push(d);
+    } catch (e) { fallas.push(file.name + " (" + (e && e.message ? e.message : "error al leerlo") + ")"); }
+  }
+  if (ok.length) { state.ganAnio = ok[ok.length - 1].anio; render(); renderGanF931Modal(ok[ok.length - 1].mm); showToast(ok.length === 1 ? `F.931 ${ok[0].mm}/${ok[0].anio} cargado` : `${ok.length} F.931 cargados`); }
+  if (fallas.length) alert("No se pudo leer:\n" + fallas.join("\n"));
+}
+
 // ---- Modales ----
 function renderGanF931Modal(foco) {
   const r = ganGet(state.ganCli, state.ganAnio);
-  const filas = GAN_MESES_KEYS.map((mm, mi) => `<tr${foco === mm ? ' style="background:var(--accent-soft);"' : ""}><td style="text-align:left;">${MESES[mi]}</td>${GAN_F931_COLS.map((c, ci) => `<td><input type="text" inputmode="decimal" data-kind="money" data-action="gan-931" data-gp="f931.${mm}.${c[0]}" data-tbl="f931" data-mi="${mi}" data-ci="${ci}" value="${escapeHtml(rawOrBlank(getDeep(r, "f931." + mm + "." + c[0], ""), "money"))}" placeholder="0,00"></td>`).join("")}<td class="num"><b data-gm="${mm}">${fmtMoneyRaw(ganF931Total(r, mm))}</b></td></tr>`).join("");
+  const filas = GAN_MESES_KEYS.map((mm, mi) => `<tr${foco === mm ? ' style="background:var(--accent-soft);"' : ""}><td style="text-align:left;">${MESES[mi]}${getDeep(r, "f931src." + mm, "") ? ` <span title="${escapeHtml(getDeep(r, "f931src." + mm, ""))}" style="color:var(--accent);">📄</span>` : ""}</td>${GAN_F931_COLS.map((c, ci) => `<td><input type="text" inputmode="decimal" data-kind="money" data-action="gan-931" data-gp="f931.${mm}.${c[0]}" data-tbl="f931" data-mi="${mi}" data-ci="${ci}" value="${escapeHtml(rawOrBlank(getDeep(r, "f931." + mm + "." + c[0], ""), "money"))}" placeholder="0,00"></td>`).join("")}<td class="num"><b data-gm="${mm}">${fmtMoneyRaw(ganF931Total(r, mm))}</b></td></tr>`).join("");
   document.getElementById("modal-root").innerHTML = `<div class="modal-backdrop"><div class="modal" style="max-width:1040px;">
     <div class="modal-head"><h3>Costo del empleador · F.931 · ${state.ganAnio}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
-    <div class="modal-body"><p class="hint-sm">Cargá mes a mes lo que figura en el F.931. El total de cada mes pasa solo a “Sueldos y cargas” de Egresos. Podés <b>pegar el bloque desde Excel</b> (copiá las 6 columnas y pegalo en enero).</p>
+    <div class="modal-body"><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;"><label class="btn btn-accent" style="cursor:pointer;" title="Elegí uno o varios PDF de Declaración en línea (F.931)">📄 Cargar F.931 (PDF)<input type="file" accept="application/pdf,.pdf" multiple data-action="gan-931-file" style="display:none;"></label><span class="hint-sm" style="margin:0;">Elegí el PDF del F.931 (podés elegir varios): se completan solos los campos del mes que corresponde.</span></div>
+      <p class="hint-sm">También podés cargar a mano o <b>pegar el bloque desde Excel</b> (copiá las 6 columnas y pegalo en enero). El total de cada mes pasa solo a “Sueldos y cargas” de Egresos. <b>Mapeo del F.931:</b> remunerativo = Suma de Rem. 1 · no remunerativo = Rem. 9 − Rem. 1 (aproximado: verificalo con la liquidación) · contribuciones SS (351) y OS (352) · ART = L.R.T. (312) · SVO (028).</p>
       <div class="table-scroll"><table class="gan-m"><tr><th style="text-align:left;">Mes</th>${GAN_F931_COLS.map((c) => `<th>${c[1]}</th>`).join("")}<th>Total</th></tr>${filas}
       <tr class="tot"><td style="text-align:left;">TOTALES</td>${GAN_F931_COLS.map((c) => `<td class="num" data-gmc="${c[0]}"></td>`).join("")}<td class="num" data-gmc="_t"></td></tr></table></div></div>
     <div class="modal-foot"><button class="btn btn-accent" data-action="close-modal">Listo</button></div></div></div>`;
@@ -7810,6 +7859,7 @@ document.addEventListener("change", (e) => {
   if (a === "gan-anio") { state.ganAnio = Number(t.value); render(); }
   else if (a === "gan-sel") { ganSet(state.ganCli, state.ganAnio, t.dataset.gp, t.value); render(); }
   else if (a === "gan-carga-sel") { const r = ganGet(state.ganCli, state.ganAnio); const l = Array.isArray(r.cargas) ? r.cargas.slice() : []; if (l[t.dataset.i]) { l[t.dataset.i] = Object.assign({}, l[t.dataset.i], { [t.dataset.campo]: t.value }); ganSet(state.ganCli, state.ganAnio, "cargas", l); render(); } }
+  else if (a === "gan-931-file") { const fs = Array.from(t.files || []); t.value = ""; if (fs.length) ganCargarF931Archivos(fs); }
   else if (a === "gan-cat") { ganSet(state.ganCli, state.ganAnio, "catAct." + t.dataset.code, t.value); render(); }
   else if (a === "gan-pres") { ganSetPres(t.dataset.client, state.ganAnio, t.checked); render(); }
   else if (a === "gan-vence") { ganSet(t.dataset.client, state.ganAnio, "vence", t.value); render(); }
