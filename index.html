@@ -162,6 +162,36 @@
   .period-nav button:disabled{ opacity:.3; cursor:default; }
   .period-nav button:disabled:hover{ background:transparent; }
 
+  /* Ganancias */
+  .gan-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(460px,1fr)); gap:16px; align-items:start; }
+  .gan-t, .gan-m{ width:100%; border-collapse:collapse; min-width:0; }
+  .gan-t td, .gan-t th{ white-space:normal; }
+  .gan-t td:first-child, .gan-t th:first-child{ position:static; text-align:left; }
+  .gan-t td:first-child{ background:transparent; }
+  .gan-t tr.tot > td:first-child{ background:var(--surface-2); }
+  .gan-t td.num{ white-space:nowrap; }
+  .gan-t td, .gan-t th{ padding:7px 12px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:middle; }
+  .gan-t th{ font-size:11.5px; color:var(--muted); text-align:right; font-weight:600; }
+  .gan-t td.num{ text-align:right; font-family:'IBM Plex Mono', monospace; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .gan-t input[type=text]{ width:150px; text-align:right; padding:4px 6px; }
+  .gan-t select{ max-width:300px; }
+  .gan-t tr.auto > td{ color:var(--muted); }
+  .gan-t tr.tot > td{ font-weight:700; background:var(--surface-2); }
+  .gan-t tr.sub > td{ font-weight:600; }
+  .gan-m th, .gan-m td{ padding:4px 4px; font-size:12px; border-bottom:1px solid var(--border); text-align:right; vertical-align:middle; }
+  .gan-m th{ color:var(--muted); font-weight:600; font-size:10.5px; white-space:normal; line-height:1.2; }
+  .gan-m th:first-child, .gan-m td:first-child{ padding-left:14px; min-width:84px; }
+  .gan-m td.auto, .gan-m tr.tot td{ font-size:11.5px; }
+  .gan-m input[type=text]{ width:104px; text-align:right; padding:4px 5px; font-size:12px; }
+  .gan-m th:last-child, .gan-m td:last-child{ padding-right:14px; }
+  .gan-m td.auto, .gan-m tr.tot td{ letter-spacing:-.02em; }
+  .gan-m td.auto{ color:var(--muted); font-family:'IBM Plex Mono', monospace; white-space:nowrap; }
+  .gan-m tr.tot td{ font-weight:700; background:var(--surface-2); font-family:'IBM Plex Mono', monospace; }
+  .gan-n{ display:inline-flex; width:22px; height:22px; border-radius:50%; background:var(--accent-soft); color:var(--accent-strong); font-size:12px; align-items:center; justify-content:center; margin-right:6px; font-family:'IBM Plex Mono', monospace; }
+  .gan-copy{ background:none; border:1px dashed transparent; border-radius:6px; font:inherit; color:inherit; padding:2px 8px; cursor:copy; }
+  .gan-copy:hover{ border-color:var(--accent); background:var(--accent-soft); }
+  .gan-copy.copiado{ background:var(--favor-soft); border-color:var(--favor); }
+
   .tabs{ display:flex; gap:4px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
   .tab{ background:transparent; border:none; padding:9px 14px; font-size:13px; font-weight:600; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px; }
   .tab:hover{ color:var(--ink); }
@@ -397,6 +427,7 @@
   .nav-side{ display:flex; flex-direction:column; gap:4px; }
   .nav-btn{ text-align:left; background:transparent; border:1px solid transparent; border-radius:10px; padding:8px 10px; font:inherit; font-size:13px; color:var(--ink); cursor:pointer; }
   .nav-btn:hover{ background:var(--surface-3); }
+  .nav-btn.gan-sub{ padding-left:30px; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .nav-btn.active{ background:var(--accent-soft); color:var(--accent-strong); font-weight:600; }
   .linklike{ background:none; border:none; padding:0; font:inherit; color:var(--ink); cursor:pointer; text-align:left; }
   .linklike:hover{ color:var(--accent); text-decoration:underline; }
@@ -817,6 +848,10 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 const AR_JURISDICCIONES = ["CABA","Buenos Aires","Catamarca","Córdoba","Corrientes","Chaco","Chubut","Entre Ríos","Formosa","Jujuy","La Pampa","La Rioja","Mendoza","Misiones","Neuquén","Rio Negro","Salta","San Juan","San Luis","Santa Cruz","Santa Fé","Santiago del Estero","Tierra del Fuego","Tucumán"];
 const AR_JURISDICCION_ORDER = new Map(AR_JURISDICCIONES.map((name, i) => [name, i]));
 // Menú lateral: el bloque IIBB se despliega/contrae; se abre solo si estás dentro de una de sus pantallas.
+function sideGanAbierto() {
+  if (state.sideGan === undefined) { try { state.sideGan = localStorage.getItem("papeles_side_gan") !== "0"; } catch (e) { state.sideGan = true; } }
+  return !!state.sideGan;
+}
 function sideIibbAbierto() {
   if (state.sideIibb === undefined) { try { state.sideIibb = localStorage.getItem("papeles_side_iibb") === "1"; } catch (e) { state.sideIibb = false; } }
   return !!state.sideIibb;
@@ -1868,6 +1903,7 @@ function renderSidebar() {
     </div>
     ${state.clients.some((c) => (c.iibbCM && c.iibbCM.enabled) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<div class="side-section nav-side">${(() => { const ab = sideIibbAbierto(); return `<button type="button" class="side-label side-toggle" data-action="side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>IIBB</span><span>${ab ? "▾" : "▸"}</span></button>`; })()}${sideIibbAbierto() ? `${state.clients.some((c) => c.iibbCM && (c.iibbCM.enabled || listPeriodsWithTax(c.id, "iibbCM").length)) ? `<button class="nav-btn ${state.view === "cm05" ? "active" : ""}" data-action="nav-view" data-view="cm05">📑 CM05 · DDJJ anual</button>` : ""}${state.clients.some((c) => nqnDdjjAplica(c, null) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<button class="nav-btn ${state.view === "nqn" ? "active" : ""}" data-action="nav-view" data-view="nqn">📄 DDJJ anual · Neuquén</button>` : ""}<button class="nav-btn ${state.view === "alic" ? "active" : ""}" data-action="nav-view" data-view="alic">🧮 Actualizar alícuotas</button>` : ""}</div>` : ""}
     ${state.clients.some((c) => monoEnabled(c)) ? `<div class="side-section nav-side"><div class="side-label">Monotributo</div><button class="nav-btn ${state.view === "monoVep" ? "active" : ""}" data-action="nav-view" data-view="monoVep">💳 Monotributistas</button><button class="nav-btn ${state.view === "recat" ? "active" : ""}" data-action="nav-view" data-view="recat">🧾 Recategorización</button></div>` : ""}
+    <div class="side-section nav-side"><div class="side-label">Ganancias</div><button class="nav-btn ${state.view === "gan" ? "active" : ""}" data-action="nav-view" data-view="gan">👥 Contribuyentes <span class="chip">${ganContribuyentes().length}</span></button></div>
     <div class="side-section">
       <div class="side-label-row">
         <div class="side-label">Clientes<span>${state.clients.length}</span></div>
@@ -1908,6 +1944,7 @@ function renderMain() {
   if (state.view === "calendario") { main.innerHTML = renderCalendarioView(); return; }
   if (state.view === "recat") { main.innerHTML = renderRecatView(); return; }
   if (state.view === "monoVep") { main.innerHTML = renderMonoVepView(); return; }
+  if (state.view === "gan") { main.innerHTML = renderGanView(); return; }
   if (state.view === "alic") { main.innerHTML = renderAlicView(); return; }
   if (state.view === "cm05") { main.innerHTML = renderCm05View(); return; }
   if (state.view === "nqn") { main.innerHTML = renderNqnView(); return; }
@@ -4644,7 +4681,7 @@ document.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const a = btn.dataset.action;
-  if (a === "nav-view") { state.view = btn.dataset.view; if (["cm05", "nqn", "alic"].includes(state.view)) state.sideIibb = true; render(); }
+  if (a === "nav-view") { state.view = btn.dataset.view; if (state.view === "gan") state.ganCli = null; if (["cm05", "nqn", "alic"].includes(state.view)) state.sideIibb = true; render(); }
   else if (a === "panel-abrir") {
     state.view = "client"; state.currentClientId = btn.dataset.client;
     state.currentPeriod = btn.dataset.period || state.panelPeriod;
@@ -7204,6 +7241,513 @@ function cm05Aplicar(clientId, period, quitar) {
   });
   render();
 }
+
+// =====================================================================
+// Ganancias — personas humanas (DDJJ anual, aplicativo "Declaración Jurada Simplificada")
+// Los datos viven en getExtras().gan: { clientes:{id:true}, datos:{"id|año":{...}}, params:{año:{...}} }
+// =====================================================================
+const GAN_PARAMS_DEFAULT = {
+  // 2025: GNI, deducción especial (3,5 × GNI) y cargas según tu DDJJ; cónyuge, hijo incapacitado y apartado 2 / nuevos profesionales
+  // se derivaron por proporción con la GNI (verificar contra la tabla de deducciones de ARCA).
+  2025: { gni: 4507505.52, conyuge: 4245166.13, hijo: 2140852.78, hijoInc: 4281705.56, esp1: 15776269.32, esp2: 21636026.50, espNuevos: 18030022.08,
+    escala: [[0, 0, 5], [1749901.45, 87495.07, 9], [3499802.89, 244986.20, 12], [5249704.34, 454974.38, 15], [7874556.52, 848702.20, 19], [15749113.04, 2344867.94, 23], [23623669.56, 4156015.94, 27], [35435504.34, 7345211.33, 31], [53153256.52, 12837714.51, 35]] },
+  // 2026: tablas anuales publicadas por ARCA.
+  2026: { gni: 6019671.36, conyuge: 5669323.06, hijo: 2859060.31, hijoInc: 5718120.60, esp1: 21068849.78, esp2: 28894422.56, espNuevos: 24078685.46,
+    escala: [[0, 0, 5], [2336953.69, 116847.68, 9], [4673907.36, 327173.52, 12], [7010861.05, 607607.96, 15], [10516291.59, 1133422.54, 19], [21032583.18, 3131517.94, 23], [31548874.77, 5550265.01, 27], [47323312.16, 9809363.10, 31], [70984968.25, 17144476.49, 35]] },
+};
+const GAN_ANIOS = [2025, 2026];
+const GAN_PARAM_CAMPOS = [["gni", "Ganancia no imponible"], ["conyuge", "Cónyuge / unión convivencial"], ["hijo", "Hijo (y otras cargas)"], ["hijoInc", "Hijo incapacitado para el trabajo"], ["esp1", "Deducción especial · apartado 1"], ["esp2", "Deducción especial · apartado 2"], ["espNuevos", "Deducción especial · nuevos profesionales"]];
+// Deducciones generales de fuente argentina, en el orden y con los nombres del aplicativo.
+// calc: reglas que la app aplica sola (cuota médico asistencial y donaciones 5% de la ganancia neta, servicio doméstico hasta la GNI, alquileres)
+const GAN_DED_GEN = [
+  ["actores", "Actores - retribuciones abonadas a representantes - RG 2442"],
+  ["cajasCompl", "Aportes a cajas complementarias de previsión"],
+  ["cajasProv", "Aportes a cajas provinciales o municipales o de previsión para profesionales"],
+  ["fondosComp", "Aportes a fondos compensadores de previsión"],
+  ["obraSocial", "Aportes a obras sociales"],
+  ["sgr", "Aportes a sociedades de garantía recíproca"],
+  ["jubil", "Aportes obligatorios a fondos de jubilaciones, retiros, pensiones o subsidios a cajas nacionales, provinciales o municipales"],
+  ["sindical", "Cuota sindical"],
+  ["indument", "Indumentaria y/o equipamiento - uso exclusivo y carácter obligatorio - adquiridos por empleado"],
+  ["anses", "Otras deducciones del anexo II de la RG 4003: aportes para fondos de jubilación, retiros, pensiones o subsidios destinados al ANSES"],
+  ["otras4003", "Otras deducciones del anexo II de la RG 4003 no contempladas en incisos anteriores"],
+  ["autonomos", "Pagos régimen nacional de trabajadores autónomos"],
+  ["vehiculos", "Vehículos de corredores y viajantes de comercio"],
+  ["retiroPriv", "Aportes correspondientes a los planes de seguro de retiro privados"],
+  ["sepelio", "Gastos de sepelio"],
+  ["hipotecario", "Intereses crédito hipotecario"],
+  ["domestico", "Personal doméstico", "domest"],
+  ["ahorroMixtos", "Primas de ahorro, correspondientes a seguros mixtos"],
+  ["segMuerte", "Primas de seguro para el caso de muerte"],
+  ["educ", "Servicios y herramientas con fines educativos para cargas de familia"],
+  ["alq10loc", "Alquileres de inmuebles destinados a casa habitación (10%) - beneficio locador (propietario)", "alq10"],
+  ["alq10inq", "Alquileres de inmuebles destinados a casa habitación (10%) - beneficio locatario (inquilino)", "alq10"],
+  ["alq40", "Alquileres de inmuebles destinados a casa habitación (40%) - beneficio locatario (inquilino)", "alq40"],
+  ["capEmprend", "Aportes a instituciones de capital emprendedor"],
+  ["medica", "Cuota médico asistencial abonada por usted y por sus familiares a cargo", "medica"],
+  ["donac", "Donaciones a fiscos nacionales, provinciales y municipales o a instituciones religiosas", "donac"],
+  ["honSanit", "Honorarios correspondientes a los servicios de asistencia sanitaria, médica y paramédica"],
+];
+const GAN_PARENTESCOS = [["conyuge", "Cónyuge / unión convivencial"], ["hijo", "Hijo/a menor de 18 años o hijastro/a"], ["hijoInc", "Hijo/a incapacitado/a para el trabajo"], ["otra", "Otra carga (mismo monto que hijo)"]];
+const GAN_MESES_KEYS = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+
+function ganDb() {
+  const e = getExtras();
+  if (!e.gan || typeof e.gan !== "object") e.gan = {};
+  if (!e.gan.clientes || typeof e.gan.clientes !== "object") e.gan.clientes = {};
+  if (!e.gan.datos || typeof e.gan.datos !== "object") e.gan.datos = {};
+  if (!e.gan.params || typeof e.gan.params !== "object") e.gan.params = {};
+  return e.gan;
+}
+function ganGet(cid, anio) { return ganDb().datos[cid + "|" + anio] || {}; }
+function ganSet(cid, anio, path, valor) {
+  const g = ganDb(), k = cid + "|" + anio;
+  if (!g.datos[k]) g.datos[k] = {};
+  setDeep(g.datos[k], path, valor);
+  persistExtras();
+}
+function ganParams(anio) {
+  const base = GAN_PARAMS_DEFAULT[anio] || GAN_PARAMS_DEFAULT[GAN_ANIOS[GAN_ANIOS.length - 1]];
+  const ov = ganDb().params[anio] || {}, out = { escala: base.escala };
+  GAN_PARAM_CAMPOS.forEach(([k]) => { out[k] = ov[k] !== undefined && String(ov[k]).trim() !== "" ? num(ov[k]) : base[k]; });
+  return out;
+}
+function ganArt94(x, escala) {
+  x = Math.max(0, x);
+  for (let i = escala.length - 1; i >= 0; i--) { const [lo, fijo, pct] = escala[i]; if (x > lo) return round2(fijo + (x - lo) * pct / 100); }
+  return 0;
+}
+function ganContribuyentes() { const g = ganDb(); return state.clients.filter((c) => g.clientes[c.id]).slice().sort((a, b) => a.name.localeCompare(b.name, "es")); }
+
+// Cálculo completo de la DDJJ a partir de lo cargado. Devuelve un mapa plano clave → importe.
+function ganCalc(cid, anio) {
+  const r = ganGet(cid, anio), P = ganParams(anio), v = {};
+  const n = (p) => num(getDeep(r, p, ""));
+  const T = { alq: 0, div: 0, vb: 0, nc: 0, vex: 0, hon: 0, compras: 0, sueldos: 0, iibb: 0, gAlq: 0, g4: 0, arcaIng: 0, arcaEgr: 0 };
+  let tIng = 0, tEgr = 0;
+  GAN_MESES_KEYS.forEach((mm) => {
+    const g = (k) => n("meses." + mm + "." + k);
+    Object.keys(T).forEach((k) => { T[k] += g(k); });
+    const ing = g("alq") + g("div") + g("vb") - g("nc") + g("vex") + g("hon");
+    const egr = g("compras") + g("sueldos") + g("iibb") + g("gAlq") + g("g4");
+    v["m" + mm + ".ing"] = round2(ing); v["m" + mm + ".egr"] = round2(egr);
+    v["m" + mm + ".ajI"] = round2(ing - g("arcaIng")); v["m" + mm + ".ajE"] = round2(egr - g("arcaEgr"));
+    tIng += ing; tEgr += egr;
+  });
+  Object.keys(T).forEach((k) => { v["t." + k] = round2(T[k]); });
+  v["t.ing"] = round2(tIng); v["t.egr"] = round2(tEgr);
+  v["t.ajI"] = round2(tIng - T.arcaIng); v["t.ajE"] = round2(tEgr - T.arcaEgr);
+  // Primera categoría
+  const ing1 = T.alq + n("c1.otros"), gas1 = T.gAlq + n("c1.gastos") + n("c1.amort") + n("c1.presuntos");
+  v["c1.ing"] = round2(ing1); v["c1.gas"] = round2(gas1); v["c1.neto"] = round2(ing1 - gas1 + n("adj.c1"));
+  // Segunda categoría
+  v["c2.divNeto"] = round2(T.div - n("c2.costoDiv"));
+  v["c2.otros"] = round2(n("c2.otrosIng") - n("c2.otrosGas") + n("c2.derIng") - n("c2.derGas") + n("adj.c2"));
+  // Tercera categoría (estado de resultados de la empresa / explotación y participación propia)
+  const ingG = T.vb - T.nc + T.vex + n("c3.otrosIng");
+  const costo = n("c3.bcIni") + T.compras + n("c3.comprasCosto") - n("c3.bcCie");
+  const gnc = T.sueldos + T.iibb + n("c3.gastosNoCosto") + n("c3.amort") - n("c3.otrosRes");
+  const gEmp = ingG - costo - gnc, pctTxt = String(getDeep(r, "c3.part", "")).trim(), pct = pctTxt === "" ? 100 : num(pctTxt);
+  v["c3.ing"] = round2(ingG); v["c3.costo"] = round2(costo); v["c3.bruta"] = round2(ingG - costo);
+  v["c3.gnc"] = round2(gnc); v["c3.emp"] = round2(gEmp); v["c3.pct"] = pct; v["c3.partNeto"] = round2(gEmp * pct / 100);
+  v["c3.neto"] = round2(gEmp * pct / 100 + n("c3.oiIng") - n("c3.oiGas") + n("adj.c3"));
+  // Cuarta categoría
+  const ing4 = T.hon + n("c4.dep") + n("c4.jub"), gas4 = T.g4 + n("c4.gastos") + n("c4.deducEsp");
+  v["c4.ing"] = round2(ing4); v["c4.gas"] = round2(gas4); v["c4.neto"] = round2(ing4 - gas4 + n("adj.c4"));
+  // Resultado neto fuente argentina (los dividendos tributan aparte, al 7%)
+  const neto = v["c1.neto"] + v["c2.otros"] + v["c3.neto"] + v["c4.neto"];
+  v["neto"] = round2(neto);
+  v["subtotal"] = round2(neto - n("q.deriv"));
+  v["antesDG"] = round2(v["subtotal"] - n("q.desgrav"));
+  // Deducciones generales
+  const base5 = Math.max(0, neto);
+  let dgTot = 0;
+  GAN_DED_GEN.forEach(([k, , regla]) => {
+    const x = n("dg." + k);
+    let c = x;
+    if (regla === "medica" || regla === "donac") c = Math.min(x, base5 * 0.05);
+    else if (regla === "domest") c = Math.min(x, P.gni);
+    else if (regla === "alq40") c = Math.min(x * 0.4, P.gni);
+    else if (regla === "alq10") c = x * 0.1;
+    c = round2(c); v["dg." + k] = c; dgTot += c;
+  });
+  v["dg.tot"] = round2(dgTot);
+  v["resImp"] = round2(v["antesDG"] - dgTot);
+  v["resFinal"] = round2(v["resImp"] - n("q.arg"));
+  // Deducciones personales
+  const esp = { ninguna: 0, esp1: P.esp1, esp2: P.esp2, espNuevos: P.espNuevos }[getDeep(r, "dp.esp", "ninguna")] || 0;
+  let cargas = 0;
+  (Array.isArray(r.cargas) ? r.cargas : []).forEach((c, i) => {
+    const anual = c.tipo === "conyuge" ? P.conyuge : c.tipo === "hijoInc" ? P.hijoInc : P.hijo;
+    const d = Math.max(1, Math.min(12, Math.round(num(c.desde) || 1))), h = Math.max(d, Math.min(12, Math.round(num(c.hasta) || 12)));
+    const pc = String(c.pct).trim() === "" ? 100 : num(c.pct);
+    const m = round2(anual / 12 * (h - d + 1) * pc / 100);
+    v["carga." + i] = m; cargas += m;
+  });
+  v["dp.gni"] = P.gni; v["dp.esp"] = esp; v["dp.doceava"] = n("dp.doceava"); v["dp.cargas"] = round2(cargas);
+  v["dp.tot"] = round2(P.gni + esp + v["dp.doceava"] + cargas);
+  v["gns"] = round2(Math.max(0, v["resFinal"] - v["dp.tot"]));
+  // Dividendos (7%) y determinación del impuesto
+  v["gnsDiv"] = round2(Math.max(0, v["c2.divNeto"] - n("q.div")));
+  v["impResto"] = ganArt94(v["gns"], P.escala);
+  v["impDiv"] = round2(v["gnsDiv"] * 0.07);
+  v["impuesto"] = round2(v["impResto"] + v["impDiv"]);
+  // Saldo
+  const pagos = n("pg.dyc") + n("pg.retperc") + n("pg.aduana") + n("pg.anticipos") + n("pg.liber") + n("pg.dif") + n("pg.otros") + n("pg.saldoAnt");
+  v["pagos"] = round2(pagos);
+  v["saldoArca"] = round2(Math.max(0, v["impuesto"] - pagos));
+  v["saldoContrib"] = round2(Math.max(0, pagos - v["impuesto"]));
+  return v;
+}
+
+// ---------------------------------------------------------------------
+// Ganancias — pantallas
+// ---------------------------------------------------------------------
+state.ganAnio = state.ganAnio || 2025;
+state.ganCli = state.ganCli || null;
+state.ganTab = state.ganTab || "ie";
+let GV = {};   // último cálculo (para refrescar los importes sin redibujar)
+
+const GAN_ING_COLS = [["alq", "Alquileres", "1ª"], ["div", "Dividendos", "2ª"], ["vb", "Ventas gravadas", "3ª"], ["nc", "Notas de créd.", "resta"], ["vex", "Ventas exentas", "3ª"], ["hon", "Honorarios", "4ª"]];
+const GAN_EGR_COLS = [["compras", "Compras"], ["sueldos", "Sueldos y cargas"], ["iibb", "Ingresos brutos"], ["gAlq", "Gastos alquileres"], ["g4", "Gastos 4ª categ."]];
+const GAN_FUENTE_ARCA = "Importe que ARCA ya tiene computado (Mis Comprobantes / información de terceros)";
+
+function ganRaw(v) { return (Math.round(v * 100) / 100).toFixed(2).replace(".", ","); }
+function ganInp(path, extra) {
+  const r = ganGet(state.ganCli, state.ganAnio);
+  return `<input type="text" inputmode="decimal" data-kind="money" data-action="gan-f" data-gp="${path}" value="${escapeHtml(rawOrBlank(getDeep(r, path, ""), "money"))}" placeholder="0,00" ${extra || ""}>`;
+}
+function ganV(k, cls) { return `<span data-gv="${k}" ${cls ? `class="${cls}"` : ""}>${fmtMoneyRaw(GV[k] || 0)}</span>`; }
+function ganRowInp(label, path, hint) { return `<tr><td>${label}${hint ? `<div class="hint-sm">${hint}</div>` : ""}</td><td class="num">${ganInp(path)}</td></tr>`; }
+function ganRowAuto(label, key, hint) { return `<tr class="auto"><td>${label}${hint ? `<div class="hint-sm">${hint}</div>` : ""}</td><td class="num">${ganV(key)}</td></tr>`; }
+function ganRowTot(label, key) { return `<tr class="tot"><td>${label}</td><td class="num">${ganV(key)}</td></tr>`; }
+function ganCard(titulo, filas, sub) { return `<div class="card"><div class="card-head"><h3>${titulo}</h3>${sub ? `<span class="hint">${sub}</span>` : ""}</div><div class="card-body" style="padding:0;"><table class="gan-t"><tbody>${filas}</tbody></table></div></div>`; }
+
+// ---- Lista de contribuyentes ----
+function ganPresInfo(cid, anio) {
+  const r = ganGet(cid, anio), dias = r.vence ? diasHasta(r.vence) : null;
+  return { pres: !!r.pres, vence: r.vence || "", dias, fPres: r.pres && r.presFecha ? fmtFechaCorta(r.presFecha) : "" };
+}
+function ganSetPres(cid, anio, on) { ganSet(cid, anio, "pres", !!on); ganSet(cid, anio, "presFecha", on ? hoyISO() : ""); }
+function renderGanLista() {
+  const anio = state.ganAnio, filtro = state.ganFiltro || "todos";
+  const todas = ganContribuyentes().map((c) => ({ c, v: ganCalc(c.id, anio), i: ganPresInfo(c.id, anio) }));
+  const filas = todas.filter((f) => filtro === "pend" ? !f.i.pres : filtro === "env" ? f.i.pres : true);
+  const env = todas.filter((f) => f.i.pres).length, pend = todas.filter((f) => !f.i.pres);
+  const pct = todas.length ? Math.round(env / todas.length * 100) : 0;
+  const totalPagar = round2(pend.reduce((s, f) => s + f.v.saldoArca, 0));
+  const urgentes = pend.filter((f) => f.i.dias != null && f.i.dias <= 7).length;
+  const seg = (k, l) => `<button class="${filtro === k ? "on" : ""}" data-action="gan-filtro" data-filtro="${k}">${l}</button>`;
+  const trs = filas.map((f) => {
+    const { c, v, i } = f, u = i.dias != null ? urgenciaDe(i.dias) : "";
+    const saldo = v.saldoArca > 0 ? `<span class="pill pagar">A pagar</span><div style="font-weight:700;margin-top:3px;">${fmtMoney(v.saldoArca)}</div>` : v.saldoContrib > 0 ? `<span class="pill favor">A favor</span><div style="font-weight:700;margin-top:3px;">${fmtMoney(v.saldoContrib)}</div>` : `<span class="hint-sm">${v.impuesto > 0 || v.neto ? "Sin saldo" : "Sin datos"}</span>`;
+    return `<tr>
+      <td style="text-align:left;"><button type="button" class="linklike" data-action="gan-open" data-client="${c.id}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div></td>
+      <td style="text-align:center;">${saldo}</td>
+      <td style="text-align:center;"><input type="date" data-action="gan-vence" data-client="${c.id}" value="${i.vence}" title="Vencimiento de la DDJJ" style="padding:3px 6px;font-size:12px;">${i.vence && !i.pres ? `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(i.dias)}</div>` : ""}</td>
+      <td style="text-align:center;"><button type="button" class="est ${i.pres ? "est-ok" : i.dias != null && i.dias < 0 ? "est-venc" : "est-falta"}" title="${i.pres ? "DDJJ presentada. Click para desmarcar." : "DDJJ sin presentar. Click para marcarla como presentada."}" data-action="gan-pres-toggle" data-client="${c.id}">${i.pres ? "✓ Presentada" : i.dias != null && i.dias < 0 ? "⛔ Sin presentar" : "○ Sin presentar"}</button>${i.pres && i.fPres ? `<div class="hint-sm">el ${i.fPres}</div>` : ""}</td>
+      <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="gan-quitar" data-client="${c.id}" title="Quitar de Ganancias">✕</button></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:28px;">${todas.length ? "No hay contribuyentes en este filtro." : "Todavía no agregaste contribuyentes. Tocá + Agregar contribuyente y elegí entre tus clientes."}</td></tr>`;
+  return `
+    <div class="topbar"><div class="client-title"><h1>Ganancias · Contribuyentes</h1><div class="meta"><span>DDJJ de personas humanas</span><span>·</span><span>período fiscal ${anio}</span></div></div>
+      <div class="topbar-actions">
+        <select data-action="gan-anio" title="Período fiscal">${GAN_ANIOS.map((a) => `<option value="${a}" ${a === anio ? "selected" : ""}>Período ${a}</option>`).join("")}</select>
+        <button class="btn" data-action="gan-params-open" title="Ganancia no imponible, deducciones y escala del art. 94">⚙ Parámetros ${anio}</button>
+        <button class="btn btn-accent" data-action="gan-add-open">+ Agregar contribuyente</button></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="kpi-row">
+        <div class="kpi"><span class="k-label">DDJJ presentadas</span><span class="k-value">${env} / ${todas.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pct}%;background:var(--favor);"></i></div><span class="k-sub">${pct}% presentado</span></div>
+        <div class="kpi ${totalPagar > 0 ? "state-pagar" : ""}"><span class="k-label">Saldo a pagar · pendientes</span><span class="k-value">${fmtMoney(totalPagar)}</span><span class="k-sub">de las DDJJ sin presentar</span></div>
+        <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Pendientes de presentar</span><span class="k-value">${pend.length}</span><span class="k-sub">${urgentes ? urgentes + " vence" + (urgentes === 1 ? "" : "n") + " en ≤ 7 días" : "sin vencimientos cercanos"}</span></div>
+      </div>
+      <div class="card"><div class="card-head"><h3>DDJJ por contribuyente</h3><div class="seg">${seg("todos", "Todos")}${seg("pend", "Pendientes")}${seg("env", "Presentadas")}</div></div>
+        <div class="card-body"><div class="table-scroll"><table class="panel-table" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col style="width:240px"><col><col><col><col style="width:50px"></colgroup><tr><th style="text-align:left;">Contribuyente</th><th style="text-align:center;">Saldo</th><th style="text-align:center;">Vence</th><th style="text-align:center;">DDJJ presentada</th><th></th></tr>${trs}</table></div>
+        <p class="foot-note">Cargá el vencimiento de cada uno (depende de la terminación del CUIT). Hacé click en el nombre para abrir toda su carga y la DDJJ modelo.</p></div></div>
+    </div>`;
+}
+
+// ---- Detalle ----
+function ganTablaMeses(tbl, cols, arcaKey, totKey, ajKey, titulo, hint) {
+  const r = ganGet(state.ganCli, state.ganAnio);
+  const head = `<tr><th style="text-align:left;">Mes</th>${cols.map((c) => `<th>${c[1]}${c[2] ? `<div class="hint-sm">${c[2]}</div>` : ""}</th>`).join("")}<th>Total</th><th title="${GAN_FUENTE_ARCA}">Computado ARCA</th><th>Ajuste</th></tr>`;
+  const filas = GAN_MESES_KEYS.map((mm, mi) => `<tr><td style="text-align:left;">${MESES[mi]}</td>${cols.map((c, ci) => `<td>${ganInp("meses." + mm + "." + c[0], `data-tbl="${tbl}" data-mi="${mi}" data-ci="${ci}"`)}</td>`).join("")}
+    <td class="num auto">${ganV("m" + mm + "." + (tbl === "ing" ? "ing" : "egr"))}</td>
+    <td>${ganInp("meses." + mm + "." + arcaKey, `data-tbl="${tbl}" data-mi="${mi}" data-ci="${cols.length}"`)}</td>
+    <td class="num auto">${ganV("m" + mm + "." + (tbl === "ing" ? "ajI" : "ajE"))}</td></tr>`).join("");
+  const tot = `<tr class="tot"><td style="text-align:left;">TOTALES</td>${cols.map((c) => `<td class="num">${ganV("t." + c[0])}</td>`).join("")}<td class="num">${ganV("t." + totKey)}</td><td class="num">${ganV("t." + arcaKey)}</td><td class="num">${ganV("t." + ajKey)}</td></tr>`;
+  return `<div class="card"><div class="card-head"><h3>${titulo}</h3><span class="hint">${hint}</span></div><div class="card-body" style="padding:0;"><div class="table-scroll"><table class="gan-m">${head}${filas}${tot}</table></div></div></div>`;
+}
+function renderGanTabIE() {
+  return `<p class="hint-sm" style="margin:0;">Cargá mes a mes lo que te mandan. Podés <b>pegar desde Excel</b>: copiá una columna (o un bloque) y pegalo en el primer mes. Todo se calcula solo y alimenta las rentas de la solapa siguiente.</p>
+    ${ganTablaMeses("ing", GAN_ING_COLS, "arcaIng", "ing", "ajI", "Ingresos", "Netos de IVA · cada columna va a su categoría")}
+    ${ganTablaMeses("egr", GAN_EGR_COLS, "arcaEgr", "egr", "ajE", "Egresos", "Compras, costo laboral e impuestos del año")}`;
+}
+function renderGanTabRentas() {
+  const c1 = ganCard("Primera categoría · Renta del suelo", ganRowAuto("Alquileres cobrados", "t.alq", "viene de Ingresos") + ganRowInp("Otros ingresos de 1ª", "c1.otros") + ganRowAuto("Gastos de alquileres cargados", "t.gAlq", "viene de Egresos") + ganRowInp("Otros gastos reales", "c1.gastos") + ganRowInp("Amortizaciones", "c1.amort") + ganRowInp("Gastos presuntos", "c1.presuntos", "sólo si optás por ese método") + ganRowInp("Ajuste impositivo (+ / −)", "adj.c1") + ganRowTot("Resultado neto de 1ª categoría", "c1.neto"));
+  const c2 = ganCard("Segunda categoría · Renta de capitales", ganRowAuto("Dividendos y utilidades asimilables", "t.div", "viene de Ingresos · tributan 7% aparte") + ganRowInp("Costo computable / gastos de los dividendos", "c2.costoDiv") + ganRowAuto("Dividendos netos", "c2.divNeto") + ganRowInp("Otros ingresos de 2ª (intereses, rentas)", "c2.otrosIng") + ganRowInp("Gastos vinculados", "c2.otrosGas") + ganRowInp("Ajuste impositivo (+ / −)", "adj.c2") + ganRowTot("Resultado neto de 2ª (sin dividendos)", "c2.otros"));
+  const pct = String(getDeep(ganGet(state.ganCli, state.ganAnio), "c3.part", ""));
+  const c3 = ganCard("Tercera categoría · Empresa o explotación unipersonal / participaciones", ganRowAuto("Ventas netas (gravadas + exentas − NC)", "c3.ing", "viene de Ingresos") + ganRowInp("Otros ingresos de 3ª", "c3.otrosIng") +
+    ganRowInp("Bienes de cambio · existencia inicial", "c3.bcIni") + ganRowAuto("Compras del año", "t.compras", "viene de Egresos") + ganRowInp("Otras compras / costos", "c3.comprasCosto") + ganRowInp("Bienes de cambio · existencia final", "c3.bcCie") + ganRowAuto("Costo de lo vendido", "c3.costo") + ganRowAuto("Ganancia bruta", "c3.bruta") +
+    ganRowAuto("Sueldos y cargas", "t.sueldos", "viene de Egresos") + ganRowAuto("Ingresos brutos", "t.iibb", "viene de Egresos") + ganRowInp("Otros gastos", "c3.gastosNoCosto") + ganRowInp("Amortizaciones", "c3.amort") + ganRowInp("Otros resultados (+ ganancia / − pérdida)", "c3.otrosRes") + ganRowAuto("Resultado de la actividad", "c3.emp") +
+    `<tr><td>Porcentaje de participación del contribuyente<div class="hint-sm">vacío = 100% (explotación propia)</div></td><td class="num"><input type="text" inputmode="decimal" data-action="gan-t" data-gp="c3.part" value="${escapeHtml(pct)}" placeholder="100" style="width:90px;"> %</td></tr>` +
+    ganRowAuto("Parte que le corresponde", "c3.partNeto") + ganRowInp("Otros ingresos por participaciones", "c3.oiIng") + ganRowInp("Gastos por participaciones", "c3.oiGas") + ganRowInp("Ajuste impositivo (+ / −)", "adj.c3") + ganRowTot("Resultado neto de 3ª categoría", "c3.neto"));
+  const c4 = ganCard("Cuarta categoría · Trabajo personal", ganRowAuto("Honorarios", "t.hon", "viene de Ingresos") + ganRowInp("Relación de dependencia", "c4.dep") + ganRowInp("Jubilaciones y pensiones", "c4.jub") + ganRowAuto("Gastos cargados", "t.g4", "viene de Egresos") + ganRowInp("Otros gastos de 4ª", "c4.gastos") + ganRowInp("Ajuste impositivo (+ / −)", "adj.c4") + ganRowTot("Resultado neto de 4ª categoría", "c4.neto"));
+  const q = ganCard("Quebrantos y desgravaciones", ganRowTot("Resultado neto del ejercicio (fuente argentina)", "neto") + ganRowInp("Quebrantos computables · instrumentos y/o contratos derivados", "q.deriv", "períodos anteriores") + ganRowInp("Desgravaciones", "q.desgrav") + ganRowInp("Quebrantos anteriores · compensables de fuente argentina", "q.arg") + ganRowInp("Quebrantos computables contra dividendos", "q.div"));
+  const pg = ganCard("Pagos a cuenta y saldo", ganRowAuto("Impuesto determinado", "impuesto") + ganRowInp("Cómputo del impuesto sobre los débitos y créditos", "pg.dyc", "para cancelar la DDJJ") + ganRowInp("Retenciones y percepciones", "pg.retperc") + ganRowInp("Percepciones aduaneras RG 3577", "pg.aduana") + ganRowInp("Anticipos cancelados", "pg.anticipos") + ganRowInp("Liberación", "pg.liber") + ganRowInp("Diferimiento", "pg.dif") + ganRowInp("Otros", "pg.otros") + ganRowInp("Saldo a favor del período fiscal anterior", "pg.saldoAnt") + ganRowTot("Saldo a favor de ARCA (a pagar)", "saldoArca") + ganRowTot("Saldo a favor del contribuyente", "saldoContrib"));
+  return `<div class="gan-grid">${c1}${c2}${c3}${c4}${q}${pg}</div>`;
+}
+function renderGanTabDed() {
+  const anio = state.ganAnio, P = ganParams(anio), r = ganGet(state.ganCli, anio);
+  const reglas = { domest: "hasta la ganancia no imponible", alq10: "se computa el 10%", alq40: "se computa el 40% (tope: GNI)", medica: "tope 5% de la ganancia neta", donac: "tope 5% de la ganancia neta" };
+  const dg = GAN_DED_GEN.map(([k, nombre, regla]) => `<tr><td>${nombre}${regla ? `<div class="hint-sm">${reglas[regla]}</div>` : ""}</td><td class="num">${ganInp("dg." + k)}</td><td class="num auto">${ganV("dg." + k)}</td></tr>`).join("");
+  const dgCard = `<div class="card"><div class="card-head"><h3>Deducciones generales</h3><span class="hint">Cargá el importe pagado · a la derecha, lo que computa</span></div><div class="card-body" style="padding:0;"><table class="gan-t"><thead><tr><th style="text-align:left;">Concepto</th><th>Pagado en el año</th><th>Computable</th></tr></thead><tbody>${dg}<tr class="tot"><td>Total de deducciones generales</td><td></td><td class="num">${ganV("dg.tot")}</td></tr></tbody></table></div></div>`;
+  const cargas = (Array.isArray(r.cargas) ? r.cargas : []).map((c, i) => `<tr>
+    <td><input type="text" data-action="gan-carga" data-i="${i}" data-campo="nom" value="${escapeHtml(c.nom || "")}" placeholder="Nombre" style="width:150px;text-align:left;"></td>
+    <td><select data-action="gan-carga-sel" data-i="${i}" data-campo="tipo">${GAN_PARENTESCOS.map(([k, l]) => `<option value="${k}" ${c.tipo === k ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+    <td><input type="text" inputmode="numeric" data-action="gan-carga" data-i="${i}" data-campo="desde" value="${escapeHtml(c.desde || "")}" placeholder="1" style="width:46px;text-align:center;"></td>
+    <td><input type="text" inputmode="numeric" data-action="gan-carga" data-i="${i}" data-campo="hasta" value="${escapeHtml(c.hasta || "")}" placeholder="12" style="width:46px;text-align:center;"></td>
+    <td><input type="text" inputmode="decimal" data-action="gan-carga" data-i="${i}" data-campo="pct" value="${escapeHtml(c.pct || "")}" placeholder="100" style="width:56px;text-align:center;"></td>
+    <td class="num auto">${ganV("carga." + i)}</td>
+    <td><button class="btn btn-sm btn-ghost" data-action="gan-carga-del" data-i="${i}" title="Quitar">✕</button></td></tr>`).join("");
+  const espOpts = [["ninguna", "Ninguna"], ["esp1", "Apartado 1 (3,5 × GNI)"], ["esp2", "Apartado 2 (4,8 × GNI)"], ["espNuevos", "Nuevos profesionales (4 × GNI)"]];
+  const dpCard = `<div class="card"><div class="card-head"><h3>Deducciones personales</h3><span class="hint">Valores anuales ${anio} · se proporcionan por meses de cada carga</span></div><div class="card-body" style="padding:0;"><table class="gan-t"><tbody>
+    <tr class="auto"><td>Ganancia no imponible</td><td class="num">${ganV("dp.gni")}</td></tr>
+    <tr><td>Deducción especial</td><td class="num"><select data-action="gan-sel" data-gp="dp.esp">${espOpts.map(([k, l]) => `<option value="${k}" ${getDeep(r, "dp.esp", "ninguna") === k ? "selected" : ""}>${l}</option>`).join("")}</select></td></tr>
+    <tr class="auto"><td>Importe de la deducción especial</td><td class="num">${ganV("dp.esp")}</td></tr>
+    ${ganRowInp("Adicional 4ª categoría / otras deducciones (manual)", "dp.doceava", "por ejemplo la doceava parte adicional o un ajuste que te indique el aplicativo")}
+    <tr><td colspan="2" style="padding:10px 10px 4px;"><b>Cargas de familia</b></td></tr>
+    <tr><td colspan="2" style="padding:0;">${cargas ? `<table class="gan-t"><thead><tr><th style="text-align:left;">Persona</th><th>Parentesco</th><th>Desde mes</th><th>Hasta mes</th><th>% a computar</th><th>Computable</th><th></th></tr></thead><tbody>${cargas}</tbody></table>` : `<div class="hint-sm" style="padding:6px 12px;">Sin cargas de familia.</div>`}<div style="padding:8px 12px;"><button class="btn btn-sm" data-action="gan-carga-add">+ Agregar carga</button></div></td></tr>
+    <tr class="auto"><td>Total cargas de familia</td><td class="num">${ganV("dp.cargas")}</td></tr>
+    <tr class="tot"><td>Total deducciones personales</td><td class="num">${ganV("dp.tot")}</td></tr></tbody></table></div></div>`;
+  return `<div style="display:flex;flex-direction:column;gap:16px;">${dpCard}${dgCard}</div>`;
+}
+
+// ---- DDJJ modelo ----
+// Devuelve las secciones en el mismo orden del aplicativo "Declaración jurada simplificada".
+function ganDdjjSecciones(cid, anio) {
+  const v = ganCalc(cid, anio), r = ganGet(cid, anio), c = getClient(cid) || {};
+  const f = (l, val, o) => Object.assign({ l, v: val }, o || {});
+  const secs = [];
+  secs.push({ t: "Datos iniciales", filas: [{ l: "Contribuyente", txt: c.name || "" }, { l: "CUIT", txt: c.cuit || "—" }, { l: "Período fiscal", txt: String(anio) }] });
+  const rent = [];
+  const nz = (...ks) => ks.some((k) => Math.abs(v[k] || 0) > 0.004);
+  if (nz("c1.ing", "c1.gas", "c1.neto")) rent.push(f("1ª categoría · Ingresos", v["c1.ing"]), f("1ª categoría · Gastos", v["c1.gas"]), f("1ª categoría · Resultado neto", v["c1.neto"], { sub: true }));
+  if (nz("c2.divNeto")) rent.push(f("Dividendos y utilidades asimilables · fuente argentina (neto)", v["c2.divNeto"], { nota: "tributan 7%, fuera de la escala" }));
+  if (nz("c2.otros")) rent.push(f("2ª categoría · Resultado neto (sin dividendos)", v["c2.otros"], { sub: true }));
+  if (nz("c3.ing", "c3.costo", "c3.gnc", "c3.neto")) rent.push(f("3ª categoría · Ventas netas", v["c3.ing"]), f("3ª categoría · Costo", v["c3.costo"]), f("3ª categoría · Gastos", v["c3.gnc"]), f("3ª categoría · Resultado neto" + (v["c3.pct"] !== 100 ? " (" + v["c3.pct"] + "%)" : ""), v["c3.neto"], { sub: true }));
+  if (nz("c4.ing", "c4.gas", "c4.neto")) rent.push(f("4ª categoría · Ingresos", v["c4.ing"]), f("4ª categoría · Gastos", v["c4.gas"]), f("4ª categoría · Resultado neto", v["c4.neto"], { sub: true }));
+  if (!rent.length) rent.push({ l: "Sin rentas cargadas", txt: "—" });
+  secs.push({ t: "Carga de datos · Rentas", filas: rent });
+  secs.push({ t: "Determinación del impuesto · Ganancia neta (resto fuente argentina)", filas: [
+    f("Resultado neto", v["neto"]), f("Quebrantos computables · instrumentos y/o contratos derivados", num(getDeep(r, "q.deriv", ""))), f("Subtotal", v["subtotal"], { sub: true }),
+    f("Desgravaciones", num(getDeep(r, "q.desgrav", ""))), f("Subtotal antes de deducciones generales", v["antesDG"], { sub: true }),
+    f("Deducciones generales", v["dg.tot"]), f("Resultado impositivo del período", v["resImp"], { sub: true }),
+    f("Quebrantos anteriores", num(getDeep(r, "q.arg", ""))), f("Resultado final", v["resFinal"], { sub: true }),
+    f("Deducciones personales computables", v["dp.tot"]), f("Ganancia neta sujeta a impuesto", v["gns"], { tot: true })] });
+  const dgF = GAN_DED_GEN.filter(([k]) => Math.abs(v["dg." + k]) > 0.004).map(([k, n]) => f(n, v["dg." + k]));
+  secs.push({ t: "Deducciones generales · detalle", filas: dgF.length ? dgF.concat([f("Total deducciones generales", v["dg.tot"], { tot: true })]) : [{ l: "Sin deducciones generales", txt: "—" }] });
+  const espN = { esp1: "Deducción especial · apartado 1", esp2: "Deducción especial · apartado 2", espNuevos: "Deducción especial · nuevos profesionales" }[getDeep(r, "dp.esp", "ninguna")];
+  const tipoN = Object.fromEntries(GAN_PARENTESCOS);
+  const dpF = [f("Ganancia no imponible", v["dp.gni"])];
+  if (espN) dpF.push(f(espN, v["dp.esp"]));
+  (Array.isArray(r.cargas) ? r.cargas : []).forEach((cg, i) => dpF.push(f((cg.nom ? cg.nom + " · " : "") + (tipoN[cg.tipo] || "Carga"), v["carga." + i], { nota: "meses " + (num(cg.desde) || 1) + " a " + (num(cg.hasta) || 12) + (String(cg.pct).trim() !== "" && num(cg.pct) !== 100 ? " · " + num(cg.pct) + "%" : "") })));
+  if (Math.abs(v["dp.doceava"]) > 0.004) dpF.push(f("Adicional / otras deducciones", v["dp.doceava"]));
+  dpF.push(f("Total deducciones personales", v["dp.tot"], { tot: true }));
+  secs.push({ t: "Deducciones personales · detalle", filas: dpF });
+  const imp = [f("Ganancia neta sujeta a impuesto · resto fuente argentina", v["gns"]), f("Impuesto determinado · escala art. 94", v["impResto"], { sub: true })];
+  if (nz("gnsDiv")) imp.push(f("Ganancia neta sujeta a impuesto · dividendos", v["gnsDiv"]), f("Impuesto determinado · dividendos (7%)", v["impDiv"], { sub: true }));
+  imp.push(f("Impuesto determinado", v["impuesto"], { tot: true }));
+  secs.push({ t: "Determinación del impuesto", filas: imp });
+  const sal = [f("Impuesto determinado", v["impuesto"])];
+  [["pg.dyc", "Cómputo del impuesto sobre los débitos y créditos para la cancelación de DDJJ"], ["pg.retperc", "Retenciones y percepciones"], ["pg.aduana", "Percepciones aduaneras RG 3577"], ["pg.anticipos", "Anticipos cancelados"], ["pg.liber", "Liberación"], ["pg.dif", "Diferimiento"], ["pg.otros", "Otros"], ["pg.saldoAnt", "Saldo a favor del contribuyente del período fiscal anterior"]]
+    .forEach(([k, n]) => { const x = num(getDeep(r, k, "")); if (Math.abs(x) > 0.004) sal.push(f(n, x)); });
+  sal.push(f("Saldo a favor de ARCA (a pagar)", v["saldoArca"], { tot: true }), f("Saldo a favor del contribuyente", v["saldoContrib"], { tot: true }));
+  secs.push({ t: "Determinación del saldo", filas: sal });
+  return secs;
+}
+function renderGanTabDdjj() {
+  const secs = ganDdjjSecciones(state.ganCli, state.ganAnio);
+  const body = secs.map((s, i) => `<div class="card"><div class="card-head"><h3><span class="gan-n">${i + 1}</span> ${s.t}</h3></div><div class="card-body" style="padding:0;"><table class="gan-t"><tbody>${s.filas.map((x) => {
+    const cls = x.tot ? "tot" : x.sub ? "sub" : "";
+    const val = x.txt !== undefined ? `<span class="hint-sm" style="font-size:12.5px;color:var(--ink);">${escapeHtml(x.txt)}</span>` : `<button type="button" class="gan-copy" data-action="gan-copy" data-copy="${ganRaw(x.v)}" title="Click para copiar ${ganRaw(x.v)} y pegarlo en el aplicativo">${fmtMoneyRaw(x.v)}</button>`;
+    return `<tr class="${cls}"><td>${escapeHtml(x.l)}${x.nota ? `<div class="hint-sm">${escapeHtml(x.nota)}</div>` : ""}</td><td class="num">${val}</td></tr>`;
+  }).join("")}</tbody></table></div></div>`).join("");
+  return `<p class="hint-sm" style="margin:0;">DDJJ modelo en el orden del aplicativo. <b>Hacé click en un importe para copiarlo</b> (sin puntos de miles, con coma decimal) y pegalo directo en el aplicativo de ARCA.</p><div class="gan-grid">${body}</div>`;
+}
+
+function renderGanDetalle() {
+  const c = getClient(state.ganCli);
+  if (!c) { state.ganCli = null; return renderGanLista(); }
+  const anio = state.ganAnio, r = ganGet(c.id, anio);
+  GV = ganCalc(c.id, anio);
+  const tabs = [["ie", "Ingresos y egresos"], ["rentas", "Rentas y pagos a cuenta"], ["ded", "Deducciones"], ["ddjj", "DDJJ modelo"]];
+  if (!tabs.some((t) => t[0] === state.ganTab)) state.ganTab = "ie";
+  const cont = { ie: renderGanTabIE, rentas: renderGanTabRentas, ded: renderGanTabDed, ddjj: renderGanTabDdjj }[state.ganTab]();
+  const sal = GV.saldoArca > 0 ? `<span class="pill pagar" data-gv-pill>A pagar ${fmtMoney(GV.saldoArca)}</span>` : GV.saldoContrib > 0 ? `<span class="pill favor">A favor ${fmtMoney(GV.saldoContrib)}</span>` : "";
+  return `
+    <div class="topbar"><div class="client-title"><button class="btn btn-sm btn-ghost" data-action="gan-back" style="margin-bottom:4px;">← Contribuyentes</button><h1>${escapeHtml(c.name)}</h1><div class="meta"><span>Ganancias ${anio}</span>${c.cuit ? `<span>·</span><span>${escapeHtml(c.cuit)}</span>` : ""}</div></div>
+      <div class="topbar-actions">
+        <select data-action="gan-anio" title="Período fiscal">${GAN_ANIOS.map((a) => `<option value="${a}" ${a === anio ? "selected" : ""}>Período ${a}</option>`).join("")}</select>
+        <label class="btn" title="Vencimiento de la DDJJ">Vence <input type="date" data-action="gan-vence" data-client="${c.id}" value="${escapeHtml(r.vence || "")}" style="padding:2px 6px;font-size:12px;"></label>
+        <label class="btn" style="cursor:pointer;"><input type="checkbox" data-action="gan-pres" data-client="${c.id}" ${r.pres ? "checked" : ""}> DDJJ presentada</label>
+        <button class="btn btn-accent" data-action="gan-excel">⬇ Exportar Excel</button></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="kpi-row" style="grid-template-columns:repeat(4,minmax(0,1fr));">
+        <div class="kpi"><span class="k-label">Resultado neto</span><span class="k-value" data-gv="neto">${fmtMoneyRaw(GV.neto)}</span><span class="k-sub">fuente argentina</span></div>
+        <div class="kpi"><span class="k-label">Ganancia neta sujeta</span><span class="k-value" data-gv="gns">${fmtMoneyRaw(GV.gns)}</span><span class="k-sub">después de deducciones</span></div>
+        <div class="kpi"><span class="k-label">Impuesto determinado</span><span class="k-value" data-gv="impuesto">${fmtMoneyRaw(GV.impuesto)}</span><span class="k-sub">escala art. 94${GV.impDiv ? " + dividendos" : ""}</span></div>
+        <div class="kpi ${GV.saldoArca > 0 ? "state-pagar" : GV.saldoContrib > 0 ? "state-favor" : ""}"><span class="k-label">${GV.saldoContrib > 0 ? "Saldo a favor" : "Saldo a pagar"}</span><span class="k-value" data-gv="${GV.saldoContrib > 0 ? "saldoContrib" : "saldoArca"}">${fmtMoneyRaw(GV.saldoContrib > 0 ? GV.saldoContrib : GV.saldoArca)}</span><span class="k-sub">después de pagos a cuenta</span></div>
+      </div>
+      <div class="tabs">${tabs.map(([k, l]) => `<button class="tab ${state.ganTab === k ? "active" : ""}" data-action="gan-tab" data-tab="${k}">${l}</button>`).join("")}</div>
+      ${cont}
+    </div>`;
+}
+function renderGanView() { return state.ganCli ? renderGanDetalle() : renderGanLista(); }
+
+function ganRefrescar() {
+  if (!state.ganCli) return;
+  GV = ganCalc(state.ganCli, state.ganAnio);
+  document.querySelectorAll("[data-gv]").forEach((el) => { el.textContent = fmtMoneyRaw(GV[el.dataset.gv] || 0); });
+  const kp = document.querySelectorAll(".kpi .k-label");
+  kp.forEach((l) => { if (/^Saldo/.test(l.textContent)) { const kpi = l.closest(".kpi"), val = kpi.querySelector(".k-value"); const fav = GV.saldoContrib > 0; l.textContent = fav ? "Saldo a favor" : "Saldo a pagar"; val.dataset.gv = fav ? "saldoContrib" : "saldoArca"; val.textContent = fmtMoneyRaw(fav ? GV.saldoContrib : GV.saldoArca); kpi.classList.toggle("state-pagar", GV.saldoArca > 0); kpi.classList.toggle("state-favor", fav); } });
+}
+
+// ---- Modales ----
+function renderGanAddModal() {
+  const g = ganDb(), libres = state.clients.filter((c) => !g.clientes[c.id]).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
+  document.getElementById("modal-root").innerHTML = `<div class="modal-backdrop"><div class="modal" style="max-width:480px;">
+    <div class="modal-head"><h3>Agregar contribuyente a Ganancias</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+    <div class="modal-body">${libres.length ? `<div class="field"><label>Cliente</label><select id="gan-add-sel" style="max-width:none;">${libres.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}${c.cuit ? " · " + escapeHtml(c.cuit) : ""}</option>`).join("")}</select></div>` : `<p class="hint-sm">Todos tus clientes ya están en Ganancias. Si falta alguien, primero agregalo como cliente.</p>`}</div>
+    <div class="modal-foot"><button class="btn" data-action="close-modal">Cancelar</button>${libres.length ? `<button class="btn btn-accent" data-action="gan-add-ok">Agregar</button>` : ""}</div></div></div>`;
+  if (typeof wireModalBackdropClose === "function") wireModalBackdropClose();
+}
+function renderGanParamsModal() {
+  const anio = state.ganAnio, P = ganParams(anio), base = GAN_PARAMS_DEFAULT[anio] || GAN_PARAMS_DEFAULT[2026], ov = ganDb().params[anio] || {};
+  const filas = GAN_PARAM_CAMPOS.map(([k, l]) => `<tr><td>${l}</td><td class="num"><input type="text" inputmode="decimal" data-kind="money" data-action="gan-param" data-campo="${k}" value="${escapeHtml(ov[k] !== undefined && String(ov[k]).trim() !== "" ? rawOrBlank(ov[k], "money") : "")}" placeholder="${fmtMoneyRaw(base[k])}"></td></tr>`).join("");
+  const esc = P.escala.map((t, i) => `<tr><td class="num">${fmtMoneyRaw(t[0])}</td><td class="num">${i + 1 < P.escala.length ? fmtMoneyRaw(P.escala[i + 1][0]) : "en adelante"}</td><td class="num">${fmtMoneyRaw(t[1])}</td><td class="num">${t[2]}%</td></tr>`).join("");
+  document.getElementById("modal-root").innerHTML = `<div class="modal-backdrop"><div class="modal" style="max-width:720px;">
+    <div class="modal-head"><h3>Parámetros del período ${anio}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+    <div class="modal-body">
+      <p class="hint-sm">Los importes de abajo son anuales. Dejá en blanco para usar el valor de la app (gris); si ARCA publica otro, escribilo y se usa ese.${anio === 2025 ? " <b>Cónyuge, hijo incapacitado y los apartados 2 / nuevos profesionales de 2025 están derivados por proporción de la ganancia no imponible: verificalos contra la tabla de ARCA.</b>" : ""}</p>
+      <table class="gan-t"><tbody>${filas}</tbody></table>
+      <h4 style="margin:14px 0 4px;">Escala del art. 94 · ${anio}</h4>
+      <table class="gan-t"><thead><tr><th>Más de $</th><th>Hasta $</th><th>Pagarán $</th><th>Más el</th></tr></thead><tbody>${esc}</tbody></table>
+    </div>
+    <div class="modal-foot"><button class="btn" data-action="gan-params-reset">Volver a los valores de la app</button><button class="btn btn-accent" data-action="close-modal">Listo</button></div></div></div>`;
+  if (typeof wireModalBackdropClose === "function") wireModalBackdropClose();
+}
+
+// ---- Excel ----
+function exportGanExcel() {
+  const cid = state.ganCli, anio = state.ganAnio, c = getClient(cid);
+  if (!c) return;
+  const wb = XLSX.utils.book_new(), nombre = (c.name || "").toUpperCase();
+  const secs = ganDdjjSecciones(cid, anio);
+  const rows = [["DDJJ MODELO · GANANCIAS PERSONAS HUMANAS " + anio + " · " + nombre, ""], [""]], merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }], headerRows = [], hl = new Map(), fm = new Map();
+  secs.forEach((s, i) => {
+    merges.push({ s: { r: rows.length, c: 0 }, e: { r: rows.length, c: 1 } });
+    rows.push([(i + 1) + ". " + s.t, ""]);
+    s.filas.forEach((x) => {
+      const R = rows.length;
+      if (x.txt !== undefined) rows.push([x.l, x.txt]); else { rows.push([x.l + (x.nota ? " (" + x.nota + ")" : ""), round2(x.v)]); }
+      if (x.tot) hl.set(R, { fg: "3D2273", bg: "F5F1FC" });
+    });
+    rows.push([""]);
+  });
+  const ws = newSheet(rows, { colWidths: [92, 22], merges, headerRows, highlightRows: hl, wrapCols: [0], skipCols: [] });
+  XLSX.utils.book_append_sheet(wb, ws, "DDJJ modelo");
+  // Hoja con la carga mensual
+  const r = ganGet(cid, anio);
+  const mk = (cols, arca, tot, aj, tit) => {
+    const out = [[tit, ""], [""], ["Mes"].concat(cols.map((x) => x[1]), ["Total", "Computado por ARCA", "Ajuste"])];
+    GAN_MESES_KEYS.forEach((mm, mi) => {
+      const g = (k) => num(getDeep(r, "meses." + mm + "." + k, ""));
+      const t = cols.reduce((s, x) => s + (x[0] === "nc" ? -g(x[0]) : g(x[0])), 0);
+      out.push([MESES[mi]].concat(cols.map((x) => g(x[0])), [round2(t), g(arca), round2(t - g(arca))]));
+    });
+    const R0 = 3, n = out.length;
+    out.push(["TOTALES"].concat(cols.concat([["tot"], ["arca"], ["aj"]]).map((_, j) => { let s = 0; for (let k = R0; k < R0 + 12; k++) s += out[k][j + 1]; return round2(s); })));
+    return out;
+  };
+  const ing = mk(GAN_ING_COLS, "arcaIng", "ing", "ajI", "INGRESOS " + anio), egr = mk(GAN_EGR_COLS, "arcaEgr", "egr", "ajE", "EGRESOS " + anio);
+  const all = ing.concat([[""]], egr);
+  const wsm = newSheet(all, { colWidths: [16, 16, 16, 16, 16, 16, 16, 16, 18, 16], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }, { s: { r: ing.length + 1, c: 0 }, e: { r: ing.length + 1, c: 9 } }], headerRows: [2, ing.length + 3], wrapCols: [] });
+  XLSX.utils.book_append_sheet(wb, wsm, "Ingresos y egresos");
+  const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const filename = `Ganancias_${anio}_${(c.name || "cliente").replace(/[^A-Za-z0-9ÁÉÍÓÚÑáéíóúñ ]/g, "").trim().replace(/\s+/g, "_")}.xlsx`;
+  if (state.downloads) state.downloads.save({ filename, data: blob }).then(() => showToast("Excel descargado")).catch((err) => { if (!(err && err.code === "declined")) showToast("No se pudo descargar el Excel"); });
+  else { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); }
+}
+
+// ---- Eventos ----
+function ganClick(a, btn) {
+  if (a === "gan-open") { state.view = "gan"; state.ganCli = btn.dataset.client; state.ganTab = "ie"; render(); }
+  else if (a === "gan-side-toggle") { state.sideGan = !sideGanAbierto(); try { localStorage.setItem("papeles_side_gan", state.sideGan ? "1" : "0"); } catch (e) {} render(); }
+  else if (a === "gan-back") { state.ganCli = null; render(); }
+  else if (a === "gan-filtro") { state.ganFiltro = btn.dataset.filtro; render(); }
+  else if (a === "gan-pres-toggle") { const r = ganGet(btn.dataset.client, state.ganAnio); ganSetPres(btn.dataset.client, state.ganAnio, !r.pres); render(); }
+  else if (a === "gan-tab") { state.ganTab = btn.dataset.tab; render(); }
+  else if (a === "gan-add-open") renderGanAddModal();
+  else if (a === "gan-add-ok") { const s = document.getElementById("gan-add-sel"); if (s && s.value) { ganDb().clientes[s.value] = true; persistExtras(); document.getElementById("modal-root").innerHTML = ""; state.ganCli = s.value; state.ganTab = "ie"; render(); } }
+  else if (a === "gan-quitar") { const c = getClient(btn.dataset.client); if (c && confirm(`¿Quitar a ${c.name} de Ganancias? Los datos cargados se conservan por si lo volvés a agregar.`)) { delete ganDb().clientes[c.id]; persistExtras(); render(); } }
+  else if (a === "gan-params-open") renderGanParamsModal();
+  else if (a === "gan-params-reset") { delete ganDb().params[state.ganAnio]; persistExtras(); renderGanParamsModal(); }
+  else if (a === "gan-carga-add") { const r = ganGet(state.ganCli, state.ganAnio); const l = Array.isArray(r.cargas) ? r.cargas.slice() : []; l.push({ nom: "", tipo: "hijo", desde: "", hasta: "", pct: "" }); ganSet(state.ganCli, state.ganAnio, "cargas", l); render(); }
+  else if (a === "gan-carga-del") { const r = ganGet(state.ganCli, state.ganAnio); const l = (Array.isArray(r.cargas) ? r.cargas : []).filter((_, i) => i !== Number(btn.dataset.i)); ganSet(state.ganCli, state.ganAnio, "cargas", l); render(); }
+  else if (a === "gan-copy") {
+    const txt = btn.dataset.copy;
+    const ok = () => { btn.classList.add("copiado"); setTimeout(() => btn.classList.remove("copiado"), 900); showToast("Copiado: " + txt); };
+    try { navigator.clipboard.writeText(txt).then(ok).catch(() => { const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); ok(); } catch (_) {} ta.remove(); }); }
+    catch (_) { const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); ok(); } catch (__) {} ta.remove(); }
+  }
+  else if (a === "gan-excel") exportGanExcel();
+}
+document.addEventListener("click", (e) => { const btn = e.target.closest("[data-action]"); if (btn && btn.dataset.action.indexOf("gan-") === 0 && btn.tagName !== "INPUT" && btn.tagName !== "SELECT") ganClick(btn.dataset.action, btn); });
+document.addEventListener("input", (e) => {
+  const t = e.target, a = t.dataset && t.dataset.action;
+  if (!a || a.indexOf("gan-") !== 0) return;
+  if (a === "gan-f" || a === "gan-t") { ganSet(state.ganCli, state.ganAnio, t.dataset.gp, t.value); ganRefrescar(); }
+  else if (a === "gan-carga") { const r = ganGet(state.ganCli, state.ganAnio); const l = Array.isArray(r.cargas) ? r.cargas.slice() : []; if (l[t.dataset.i]) { l[t.dataset.i] = Object.assign({}, l[t.dataset.i], { [t.dataset.campo]: t.value }); ganSet(state.ganCli, state.ganAnio, "cargas", l); ganRefrescar(); } }
+  else if (a === "gan-param") { const p = ganDb().params; if (!p[state.ganAnio]) p[state.ganAnio] = {}; p[state.ganAnio][t.dataset.campo] = t.value; persistExtras(); }
+});
+document.addEventListener("change", (e) => {
+  const t = e.target, a = t.dataset && t.dataset.action;
+  if (!a || a.indexOf("gan-") !== 0) return;
+  if (a === "gan-anio") { state.ganAnio = Number(t.value); render(); }
+  else if (a === "gan-sel") { ganSet(state.ganCli, state.ganAnio, t.dataset.gp, t.value); render(); }
+  else if (a === "gan-carga-sel") { const r = ganGet(state.ganCli, state.ganAnio); const l = Array.isArray(r.cargas) ? r.cargas.slice() : []; if (l[t.dataset.i]) { l[t.dataset.i] = Object.assign({}, l[t.dataset.i], { [t.dataset.campo]: t.value }); ganSet(state.ganCli, state.ganAnio, "cargas", l); render(); } }
+  else if (a === "gan-pres") { ganSetPres(t.dataset.client, state.ganAnio, t.checked); render(); }
+  else if (a === "gan-vence") { ganSet(t.dataset.client, state.ganAnio, "vence", t.value); render(); }
+});
+document.addEventListener("focusout", (e) => {
+  const t = e.target, a = t && t.dataset && t.dataset.action;
+  if (a !== "gan-f" && a !== "gan-param") return;
+  const raw = String(t.value || "").trim();
+  if (raw === "") return;
+  const f = fmtMoneyRaw(num(raw));
+  t.value = f;
+  if (a === "gan-f") ganSet(state.ganCli, state.ganAnio, t.dataset.gp, f);
+  else { const p = ganDb().params; if (!p[state.ganAnio]) p[state.ganAnio] = {}; p[state.ganAnio][t.dataset.campo] = f; persistExtras(); }
+});
+// Pegar un bloque de Excel: se reparte hacia abajo (meses) y hacia la derecha (columnas) desde el campo donde se pegó.
+document.addEventListener("paste", (e) => {
+  const t = e.target;
+  if (!t || !t.dataset || t.dataset.action !== "gan-f" || !t.dataset.tbl) return;
+  const txt = (e.clipboardData && e.clipboardData.getData("text")) || "";
+  if (!/[\n\t]/.test(txt.trim())) return;
+  e.preventDefault();
+  const lines = txt.replace(/\r/g, "").split("\n").filter((l, i, arr) => !(l === "" && i === arr.length - 1));
+  const mi0 = Number(t.dataset.mi), ci0 = Number(t.dataset.ci), tbl = t.dataset.tbl;
+  lines.forEach((ln, li) => ln.split("\t").forEach((cell, cj) => {
+    const inp = document.querySelector(`[data-tbl="${tbl}"][data-mi="${mi0 + li}"][data-ci="${ci0 + cj}"]`);
+    if (!inp || String(cell).trim() === "") return;
+    const val = fmtMoneyRaw(num(cell));
+    inp.value = val; ganSet(state.ganCli, state.ganAnio, inp.dataset.gp, val);
+  }));
+  ganRefrescar();
+});
 
 function renderMonoVepDetalle(clientId, period) {
   const c = getClient(clientId); if (!c) return;
