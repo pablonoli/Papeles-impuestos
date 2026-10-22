@@ -185,6 +185,7 @@
   .gan-m input[type=text]{ width:104px; text-align:right; padding:4px 5px; font-size:12px; }
   .gan-m th:last-child, .gan-m td:last-child{ padding-right:14px; }
   .gan-m td.auto, .gan-m tr.tot td{ letter-spacing:-.02em; }
+  .gan-t input.gan-auto::placeholder{ color:var(--accent); opacity:1; }
   .gan-m input.gan-auto::placeholder{ color:var(--accent); opacity:1; }
   .gan-f931-btn{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; }
   .gan-m td.auto{ color:var(--muted); font-family:'IBM Plex Mono', monospace; white-space:nowrap; }
@@ -7340,9 +7341,9 @@ function ganActCat(r, code) { const m = getDeep(r, "catAct." + code, ""); return
 function ganF931Total(r, mm) { return round2(GAN_F931_COLS.reduce((s, c) => s + num(getDeep(r, "f931." + mm + "." + c[0], "")), 0)); }
 // Lo que ya está declarado mes a mes en IVA e IIBB, para completar solo la tabla de ingresos y egresos.
 function ganAuto(cid, anio) {
-  const c = getClient(cid), r = ganGet(cid, anio), out = { alq: {}, vb: {}, hon: {}, compras: {}, iibb: {} };
+  const c = getClient(cid), r = ganGet(cid, anio), out = { alq: {}, vb: {}, hon: {}, compras: {}, iibb: {}, mono: {} };
   GAN_MESES_KEYS.forEach((mm) => {
-    ["alq", "vb", "hon", "compras", "iibb"].forEach((k) => { out[k][mm] = 0; });
+    ["alq", "vb", "hon", "compras", "iibb", "mono"].forEach((k) => { out[k][mm] = 0; });
     const p = anio + "-" + mm, doc = c && getDoc(cid, p);
     if (!doc) return;
     if (c.iva && c.iva.enabled && doc.iva) {
@@ -7357,16 +7358,17 @@ function ganAuto(cid, anio) {
       // F.2083: compras netas + compras no gravadas netas + operaciones que no generan crédito fiscal
       if (res) out.compras[mm] = res.comprasNetasGravadas + num(res.exento.compras) - num(res.exento.ncCompras) + num(res.exento.operacionesNoCredito);
     }
+    if (monoEnabled(c) && doc.mono) out.mono[mm] = num(doc.mono.facturacion);
     if (c.iibbLocal && c.iibbLocal.enabled && doc.iibbLocal) { const x = calcIibbLocalFor(c, p); if (x) out.iibb[mm] += x.impuesto; }
     if (c.iibbCM && c.iibbCM.enabled && doc.iibbCM) { const x = calcIibbCMFor(c, p); if (x) out.iibb[mm] += x.totales.impuestoAnticipo; }
-    ["alq", "vb", "hon", "compras", "iibb"].forEach((k) => { out[k][mm] = round2(out[k][mm]); });
+    ["alq", "vb", "hon", "compras", "iibb", "mono"].forEach((k) => { out[k][mm] = round2(out[k][mm]); });
   });
   return out;
 }
 function ganCalc(cid, anio) {
   const r = ganGet(cid, anio), P = ganParams(anio), v = {};
   const n = (p) => num(getDeep(r, p, ""));
-  const T = { alq: 0, div: 0, vb: 0, nc: 0, vex: 0, hon: 0, compras: 0, sueldos: 0, iibb: 0, gAlq: 0, g4: 0, arcaIng: 0, arcaEgr: 0 };
+  const T = { alq: 0, div: 0, vb: 0, nc: 0, vex: 0, hon: 0, mono: 0, compras: 0, sueldos: 0, iibb: 0, gAlq: 0, g4: 0, arcaIng: 0, arcaEgr: 0 };
   let tIng = 0, tEgr = 0;
   const AU = ganAuto(cid, anio);
   GAN_MESES_KEYS.forEach((mm) => {
@@ -7376,7 +7378,7 @@ function ganCalc(cid, anio) {
       if (k in AU && String(raw).trim() === "") return num(AU[k][mm]);
       return num(raw);
     };
-    ["alq", "div", "vb", "hon", "compras", "sueldos", "iibb"].forEach((k) => { v["e." + mm + "." + k] = round2(g(k)); });
+    ["alq", "div", "vb", "hon", "mono", "compras", "sueldos", "iibb"].forEach((k) => { v["e." + mm + "." + k] = round2(g(k)); });
     Object.keys(T).forEach((k) => { T[k] += g(k); });
     const ing = g("alq") + g("div") + g("vb") - g("nc") + g("vex") + g("hon");
     const egr = g("compras") + g("sueldos") + g("iibb") + g("gAlq") + g("g4");
@@ -7385,6 +7387,8 @@ function ganCalc(cid, anio) {
     tIng += ing; tEgr += egr;
   });
   Object.keys(T).forEach((k) => { v["t." + k] = round2(T[k]); });
+  v["t.monoAuto"] = round2(T.mono);
+  if (String(getDeep(r, "c4.mono", "")).trim() !== "") v["t.mono"] = round2(num(getDeep(r, "c4.mono", "")));
   v["t.ing"] = round2(tIng); v["t.egr"] = round2(tEgr);
   v["t.ajI"] = round2(tIng - T.arcaIng); v["t.ajE"] = round2(tEgr - T.arcaEgr);
   // Primera categoría
@@ -7557,7 +7561,7 @@ function renderGanTabRentas() {
     ganRowAuto("Sueldos y cargas", "t.sueldos", "viene de Egresos") + ganRowAuto("Ingresos brutos", "t.iibb", "viene de Egresos") + ganRowInp("Otros gastos", "c3.gastosNoCosto") + ganRowInp("Amortizaciones", "c3.amort") + ganRowInp("Otros resultados (+ ganancia / − pérdida)", "c3.otrosRes") + ganRowAuto("Resultado de la actividad", "c3.emp") +
     `<tr><td>Porcentaje de participación del contribuyente<div class="hint-sm">vacío = 100% (explotación propia)</div></td><td class="num"><input type="text" inputmode="decimal" data-action="gan-t" data-gp="c3.part" value="${escapeHtml(pct)}" placeholder="100" style="width:90px;"> %</td></tr>` +
     ganRowAuto("Parte que le corresponde", "c3.partNeto") + ganRowInp("Otros ingresos por participaciones", "c3.oiIng") + ganRowInp("Gastos por participaciones", "c3.oiGas") + ganRowInp("Ajuste impositivo (+ / −)", "adj.c3") + ganRowTot("Resultado neto de 3ª categoría", "c3.neto"));
-  const c4 = ganCard("Cuarta categoría · Trabajo personal", ganRowAuto("Honorarios", "t.hon", "viene de Ingresos") + ganRowInp("Relación de dependencia", "c4.dep") + ganRowInp("Jubilaciones y pensiones", "c4.jub") + ganRowInp("Otros gastos de 4ª", "c4.gastos") + ganRowInp("Ajuste impositivo (+ / −)", "adj.c4") + ganRowTot("Resultado neto de 4ª categoría", "c4.neto"));
+  const c4 = ganCard("Cuarta categoría · Trabajo personal", ganRowAuto("Honorarios", "t.hon", "viene de Ingresos") + `<tr><td>Ingresos de Monotributo<div class="hint-sm">exentos / no alcanzados · no suman al resultado · se toma la facturación del año si lo dejás vacío</div></td><td class="num">${ganInp("c4.mono", "", GV["t.monoAuto"])}</td></tr>` + ganRowInp("Relación de dependencia", "c4.dep") + ganRowInp("Jubilaciones y pensiones", "c4.jub") + ganRowInp("Otros gastos de 4ª", "c4.gastos") + ganRowInp("Ajuste impositivo (+ / −)", "adj.c4") + ganRowTot("Resultado neto de 4ª categoría", "c4.neto"));
   const q = ganCard("Quebrantos y desgravaciones", ganRowTot("Resultado neto del ejercicio (fuente argentina)", "neto") + ganRowInp("Quebrantos computables · instrumentos y/o contratos derivados", "q.deriv", "períodos anteriores") + ganRowInp("Desgravaciones", "q.desgrav") + ganRowInp("Quebrantos anteriores · compensables de fuente argentina", "q.arg") + ganRowInp("Quebrantos computables contra dividendos", "q.div"));
   const pg = ganCard("Pagos a cuenta y saldo", ganRowAuto("Impuesto determinado", "impuesto") + ganRowInp("Cómputo del impuesto sobre los débitos y créditos", "pg.dyc", "para cancelar la DDJJ") + ganRowInp("Retenciones y percepciones", "pg.retperc") + ganRowInp("Percepciones aduaneras RG 3577", "pg.aduana") + ganRowInp("Anticipos cancelados", "pg.anticipos") + ganRowInp("Liberación", "pg.liber") + ganRowInp("Diferimiento", "pg.dif") + ganRowInp("Otros", "pg.otros") + ganRowInp("Saldo a favor del período fiscal anterior", "pg.saldoAnt") + ganRowTot("Saldo a favor de ARCA (a pagar)", "saldoArca") + ganRowTot("Saldo a favor del contribuyente", "saldoContrib"));
   return `<div class="gan-grid">${c1}${c2}${c3}${c4}${q}${pg}</div>`;
@@ -7602,6 +7606,7 @@ function ganDdjjSecciones(cid, anio) {
   if (nz("c2.otros")) rent.push(f("2ª categoría · Resultado neto (sin dividendos)", v["c2.otros"], { sub: true }));
   if (nz("c3.ing", "c3.costo", "c3.gnc", "c3.neto")) rent.push(f("3ª categoría · Ventas netas", v["c3.ing"]), f("3ª categoría · Costo", v["c3.costo"]), f("3ª categoría · Gastos", v["c3.gnc"]), f("3ª categoría · Resultado neto" + (v["c3.pct"] !== 100 ? " (" + v["c3.pct"] + "%)" : ""), v["c3.neto"], { sub: true }));
   if (nz("c4.ing", "c4.gas", "c4.neto")) rent.push(f("4ª categoría · Ingresos", v["c4.ing"]), f("4ª categoría · Gastos", v["c4.gas"]), f("4ª categoría · Resultado neto", v["c4.neto"], { sub: true }));
+  if (Math.abs(v["t.mono"] || 0) > 0.004) rent.push(f("4ª categoría · Ingresos exentos / no alcanzados (Monotributo)", v["t.mono"], { nota: "informativo: no suma al resultado neto" }));
   if (!rent.length) rent.push({ l: "Sin rentas cargadas", txt: "—" });
   secs.push({ t: "Carga de datos · Rentas", filas: rent });
   secs.push({ t: "Determinación del impuesto · Ganancia neta (resto fuente argentina)", filas: [
@@ -7798,7 +7803,7 @@ function exportGanExcel() {
     const out = [[tit, ""], [""], ["Mes"].concat(cols.map((x) => x[1]), ["Total", "Computado por ARCA", "Ajuste"])];
     GAN_MESES_KEYS.forEach((mm, mi) => {
       const g = (k) => num(getDeep(r, "meses." + mm + "." + k, ""));
-      const t = cols.reduce((s, x) => s + VV["e." + mm + "." + x[0]], 0);
+      const t = cols.reduce((s, x) => s + (x[0] === "mono" ? 0 : VV["e." + mm + "." + x[0]]), 0);
       out.push([MESES[mi]].concat(cols.map((x) => VV["e." + mm + "." + x[0]]), [round2(t), g(arca), round2(t - g(arca))]));
     });
     const R0 = 3, n = out.length;
