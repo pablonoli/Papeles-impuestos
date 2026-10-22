@@ -1878,7 +1878,8 @@ function renderSidebar() {
           ${c.iibbLocal.enabled ? '<span class="chip on">IIBB local</span>' : ""}
           ${c.iibbCM.enabled ? '<span class="chip on">IIBB CM</span>' : ""}
           ${monoEnabled(c) ? '<span class="chip on">Monotributo</span>' : ""}
-          ${!c.iva.enabled && !c.iibbLocal.enabled && !c.iibbCM.enabled && !monoEnabled(c) ? '<span class="chip">Sin impuestos</span>' : ""}
+          ${!c.iva.enabled && !c.iibbLocal.enabled && !c.iibbCM.enabled && !monoEnabled(c) && !ganDb().clientes[c.id] ? '<span class="chip">Sin impuestos</span>' : ""}
+          ${ganDb().clientes[c.id] ? '<span class="chip on">Ganancias</span>' : ""}
         </span>
       </button>`;
   }).join("");
@@ -1970,7 +1971,7 @@ function renderMain() {
         <div class="meta">
           <span>${escapeHtml(client.cuit || "CUIT sin cargar")}</span>
           <span>·</span>
-          <span>${[client.iva.enabled && "IVA", client.iibbLocal.enabled && "IIBB Local", client.iibbCM.enabled && "IIBB Convenio Multilateral", monoEnabled(client) && "Monotributo"].filter(Boolean).join(" · ") || "Sin impuestos configurados"}</span>
+          <span>${[client.iva.enabled && "IVA", client.iibbLocal.enabled && "IIBB Local", client.iibbCM.enabled && "IIBB Convenio Multilateral", monoEnabled(client) && "Monotributo", ganDb().clientes[client.id] && "Ganancias"].filter(Boolean).join(" · ") || "Sin impuestos configurados"}</span>
         </div>
       </div>
       <div class="topbar-actions">
@@ -2982,6 +2983,10 @@ function renderConfigTab(client) {
           <div class="switch-row">
             <div class="st"><b>Monotributo</b><span>Categoría, tope de facturación y cuota mensual</span></div>
             <label class="switch"><input type="checkbox" ${monoEnabled(client) ? "checked" : ""} data-cfg="toggle-mono"><span class="slider"></span></label>
+          </div>
+          <div class="switch-row">
+            <div class="st"><b>Ganancias — Personas humanas</b><span>DDJJ anual: carga, deducciones y DDJJ modelo (aparece en Ganancias › Contribuyentes)</span></div>
+            <label class="switch"><input type="checkbox" ${ganDb().clientes[client.id] ? "checked" : ""} data-cfg="toggle-gan"><span class="slider"></span></label>
           </div>
         </div>
         <p class="foot-note">IVA se presenta siempre junto con IIBB (Local o Convenio Multilateral) para una misma sociedad: activá IVA y el régimen de IIBB que corresponda en este mismo cliente, no como clientes separados.</p>
@@ -5200,6 +5205,7 @@ function handleConfigInput(t) {
   else if (cfg === "toggle-turiva") touchDoc(c.id, state.currentPeriod, (doc) => setDeep(doc, "iva.turIvaEnabled", t.checked));
   else if (cfg === "toggle-iibblocal") mutateClient(c.id, (cl) => (cl.iibbLocal.enabled = t.checked));
   else if (cfg === "toggle-iibbcm") mutateClient(c.id, (cl) => (cl.iibbCM.enabled = t.checked));
+  else if (cfg === "toggle-gan") { if (t.checked) ganDb().clientes[c.id] = true; else delete ganDb().clientes[c.id]; persistExtras(); render(); }
   else if (cfg === "toggle-mono") mutateClient(c.id, (cl) => { cl.mono = Object.assign({ categoria: "", tipo: "servicios" }, cl.mono || {}); cl.mono.enabled = t.checked; });
   else if (cfg === "mono-cat") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.categoria = t.value; });
   else if (cfg === "mono-tipo") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.tipo = t.value; });
