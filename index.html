@@ -194,6 +194,27 @@
   .gan-copy{ background:none; border:1px dashed transparent; border-radius:6px; font:inherit; color:inherit; padding:2px 8px; cursor:copy; }
   .gan-copy:hover{ border-color:var(--accent); background:var(--accent-soft); }
   .gan-copy.copiado{ background:var(--favor-soft); border-color:var(--favor); }
+  .bp-list{ display:flex; flex-direction:column; gap:12px; }
+  .bp-item{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
+  .bp-head{ display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+  .bp-spacer{ flex:1; }
+  .bp-title{ font-size:14px; }
+  .bp-nota{ font-size:11.5px; }
+  .bp-nota.bp-warn{ color:var(--pagar); }
+  .bp-sit{ font-size:11px; padding:2px 8px; border-radius:20px; background:var(--surface-2); color:var(--muted); border:1px solid var(--border); }
+  .bp-sit-grav{ background:var(--accent-soft); color:var(--accent-strong); border-color:transparent; }
+  .bp-sit-casa{ background:var(--favor-soft); color:var(--favor); border-color:transparent; }
+  .bp-copy{ font-family:'IBM Plex Mono', monospace; font-weight:700; font-size:14px; }
+  .bp-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(172px,1fr)); gap:10px 12px; }
+  .bp-f{ display:flex; flex-direction:column; gap:3px; font-size:11.5px; color:var(--muted); min-width:0; }
+  .bp-f.w2{ grid-column:span 2; }
+  .bp-f input, .bp-f select{ width:100%; max-width:none; box-sizing:border-box; padding:5px 7px; font-size:13px; color:var(--ink); }
+  .bp-f input[data-kind=money]{ text-align:right; }
+  .bp-tots{ display:flex; gap:18px; flex-wrap:wrap; padding:10px 14px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; font-size:12.5px; color:var(--muted); }
+  .bp-tots b{ color:var(--ink); font-family:'IBM Plex Mono', monospace; margin-left:4px; }
+  .bp-prov{ background:var(--accent-soft); color:var(--accent-strong); border-radius:10px; padding:9px 14px; font-size:13px; }
+  .bp-avisos li{ color:var(--ink); }
+  .bp-reg td.num, .bp-reg th{ min-width:130px; }
 
   .tabs{ display:flex; gap:4px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
   .tab{ background:transparent; border:none; padding:9px 14px; font-size:13px; font-weight:600; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px; }
@@ -854,6 +875,10 @@ const AR_JURISDICCION_ORDER = new Map(AR_JURISDICCIONES.map((name, i) => [name, 
 function sideMonoAbierto() {
   if (state.sideMono === undefined) { try { state.sideMono = localStorage.getItem("papeles_side_mono") === "1"; } catch (e) { state.sideMono = false; } }
   return !!state.sideMono;
+}
+function sideBpAbierto() {
+  if (state.sideBp === undefined) { try { state.sideBp = localStorage.getItem("papeles_side_bp") === "1"; } catch (e) { state.sideBp = false; } }
+  return !!state.sideBp;
 }
 function sideGanAbierto() {
   if (state.sideGan === undefined) { try { state.sideGan = localStorage.getItem("papeles_side_gan") === "1"; } catch (e) { state.sideGan = false; } }
@@ -1885,8 +1910,9 @@ function renderSidebar() {
           ${c.iibbLocal.enabled ? '<span class="chip on">IIBB local</span>' : ""}
           ${c.iibbCM.enabled ? '<span class="chip on">IIBB CM</span>' : ""}
           ${monoEnabled(c) ? '<span class="chip on">Monotributo</span>' : ""}
-          ${!c.iva.enabled && !c.iibbLocal.enabled && !c.iibbCM.enabled && !monoEnabled(c) && !ganDb().clientes[c.id] ? '<span class="chip">Sin impuestos</span>' : ""}
+          ${!c.iva.enabled && !c.iibbLocal.enabled && !c.iibbCM.enabled && !monoEnabled(c) && !ganDb().clientes[c.id] && !bpDb().clientes[c.id] ? '<span class="chip">Sin impuestos</span>' : ""}
           ${ganDb().clientes[c.id] ? '<span class="chip on">Ganancias</span>' : ""}
+          ${bpDb().clientes[c.id] ? '<span class="chip on">Bienes Pers.</span>' : ""}
         </span>
       </button>`;
   }).join("");
@@ -1912,6 +1938,7 @@ function renderSidebar() {
     ${state.clients.some((c) => (c.iibbCM && c.iibbCM.enabled) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<div class="side-section nav-side">${(() => { const ab = sideIibbAbierto(); return `<button type="button" class="side-label side-toggle" data-action="side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>IIBB</span><span>${ab ? "▾" : "▸"}</span></button>`; })()}${sideIibbAbierto() ? `${state.clients.some((c) => c.iibbCM && (c.iibbCM.enabled || listPeriodsWithTax(c.id, "iibbCM").length)) ? `<button class="nav-btn ${state.view === "cm05" ? "active" : ""}" data-action="nav-view" data-view="cm05">📑 CM05 · DDJJ anual</button>` : ""}${state.clients.some((c) => nqnDdjjAplica(c, null) || (c.iibbLocal && c.iibbLocal.enabled)) ? `<button class="nav-btn ${state.view === "nqn" ? "active" : ""}" data-action="nav-view" data-view="nqn">📄 DDJJ anual · Neuquén</button>` : ""}<button class="nav-btn ${state.view === "alic" ? "active" : ""}" data-action="nav-view" data-view="alic">🧮 Actualizar alícuotas</button>` : ""}</div>` : ""}
     ${state.clients.some((c) => monoEnabled(c)) ? `<div class="side-section nav-side">${(() => { const ab = sideMonoAbierto(); return `<button type="button" class="side-label side-toggle" data-action="mono-side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>Monotributo</span><span>${ab ? "▾" : "▸"}</span></button>${ab ? `<button class="nav-btn ${state.view === "monoVep" ? "active" : ""}" data-action="nav-view" data-view="monoVep">💳 Monotributistas</button><button class="nav-btn ${state.view === "recat" ? "active" : ""}" data-action="nav-view" data-view="recat">🧾 Recategorización</button>` : ""}`; })()}</div>` : ""}
     <div class="side-section nav-side">${(() => { const ab = sideGanAbierto(); return `<button type="button" class="side-label side-toggle" data-action="gan-side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>Ganancias</span><span>${ab ? "▾" : "▸"}</span></button>${ab ? `<button class="nav-btn ${state.view === "gan" ? "active" : ""}" data-action="nav-view" data-view="gan">👥 Contribuyentes <span class="chip">${ganContribuyentes().length}</span></button>` : ""}`; })()}</div>
+    <div class="side-section nav-side">${(() => { const ab = sideBpAbierto(); return `<button type="button" class="side-label side-toggle" data-action="bp-side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>Bienes Personales</span><span>${ab ? "▾" : "▸"}</span></button>${ab ? `<button class="nav-btn ${state.view === "bp" ? "active" : ""}" data-action="nav-view" data-view="bp">👥 Contribuyentes <span class="chip">${bpContribuyentes().length}</span></button>` : ""}`; })()}</div>
     <div class="side-section">
       <div class="side-label-row">
         <div class="side-label">Clientes<span>${state.clients.length}</span></div>
@@ -1953,6 +1980,7 @@ function renderMain() {
   if (state.view === "recat") { main.innerHTML = renderRecatView(); return; }
   if (state.view === "monoVep") { main.innerHTML = renderMonoVepView(); return; }
   if (state.view === "gan") { main.innerHTML = renderGanView(); return; }
+  if (state.view === "bp") { main.innerHTML = renderBpView(); bpPostRender(); return; }
   if (state.view === "alic") { main.innerHTML = renderAlicView(); return; }
   if (state.view === "cm05") { main.innerHTML = renderCm05View(); return; }
   if (state.view === "nqn") { main.innerHTML = renderNqnView(); return; }
@@ -1978,7 +2006,7 @@ function renderMain() {
         <div class="meta">
           <span>${escapeHtml(client.cuit || "CUIT sin cargar")}</span>
           <span>·</span>
-          <span>${[client.iva.enabled && "IVA", client.iibbLocal.enabled && "IIBB Local", client.iibbCM.enabled && "IIBB Convenio Multilateral", monoEnabled(client) && "Monotributo", ganDb().clientes[client.id] && "Ganancias"].filter(Boolean).join(" · ") || "Sin impuestos configurados"}</span>
+          <span>${[client.iva.enabled && "IVA", client.iibbLocal.enabled && "IIBB Local", client.iibbCM.enabled && "IIBB Convenio Multilateral", monoEnabled(client) && "Monotributo", ganDb().clientes[client.id] && "Ganancias", bpDb().clientes[client.id] && "Bienes Personales"].filter(Boolean).join(" · ") || "Sin impuestos configurados"}</span>
         </div>
       </div>
       <div class="topbar-actions">
@@ -2994,6 +3022,10 @@ function renderConfigTab(client) {
           <div class="switch-row">
             <div class="st"><b>Ganancias — Personas humanas</b><span>DDJJ anual: carga, deducciones y DDJJ modelo (aparece en Ganancias › Contribuyentes)</span></div>
             <label class="switch"><input type="checkbox" ${ganDb().clientes[client.id] ? "checked" : ""} data-cfg="toggle-gan"><span class="slider"></span></label>
+          </div>
+          <div class="switch-row">
+            <div class="st"><b>Bienes Personales — Personas humanas</b><span>DDJJ anual: carga de bienes y borrador del F.762/D (aparece en Bienes Personales › Contribuyentes)</span></div>
+            <label class="switch"><input type="checkbox" ${bpDb().clientes[client.id] ? "checked" : ""} data-cfg="toggle-bp"><span class="slider"></span></label>
           </div>
         </div>
         <p class="foot-note">IVA se presenta siempre junto con IIBB (Local o Convenio Multilateral) para una misma sociedad: activá IVA y el régimen de IIBB que corresponda en este mismo cliente, no como clientes separados.</p>
@@ -4693,7 +4725,7 @@ document.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const a = btn.dataset.action;
-  if (a === "nav-view") { state.view = btn.dataset.view; if (state.view === "gan") { state.ganCli = null; state.sideGan = true; } if (["monoVep", "recat"].includes(state.view)) state.sideMono = true; if (["cm05", "nqn", "alic"].includes(state.view)) state.sideIibb = true; render(); }
+  if (a === "nav-view") { state.view = btn.dataset.view; if (state.view === "gan") { state.ganCli = null; state.sideGan = true; } if (state.view === "bp") { state.bpCli = null; state.sideBp = true; } if (["monoVep", "recat"].includes(state.view)) state.sideMono = true; if (["cm05", "nqn", "alic"].includes(state.view)) state.sideIibb = true; render(); }
   else if (a === "panel-abrir") {
     state.view = "client"; state.currentClientId = btn.dataset.client;
     state.currentPeriod = btn.dataset.period || state.panelPeriod;
@@ -5213,6 +5245,7 @@ function handleConfigInput(t) {
   else if (cfg === "toggle-turiva") touchDoc(c.id, state.currentPeriod, (doc) => setDeep(doc, "iva.turIvaEnabled", t.checked));
   else if (cfg === "toggle-iibblocal") mutateClient(c.id, (cl) => (cl.iibbLocal.enabled = t.checked));
   else if (cfg === "toggle-iibbcm") mutateClient(c.id, (cl) => (cl.iibbCM.enabled = t.checked));
+  else if (cfg === "toggle-bp") { if (t.checked) bpDb().clientes[c.id] = true; else delete bpDb().clientes[c.id]; persistExtras(); render(); }
   else if (cfg === "toggle-gan") { if (t.checked) ganDb().clientes[c.id] = true; else delete ganDb().clientes[c.id]; persistExtras(); render(); }
   else if (cfg === "toggle-mono") mutateClient(c.id, (cl) => { cl.mono = Object.assign({ categoria: "", tipo: "servicios" }, cl.mono || {}); cl.mono.enabled = t.checked; });
   else if (cfg === "mono-cat") mutateClient(c.id, (cl) => { cl.mono = cl.mono || {}; cl.mono.categoria = t.value; });
@@ -7900,6 +7933,507 @@ document.addEventListener("paste", (e) => {
     inp.value = val; ganSet(state.ganCli, state.ganAnio, inp.dataset.gp, val);
   }));
   ganRefrescar(); ganF931ModalRefrescar();
+});
+
+
+// =====================================================================
+// Bienes Personales — personas humanas (DDJJ anual F.762/D, aplicativo "Bienes Personales")
+// Los datos viven en getExtras().bp: { clientes:{id:true}, datos:{"id|año":{items:[...], obj:{}, pg:{}, ...}}, params:{año:{...}} }
+// =====================================================================
+const BP_PARAMS_DEFAULT = {
+  // 2025: valores publicados por ARCA (MNI, casa habitación y escala general / cumplidores). Índice 2017→2025 tomado del aplicativo.
+  2025: { mni: 384728044.57, casa: 1346548155.99, coef: 81.103593, coefPrev: 61.652875, usd: "", prov: false,
+    escala: [[0, 0, 0.5], [52664283.73, 263321.42, 0.75], [114105948.16, 724133.89, 1]],
+    escalaCump: [[0, 0, 0], [52664283.73, 0, 0.25], [114105948.16, 153604.17, 0.5]] },
+  // 2026: PROVISORIO. Ley 27.743: alícuotas 0,50% / 0,75%; los montos se actualizan por IPC y ARCA los publica a fin de año.
+  2026: { mni: 384728044.57, casa: 1346548155.99, coef: "", coefPrev: 81.103593, usd: "", prov: true,
+    escala: [[0, 0, 0.5], [52664283.73, 263321.42, 0.75]], escalaCump: null },
+};
+const BP_ANIOS = [2025, 2026];
+const BP_PARAM_CAMPOS = [["mni", "Mínimo no imponible", "money"], ["casa", "Casa habitación · límite exento", "money"], ["coef", "Índice de actualización base 2017 → 31/12/{A}", "raw"], ["coefPrev", "Índice de actualización base 2017 → 31/12/{P}", "raw"], ["usd", "Dólar comprador BNA al 31/12/{A}", "money"]];
+const BP_RUBROS = [["inm", "Inmuebles"], ["der", "Derechos reales"], ["nav", "Naves y aeronaves"], ["rod", "Automotores y otros rodados"], ["din", "Dinero y depósitos en dinero"], ["tit", "Títulos, acciones, cuotas o participaciones sociales y otros títulos valores"], ["uni", "Patrimonio de empresas o explotaciones unipersonales"], ["cre", "Créditos y debentures"], ["pi", "Derechos de propiedad científica, literaria o artística, marcas, patentes y sus licencias"], ["otr", "Otros bienes"], ["cri", "Monedas digitales, monedas virtuales, criptoactivos o similares"], ["obj", "Objetos personales y del hogar"]];
+const BP_GEN_RUBROS = [["otr", "Otros bienes"], ["der", "Derechos reales"], ["nav", "Naves y aeronaves"], ["uni", "Patrimonio de empresa o explotación unipersonal"], ["pi", "Propiedad científica, literaria o artística, marcas, patentes"], ["cri", "Monedas digitales / criptoactivos"]];
+const BP_SITS = [["grav", "Gravado"], ["exe", "Exento / no alcanzado"], ["baja", "Baja en el período"]];
+const BP_PAIS = [["AR", "Argentina"], ["EX", "Exterior"]];
+const BP_INM_TIPOS = ["Casa", "Departamento", "Cochera", "Lote de terreno", "Local", "Oficina", "Campo / rural", "Otros inmuebles"];
+const BP_INM_DEST = ["Casa habitación", "Recreo o veraneo / cesión gratuita", "Inversión", "Alquiler", "Otro"];
+const BP_MONEDAS = [["ARS", "Pesos"], ["USD", "Dólares"], ["OTRA", "Otra moneda"]];
+const BP_DIN_TIPOS = ["Depósito en dinero · caja de ahorro", "Depósito en dinero · cuenta corriente", "Depósito en dinero · plazo fijo", "Dinero en efectivo", "Fondos en billetera virtual / PSP", "Fondos en ALyC"];
+const BP_TIT_TIPOS = [["part", "Cuotas, acciones o participaciones sociales (valor patrimonial proporcional)"], ["acc", "Acciones, bonos, cedears u otros títulos valores"]];
+const BP_PG = [["anticBonos", "Anticipos cancelados con bonos o certificados fiscales"], ["anticEfvo", "Anticipos cancelados en efectivo o compensación"], ["anticMF", "Anticipos cancelados con planes Mis Facilidades"], ["art28", "Pago a cuenta · art. 28 continuación Decreto 127/96"], ["otrosPC", "Otros pagos a cuenta"], ["retperc", "Total de retenciones y percepciones"], ["saldoAnt", "Saldo a favor del período anterior"]];
+const BP_SUST_ALIC = 0.5;   // responsable sustituto (sociedades): 0,5% sobre el valor de las participaciones
+
+function bpDb() {
+  const e = getExtras();
+  if (!e.bp || typeof e.bp !== "object") e.bp = {};
+  if (!e.bp.clientes || typeof e.bp.clientes !== "object") e.bp.clientes = {};
+  if (!e.bp.datos || typeof e.bp.datos !== "object") e.bp.datos = {};
+  if (!e.bp.params || typeof e.bp.params !== "object") e.bp.params = {};
+  return e.bp;
+}
+function bpGet(cid, anio) { return bpDb().datos[cid + "|" + anio] || {}; }
+function bpData(cid, anio) {
+  const d = bpDb().datos, k = cid + "|" + anio;
+  if (!d[k] || typeof d[k] !== "object") d[k] = {};
+  if (!Array.isArray(d[k].items)) d[k].items = [];
+  return d[k];
+}
+function bpSet(cid, anio, path, valor) { setDeep(bpData(cid, anio), path, valor); persistExtras(); }
+function bpItems(cid, anio) { const r = bpGet(cid, anio); return Array.isArray(r.items) ? r.items : []; }
+function bpFindItem(id) { return bpData(state.bpCli, state.bpAnio).items.find((x) => x.id === id); }
+function bpNewId() { return "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function bpContribuyentes() { const g = bpDb(); return state.clients.filter((c) => g.clientes[c.id]).slice().sort((a, b) => a.name.localeCompare(b.name, "es")); }
+function bpParams(anio) {
+  const base = BP_PARAMS_DEFAULT[anio] || BP_PARAMS_DEFAULT[BP_ANIOS[BP_ANIOS.length - 1]];
+  const ov = bpDb().params[anio] || {}, out = { prov: !!base.prov };
+  BP_PARAM_CAMPOS.forEach(([k]) => { const v = ov[k]; out[k] = v !== undefined && String(v).trim() !== "" ? num(v) : (base[k] === "" ? 0 : base[k]); });
+  const esc = (arr, key) => arr ? arr.map((row, i) => row.map((x, j) => { const o = ov[key] && ov[key][i] ? ov[key][i][j] : undefined; return o !== undefined && String(o).trim() !== "" ? num(o) : x; })) : null;
+  out.escala = esc(base.escala, "esc");
+  out.escalaCump = esc(base.escalaCump, "escC");
+  return out;
+}
+function bpEscala(x, esc) {
+  x = Math.max(0, x);
+  for (let i = esc.length - 1; i >= 0; i--) { const [lo, fijo, pct] = esc[i]; if (x > lo) return round2(fijo + (x - lo) * pct / 100); }
+  return 0;
+}
+
+// ---- Valuación de cada bien ----
+function bpKind(it) { return it.r === "inm" || it.r === "rod" || it.r === "din" || it.r === "tit" || it.r === "cre" ? it.r : "gen"; }
+function bpPctOf(it) { const s = String(it.pct == null ? "" : it.pct).trim(); return s === "" ? 100 : num(s); }
+function bpVal(it, anio, P) {
+  const k = bpKind(it), av = [], out = { neto: 0, nota: "", av, sust: 0 };
+  let bruto = 0;
+  if (k === "inm") {
+    const vman = num(it.vman), costo = num(it.costo), amort = num(it.amort), mej = num(it.mejoras), cred = num(it.cred);
+    let b17 = num(it.base17);
+    if (!(b17 > 0) && num(it.vfPrev) > 0) { if (P.coefPrev > 0) b17 = num(it.vfPrev) / P.coefPrev; else av.push("falta el índice al 31/12/" + (anio - 1) + " (⚙ Parámetros)"); }
+    if (vman > 0) { bruto = vman; out.nota = "valuación manual"; }
+    else if (b17 > 0) {
+      if (P.coef > 0) { bruto = Math.max(0, round2(b17 * P.coef) + mej - cred); out.nota = "base 2017 × índice " + P.coef.toLocaleString("es-AR", { maximumFractionDigits: 8 }); }
+      else av.push("falta el índice de actualización " + anio + " (⚙ Parámetros)");
+    } else {
+      bruto = Math.max(0, Math.max(0, costo - amort) + mej - cred); out.nota = "valor residual";
+      if (!(costo > 0)) av.push("sin valuación: cargá la base imponible 2017, la valuación fiscal del año anterior o el costo");
+    }
+  } else if (k === "rod") {
+    const costo = num(it.costo), dn = num(it.dnrpa), vman = num(it.vman);
+    const anioAdq = it.fecha ? Number(String(it.fecha).slice(0, 4)) : (num(it.anioMod) || 0);
+    let amort = String(it.amort == null ? "" : it.amort).trim() !== "" ? num(it.amort) : (anioAdq && costo ? costo * Math.min(1, Math.max(0, anio - anioAdq + 1) / 5) : 0);
+    amort = Math.min(amort, costo); out.amort = round2(amort);
+    if (vman > 0) { bruto = vman; out.nota = "valuación manual"; }
+    else if (costo > 0 && amort >= costo - 0.005) { bruto = 0; out.nota = "amortizado totalmente"; }
+    else { const res = Math.max(0, costo - amort); bruto = Math.max(res, dn); out.nota = dn > res ? "valor según DNRPA" : "valor residual"; if (!(dn > 0)) av.push("falta el valor según DNRPA / tabla de ARCA"); }
+  } else if (k === "din") {
+    const m = it.moneda || "ARS", cs = String(it.cot == null ? "" : it.cot).trim();
+    const cot = m === "ARS" ? 1 : cs !== "" ? num(cs) : (m === "USD" ? P.usd : 0);
+    if (m !== "ARS" && !(cot > 0)) av.push("falta la cotización al 31/12");
+    bruto = num(it.cant) * cot; if (m !== "ARS" && cot > 0) out.nota = "× cotización " + cot.toLocaleString("es-AR", { maximumFractionDigits: 4 });
+  } else if (k === "tit") {
+    if (it.tipo === "acc") bruto = num(it.cant) * num(it.cot);
+    else { bruto = num(it.pn); out.nota = "patrimonio neto × % de participación"; }
+  } else if (k === "cre") bruto = num(it.monto);
+  else bruto = num(it.importe);
+  if (it.fecha && String(it.fecha) > anio + "-12-31") { bruto = 0; out.nota = "adquirido después del 31/12/" + anio; }
+  out.neto = round2(bruto * bpPctOf(it) / 100);
+  if (k === "tit" && it.tipo !== "acc" && it.pais !== "EX") out.sust = round2(out.neto * BP_SUST_ALIC / 100);
+  return out;
+}
+
+// ---- Cálculo de toda la DDJJ ----
+function bpCalc(cid, anio) {
+  const P = bpParams(anio), r = bpGet(cid, anio), items = bpItems(cid, anio), v = {};
+  const rub = {}; BP_RUBROS.forEach(([k]) => { rub[k] = { pais: 0, ext: 0, exe: 0, baja: 0 }; });
+  let casaTot = 0, casaN = 0, sust = 0;
+  const det = {};
+  items.forEach((it) => {
+    const x = bpVal(it, anio, P); det[it.id] = x; v["i." + it.id] = x.neto; sust += x.sust;
+    const R = rub[it.r] || rub.otr;
+    if (it.sit === "baja") R.baja += x.neto;
+    else if (it.sit === "exe") R.exe += x.neto;
+    else if (it.sit === "casa") { casaTot += x.neto; casaN++; }
+    else if (it.pais === "EX") R.ext += x.neto;
+    else R.pais += x.neto;
+  });
+  const casaExe = Math.min(casaTot, P.casa), casaExc = round2(casaTot - casaExe);
+  rub.inm.exe += casaExe; rub.inm.pais += casaExc;
+  let base5 = 0; BP_RUBROS.forEach(([k]) => { if (k !== "obj") base5 += rub[k].pais; });
+  const objMin = round2(base5 * 0.05), objIn = num(getDeep(r, "obj.val", ""));
+  rub.obj.pais = Math.max(objMin, objIn);
+  const T = { pais: 0, ext: 0, exe: 0, baja: 0 };
+  BP_RUBROS.forEach(([k]) => { Object.keys(T).forEach((c) => { rub[k][c] = round2(rub[k][c]); T[c] += rub[k][c]; }); });
+  Object.keys(T).forEach((c) => { T[c] = round2(T[c]); });
+  const gravado = round2(T.pais + T.ext), reibp = !!r.reibp, cump = !!r.cump && anio <= 2025 && !!P.escalaCump;
+  const base = Math.max(0, round2(gravado - P.mni));
+  const impuesto = reibp ? 0 : bpEscala(base, cump ? P.escalaCump : P.escala);
+  const pagos = round2(BP_PG.reduce((s, [k]) => s + num(getDeep(r, "pg." + k, "")), 0));
+  BP_RUBROS.forEach(([k]) => { ["pais", "ext", "exe", "baja"].forEach((c) => { v["r." + k + "." + c] = rub[k][c]; }); });
+  ["pais", "ext", "exe", "baja"].forEach((c) => { v["t." + c] = T[c]; v["g." + c] = round2(["der", "nav", "uni", "pi", "otr", "cri"].reduce((s, k) => s + rub[k][c], 0)); });
+  Object.assign(v, { gravado, mni: Math.min(gravado, P.mni), mniFull: P.mni, base, impuesto, pagos, "obj.min": objMin, casaTot: round2(casaTot), casaExe: round2(casaExe), casaExc, casaN, sust: round2(sust), reibp, cump,
+    saldoArca: round2(Math.max(0, impuesto - pagos)), saldoContrib: round2(Math.max(0, pagos - impuesto)), _det: det, _P: P });
+  return v;
+}
+
+// ---- Presentación de campos ----
+function bpItemTitulo(it) {
+  const k = bpKind(it), j = (a) => a.filter((x) => x && String(x).trim()).join(" · ");
+  const t = k === "inm" ? j([it.tipo, it.dir]) : k === "rod" ? j([it.desc, it.patente]) : k === "din" ? j([it.entidad || it.tipo, it.cbu ? "CBU …" + String(it.cbu).slice(-6) : ""]) : k === "tit" ? j([it.desc, it.emisor]) : k === "cre" ? j([it.desc, it.deudor]) : j([(BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1], it.desc]);
+  return t || "(sin descripción)";
+}
+function bpFields(it, anio) {
+  const k = bpKind(it), S = BP_SITS.concat(k === "inm" ? [["casa", "Casa habitación"]] : []);
+  const sit = ["sit", "Situación frente al impuesto", "sel", S], pais = ["pais", "País", "sel", BP_PAIS], pct = ["pct", "% de titularidad", "pct"];
+  if (k === "inm") return [["tipo", "Tipo de bien", "sels", BP_INM_TIPOS], ["destino", "Destino", "sels", BP_INM_DEST], sit, pais, ["fecha", "Fecha de adquisición", "date"], pct, ["dir", "Dirección (calle, número, piso, localidad)", "text", 0, 1], ["nomen", "Nomenclatura catastral", "text"],
+    ["base17", "Base imponible al 31/12/2017", "money"], ["vfPrev", "…o valuación fiscal al 31/12/" + (anio - 1), "money"], ["costo", "Costo de adquisición", "money"], ["amort", "Amortización acumulada", "money"], ["mejoras", "Mejoras / adquisiciones complementarias", "money"], ["cred", "Créditos para compra / construcción / mejora", "money"], ["vman", "Valuación manual (reemplaza el cálculo)", "money"]];
+  if (k === "rod") return [["tipo", "Tipo de bien", "sels", ["Automotor", "Motovehículo", "Embarcación deportiva", "Otro rodado"]], sit, pais, ["fecha", "Fecha de adquisición", "date"], pct, ["desc", "Descripción (marca, modelo)", "text", 0, 1], ["patente", "Patente / matrícula", "text"], ["anioMod", "Año", "raw"],
+    ["costo", "Valor de adquisición", "money"], ["amort", "Amortización acumulada (vacío = 5 años lineal)", "money"], ["dnrpa", "Valor según DNRPA / tabla ARCA", "money"], ["vman", "Valuación manual (reemplaza el cálculo)", "money"]];
+  if (k === "din") return [["tipo", "Tipo de bien", "sels", BP_DIN_TIPOS], sit, pais, pct, ["entidad", "Entidad financiera / PSP / ALyC", "text", 0, 1], ["cbu", "CBU / CVU", "text", 0, 1], ["nro", "Número de cuenta", "text"], ["moneda", "Moneda", "sel", BP_MONEDAS],
+    ["cant", "Cantidad nominal al 31/12", "money"], ["cot", "Cotización (vacío = dólar de ⚙ Parámetros)", "raw"]];
+  if (k === "tit") return it.tipo === "acc"
+    ? [["tipo", "Tipo de bien", "sel", BP_TIT_TIPOS], sit, pais, pct, ["desc", "Descripción (especie)", "text", 0, 1], ["emisor", "Denominación del emisor", "text", 0, 1], ["cant", "Cantidad de títulos", "raw"], ["cot", "Cotización al 31/12", "money"]]
+    : [["tipo", "Tipo de bien", "sel", BP_TIT_TIPOS], sit, pais, ["pct", "% de participación", "pct"], ["desc", "Descripción (cuotas, acciones…)", "text", 0, 1], ["emisor", "Denominación de la sociedad", "text", 0, 1], ["cuit", "CUIT de la sociedad", "text"], ["pn", "Patrimonio neto según balance", "money"]];
+  if (k === "cre") return [sit, pais, pct, ["desc", "Descripción", "text", 0, 1], ["deudor", "Denominación del deudor", "text", 0, 1], ["monto", "Importe al 31/12", "money"]];
+  return [["r", "Rubro de la DDJJ", "sel", BP_GEN_RUBROS], sit, pais, pct, ["desc", "Descripción", "text", 0, 1], ["importe", "Valuación al 31/12", "money"]];
+}
+function bpFieldHtml(it, f) {
+  const [k, label, type, opts, wide] = f, val = it[k] == null ? "" : it[k], a = `data-id="${it.id}" data-k="${k}"`;
+  let inp;
+  if (type === "sel") inp = `<select data-action="bp-isel" ${a}>${opts.map(([o, l]) => `<option value="${o}" ${String(val || opts[0][0]) === o ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+  else if (type === "sels") inp = `<select data-action="bp-isel" ${a}><option value="" ${val ? "" : "selected"}>—</option>${opts.map((o) => `<option ${val === o ? "selected" : ""}>${escapeHtml(o)}</option>`).join("")}</select>`;
+  else if (type === "date") inp = `<input type="date" data-action="bp-isel" ${a} value="${escapeHtml(val)}">`;
+  else if (type === "money") inp = `<input type="text" inputmode="decimal" data-kind="money" data-action="bp-i" ${a} value="${escapeHtml(rawOrBlank(val, "money"))}" placeholder="0,00">`;
+  else if (type === "pct") inp = `<input type="text" inputmode="decimal" data-action="bp-i" ${a} value="${escapeHtml(val)}" placeholder="100">`;
+  else if (type === "raw") inp = `<input type="text" inputmode="decimal" data-action="bp-i" ${a} value="${escapeHtml(val)}" placeholder="${k === "cot" ? "1,00" : ""}">`;
+  else inp = `<input type="text" data-action="bp-i" ${a} value="${escapeHtml(val)}">`;
+  return `<label class="bp-f ${wide ? "w2" : ""}"><span>${label}</span>${inp}</label>`;
+}
+function bpSitClase(it) { return it.sit === "baja" ? "baja" : it.sit === "exe" ? "exe" : it.sit === "casa" ? "casa" : "grav"; }
+function bpItemHtml(it, n, anio) {
+  const sl = { baja: "Baja", exe: "Exento", casa: "Casa habitación", grav: it.pais === "EX" ? "Gravado · exterior" : "Gravado" }[bpSitClase(it)];
+  return `<div class="bp-item" data-item="${it.id}">
+    <div class="bp-head"><span class="gan-n">${n}</span><b class="bp-title" data-bt="${it.id}">${escapeHtml(bpItemTitulo(it))}</b><span class="bp-sit bp-sit-${bpSitClase(it)}" data-bs="${it.id}">${sl}</span><span class="hint-sm bp-nota" data-bn="${it.id}"></span><span class="bp-spacer"></span>
+      <button type="button" class="gan-copy bp-copy" data-action="bp-copy" data-bv="i.${it.id}" data-copy="0,00" title="Click para copiar el importe y pegarlo en el aplicativo">0,00</button>
+      <button class="btn btn-sm btn-ghost" data-action="bp-del" data-id="${it.id}" title="Quitar este bien">✕</button></div>
+    <div class="bp-grid">${bpFields(it, anio).map((f) => bpFieldHtml(it, f)).join("")}</div></div>`;
+}
+let BV = {};
+function bpTot(prefix) { return `<div class="bp-tots"><span>Gravado en el país <b data-bv="${prefix}.pais">0,00</b></span><span>Gravado en el exterior <b data-bv="${prefix}.ext">0,00</b></span><span>Exento / no alcanzado <b data-bv="${prefix}.exe">0,00</b></span><span>Baja en el período <b data-bv="${prefix}.baja">0,00</b></span></div>`; }
+function bpTabHtml(grupo, titulo, vacio, extra) {
+  const anio = state.bpAnio, items = bpItems(state.bpCli, anio).filter((it) => (grupo === "gen" ? bpKind(it) === "gen" : it.r === grupo));
+  const lista = items.map((it, i) => bpItemHtml(it, i + 1, anio)).join("") || `<div class="card"><div class="card-body"><p class="hint-sm" style="margin:0;">${vacio}</p></div></div>`;
+  return `${extra || ""}<div class="bp-list">${lista}</div>${bpTot(grupo === "gen" ? "g" : "r." + grupo)}`;
+}
+function bpAddBtn(label, r, preset) { return `<button class="btn btn-sm" data-action="bp-new" data-r="${r}" ${preset ? `data-preset="${preset}"` : ""}>+ ${label}</button>`; }
+
+function renderBpTabInm() {
+  return bpTabHtml("inm", "Inmuebles", "Todavía no cargaste inmuebles.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;"><b>Valuación:</b> si cargás la base imponible al 31/12/2017 (o la valuación fiscal del año anterior, que se divide por su índice) se actualiza con el índice del período; si no, se usa el valor residual (costo − amortización + mejoras). Podés pisar el cálculo con la valuación manual. Los <b>créditos hipotecarios</b> para compra/construcción/mejora se restan del bien.</div><div class="hint-sm" style="margin:0;" data-bcasa></div><div>${bpAddBtn("Agregar inmueble", "inm")}</div></div></div>`);
+}
+function renderBpTabRod() { return bpTabHtml("rod", "Rodados", "Todavía no cargaste rodados.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;"><b>Valuación:</b> valor de adquisición menos amortización (5 años lineal contando el año de compra, salvo que la cargues); no puede ser menor al valor DNRPA / tabla de ARCA. Si está amortizado totalmente se valúa en cero.</div><div>${bpAddBtn("Agregar rodado", "rod")}</div></div></div>`); }
+function renderBpTabDin() { return bpTabHtml("din", "Dinero", "Todavía no cargaste cuentas ni dinero.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;">Cargá el saldo al 31/12 de cada cuenta. Las cuentas en dólares usan la cotización de ⚙ Parámetros (comprador BNA al 31/12) salvo que escribas otra en la cuenta.</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${bpAddBtn("Agregar cuenta", "din")}${bpAddBtn("Efectivo", "din", "efvo")}</div></div></div>`); }
+function renderBpTabTit() { return bpTabHtml("tit", "Títulos", "Todavía no cargaste participaciones ni títulos.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;">Las <b>participaciones en sociedades argentinas</b> se valúan a valor patrimonial proporcional y quedan exentas: la sociedad ingresa el impuesto como <b>responsable sustituto (${BP_SUST_ALIC.toString().replace(".", ",")}%)</b>. Acciones, bonos y cedears se valúan por cantidad × cotización al 31/12.</div><div class="hint-sm" style="margin:0;" data-bsust></div><div style="display:flex;gap:8px;flex-wrap:wrap;">${bpAddBtn("Participación societaria", "tit", "part")}${bpAddBtn("Acciones / cedears / títulos", "tit", "acc")}</div></div></div>`); }
+function renderBpTabCre() { return bpTabHtml("cre", "Créditos", "Todavía no cargaste créditos.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;">Créditos a favor al 31/12: saldos a favor de impuestos, préstamos otorgados, cuentas a cobrar.</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${bpAddBtn("Agregar crédito", "cre")}${bpAddBtn("Saldo a favor de IVA", "cre", "iva")}${bpAddBtn("Retenciones / percepciones de Ganancias", "cre", "gan")}</div></div></div>`); }
+function renderBpTabOtr() { return bpTabHtml("gen", "Otros bienes", "Acá van derechos reales, naves y aeronaves, empresa unipersonal, marcas y patentes, criptoactivos y otros bienes.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;">Derechos reales, naves y aeronaves, empresa unipersonal, propiedad intelectual, criptoactivos y otros bienes. Cargá la valuación al 31/12 y elegí el rubro de la DDJJ.</div><div>${bpAddBtn("Agregar bien", "otr")}</div></div></div>`); }
+
+// ---- Controles / avisos ----
+function bpAvisos(cid, anio, V) {
+  const out = [], P = V._P, items = bpItems(cid, anio);
+  if (P.prov) out.push(`Los parámetros ${anio} (mínimo no imponible, escala e índices) son provisorios: ARCA los publica a fin de año. Cargalos en ⚙ Parámetros cuando salgan.`);
+  items.forEach((it) => { const x = V._det[it.id]; if (x && x.av.length) out.push(`${bpItemTitulo(it)}: ${x.av.join("; ")}.`); });
+  if (V.casaN > 1) out.push("Hay más de un inmueble marcado como casa habitación: la exención corresponde a un solo inmueble.");
+  if (V.casaExc > 0) out.push(`La casa habitación supera el límite exento: el excedente (${fmtMoneyRaw(V.casaExc)}) se computa como gravado.`);
+  if (!items.length) out.push("Todavía no cargaste bienes para este período.");
+  if (items.some((it) => it.pais === "EX")) out.push("Hay bienes en el exterior: la app los suma al total gravado, pero no calcula el cómputo del pago a cuenta de impuestos análogos (art. 28): cargalo en el saldo.");
+  return out;
+}
+
+// ---- DDJJ ----
+function bpDdjj(cid, anio) {
+  const V = bpCalc(cid, anio), r = bpGet(cid, anio), c = getClient(cid) || {};
+  const rubros = BP_RUBROS.map(([k, n]) => ({ k, n, pais: V["r." + k + ".pais"], ext: V["r." + k + ".ext"], exe: V["r." + k + ".exe"], baja: V["r." + k + ".baja"] }));
+  const f = (l, val, o) => Object.assign({ l, v: val }, o || {});
+  const det = [f("Total de bienes en el país sujeto a impuesto", V["t.pais"], { k: "t.pais" }), f("Total de bienes en el exterior sujeto a impuesto", V["t.ext"], { k: "t.ext" }), f("Total de bienes exentos / no alcanzado", V["t.exe"], { k: "t.exe" }), f("Total de bienes con baja en el período", V["t.baja"], { k: "t.baja" }),
+    f("Total de bienes sujetos a impuesto", V.gravado, { sub: true, k: "gravado" }), f("Mínimo no imponible", V.mni, { k: "mni", nota: "mínimo completo: " + fmtMoneyRaw(V.mniFull) + " · se aplica hasta el total de bienes" }), f("Base imponible", V.base, { sub: true, k: "base" }), f("Impuesto determinado" + (V.reibp ? " (adherido al REIBP)" : V.cump ? " (escala cumplidores)" : ""), V.impuesto, { tot: true, k: "impuesto" })];
+  const sal = [f("Total de impuesto determinado", V.impuesto)];
+  BP_PG.forEach(([k, n]) => { const x = num(getDeep(r, "pg." + k, "")); if (Math.abs(x) > 0.004) sal.push(f(n, x)); });
+  sal.push(f("Saldo a favor de ARCA (a pagar)", V.saldoArca, { tot: true }), f("Saldo a favor del contribuyente", V.saldoContrib, { tot: true }));
+  return { V, rubros, tot: { pais: V["t.pais"], ext: V["t.ext"], exe: V["t.exe"], baja: V["t.baja"] }, det, sal, cab: [["CUIT", c.cuit || "—"], ["Apellido y nombre o razón social", c.name || ""], ["Impuesto", "Bienes Personales · F.762/D"], ["Período", String(anio)], ["Secuencia", "Original"]] };
+}
+function bpRaw(v) { return (Math.round(v * 100) / 100).toFixed(2).replace(".", ","); }
+function bpCopyBtn(v, key) { return `<button type="button" class="gan-copy bp-copy" data-action="bp-copy" ${key ? `data-bv="${key}"` : ""} data-copy="${bpRaw(v)}" title="Click para copiar el importe">${fmtMoneyRaw(v)}</button>`; }
+function bpPgInp(path) { const r = bpGet(state.bpCli, state.bpAnio); return `<input type="text" inputmode="decimal" data-kind="money" data-action="bp-f" data-gp="${path}" value="${escapeHtml(rawOrBlank(getDeep(r, path, ""), "money"))}" placeholder="0,00">`; }
+function renderBpTabDdjj() {
+  const cid = state.bpCli, anio = state.bpAnio, D = bpDdjj(cid, anio), V = D.V, r = bpGet(cid, anio), av = bpAvisos(cid, anio, V);
+  const avCard = av.length ? `<div class="card bp-avisos"><div class="card-head"><h3>⚠ Controles</h3></div><div class="card-body"><ul style="margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px;">${av.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></div></div>` : "";
+  const opc = `<div class="card"><div class="card-head"><h3>Opciones de la DDJJ</h3></div><div class="card-body" style="padding:0;"><table class="gan-t"><tbody>
+    ${anio <= 2025 ? `<tr><td>Contribuyente cumplidor<div class="hint-sm">usa la escala reducida (períodos 2023 a 2025)</div></td><td class="num"><input type="checkbox" data-action="bp-chk" data-gp="cump" ${r.cump ? "checked" : ""}></td></tr>` : ""}
+    <tr><td>Adherido al REIBP<div class="hint-sm">Régimen Especial de Ingreso: no determina impuesto 2023 a 2027</div></td><td class="num"><input type="checkbox" data-action="bp-chk" data-gp="reibp" ${r.reibp ? "checked" : ""}></td></tr>
+    <tr><td>Objetos personales y del hogar<div class="hint-sm">mínimo: 5% de los bienes gravados en el país · podés declarar una valuación mayor</div></td><td class="num"><input type="text" inputmode="decimal" data-kind="money" data-action="bp-f" data-gp="obj.val" value="${escapeHtml(rawOrBlank(getDeep(r, "obj.val", ""), "money"))}" placeholder="${fmtMoneyRaw(V["obj.min"])}"></td></tr>
+  </tbody></table></div></div>`;
+  const reg = `<div class="card"><div class="card-head"><h3><span class="gan-n">1</span> Registración de bienes</h3><span class="hint">Totales por rubro · click en un importe para copiarlo</span></div><div class="card-body" style="padding:0;"><div class="table-scroll"><table class="gan-t bp-reg"><thead><tr><th style="text-align:left;">Rubro</th><th>En el país</th><th>En el exterior</th><th>Exentos / No alcanzado</th><th>Baja en el período</th></tr></thead><tbody>
+    ${D.rubros.map((x) => `<tr><td>${x.n}</td><td class="num">${bpCopyBtn(x.pais, "r." + x.k + ".pais")}</td><td class="num">${bpCopyBtn(x.ext, "r." + x.k + ".ext")}</td><td class="num">${bpCopyBtn(x.exe, "r." + x.k + ".exe")}</td><td class="num">${bpCopyBtn(x.baja, "r." + x.k + ".baja")}</td></tr>`).join("")}
+    <tr class="tot"><td>Monto total</td><td class="num">${bpCopyBtn(D.tot.pais, "t.pais")}</td><td class="num">${bpCopyBtn(D.tot.ext, "t.ext")}</td><td class="num">${bpCopyBtn(D.tot.exe, "t.exe")}</td><td class="num">${bpCopyBtn(D.tot.baja, "t.baja")}</td></tr></tbody></table></div></div></div>`;
+  const filas = (a) => a.map((x) => `<tr class="${x.tot ? "tot" : x.sub ? "sub" : ""}"><td>${escapeHtml(x.l)}${x.nota ? `<div class="hint-sm">${escapeHtml(x.nota)}</div>` : ""}</td><td class="num">${bpCopyBtn(x.v, x.k)}</td></tr>`).join("");
+  const det = `<div class="card"><div class="card-head"><h3><span class="gan-n">2</span> Determinación del impuesto</h3></div><div class="card-body" style="padding:0;"><table class="gan-t"><tbody>${filas(D.det)}</tbody></table></div></div>`;
+  const pg = BP_PG.map(([k, n]) => `<tr><td>${n}</td><td class="num">${bpPgInp("pg." + k)}</td></tr>`).join("");
+  const sal = `<div class="card"><div class="card-head"><h3><span class="gan-n">3</span> Determinación del saldo</h3></div><div class="card-body" style="padding:0;"><table class="gan-t"><tbody><tr class="auto"><td>Total de impuesto determinado</td><td class="num"><span data-bv="impuesto">${fmtMoneyRaw(V.impuesto)}</span></td></tr>${pg}
+    <tr class="tot"><td>Saldo a favor de ARCA (a pagar)</td><td class="num">${bpCopyBtn(V.saldoArca, "saldoArca")}</td></tr><tr class="tot"><td>Saldo a favor del contribuyente</td><td class="num">${bpCopyBtn(V.saldoContrib, "saldoContrib")}</td></tr></tbody></table></div></div>`;
+  const prev = `<div class="card"><div class="card-head"><h3><span class="gan-n">4</span> Vista previa · F.762/D</h3></div><div class="card-body" style="padding:0;"><table class="gan-t"><tbody>${D.cab.map(([a, b]) => `<tr><td>${a}</td><td class="num"><span style="font-family:inherit;">${escapeHtml(b)}</span></td></tr>`).join("")}
+    <tr class="tot"><td>Impuesto determinado</td><td class="num">${bpCopyBtn(V.impuesto, "impuesto")}</td></tr><tr><td>Saldo a favor del contribuyente<div class="hint-sm">lo podés usar para el año que viene o para pagar otros impuestos</div></td><td class="num">${bpCopyBtn(V.saldoContrib, "saldoContrib")}</td></tr><tr><td>Saldo a favor ARCA<div class="hint-sm">lo que tenés que pagar</div></td><td class="num">${bpCopyBtn(V.saldoArca, "saldoArca")}</td></tr></tbody></table></div></div>`;
+  return `${avCard}${reg}<div class="gan-grid">${det}${sal}</div><div class="gan-grid">${opc}${prev}</div>`;
+}
+
+// ---- Lista de contribuyentes ----
+function bpPresInfo(cid, anio) { const r = bpGet(cid, anio), dias = r.vence ? diasHasta(r.vence) : null; return { pres: !!r.pres, vence: r.vence || "", dias, fPres: r.pres && r.presFecha ? fmtFechaCorta(r.presFecha) : "" }; }
+function bpSetPres(cid, anio, on) { bpSet(cid, anio, "pres", !!on); bpSet(cid, anio, "presFecha", on ? hoyISO() : ""); }
+function renderBpLista() {
+  const anio = state.bpAnio, filtro = state.bpFiltro || "todos";
+  const todas = bpContribuyentes().map((c) => ({ c, v: bpCalc(c.id, anio), i: bpPresInfo(c.id, anio) }));
+  const filas = todas.filter((f) => filtro === "pend" ? !f.i.pres : filtro === "env" ? f.i.pres : true);
+  const env = todas.filter((f) => f.i.pres).length, pend = todas.filter((f) => !f.i.pres), pct = todas.length ? Math.round(env / todas.length * 100) : 0;
+  const totalPagar = round2(pend.reduce((s, f) => s + f.v.saldoArca, 0)), urgentes = pend.filter((f) => f.i.dias != null && f.i.dias <= 7).length;
+  const seg = (k, l) => `<button class="${filtro === k ? "on" : ""}" data-action="bp-filtro" data-filtro="${k}">${l}</button>`;
+  const trs = filas.map((f) => {
+    const { c, v, i } = f, u = i.dias != null ? urgenciaDe(i.dias) : "", hay = bpItems(c.id, anio).length > 0;
+    const saldo = v.saldoArca > 0 ? `<span class="pill pagar">A pagar</span><div style="font-weight:700;margin-top:3px;">${fmtMoney(v.saldoArca)}</div>` : v.saldoContrib > 0 ? `<span class="pill favor">A favor</span><div style="font-weight:700;margin-top:3px;">${fmtMoney(v.saldoContrib)}</div>` : `<span class="hint-sm">${hay ? "Sin impuesto" : "Sin datos"}</span>`;
+    return `<tr>
+      <td style="text-align:left;"><button type="button" class="linklike" data-action="bp-open" data-client="${c.id}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div></td>
+      <td style="text-align:center;">${hay ? fmtMoney(v.gravado) : "—"}<div class="hint-sm">${hay ? (v.gravado > v.mniFull ? "supera el mínimo no imponible" : "bajo el mínimo no imponible") : ""}</div></td>
+      <td style="text-align:center;">${saldo}</td>
+      <td style="text-align:center;"><input type="date" data-action="bp-vence" data-client="${c.id}" value="${i.vence}" title="Vencimiento de la DDJJ" style="padding:3px 6px;font-size:12px;">${i.vence && !i.pres ? `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(i.dias)}</div>` : ""}</td>
+      <td style="text-align:center;"><button type="button" class="est ${i.pres ? "est-ok" : i.dias != null && i.dias < 0 ? "est-venc" : "est-falta"}" title="${i.pres ? "DDJJ presentada. Click para desmarcar." : "DDJJ sin presentar. Click para marcarla como presentada."}" data-action="bp-pres-toggle" data-client="${c.id}">${i.pres ? "✓ Presentada" : i.dias != null && i.dias < 0 ? "⛔ Sin presentar" : "○ Sin presentar"}</button>${i.pres && i.fPres ? `<div class="hint-sm">el ${i.fPres}</div>` : ""}</td>
+      <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="bp-quitar" data-client="${c.id}" title="Quitar de Bienes Personales">✕</button></td></tr>`;
+  }).join("") || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:28px;">${todas.length ? "No hay contribuyentes en este filtro." : "Todavía no agregaste contribuyentes. Tocá + Agregar contribuyente y elegí entre tus clientes."}</td></tr>`;
+  const P = bpParams(anio);
+  return `
+    <div class="topbar"><div class="client-title"><h1>Bienes Personales</h1><div class="meta"><span>Contribuyentes · DDJJ de personas humanas</span><span>·</span><span>período fiscal ${anio}</span></div></div>
+      <div class="topbar-actions">
+        <select data-action="bp-anio" title="Período fiscal">${BP_ANIOS.map((a) => `<option value="${a}" ${a === anio ? "selected" : ""}>Período ${a}</option>`).join("")}</select>
+        <button class="btn" data-action="bp-params-open" title="Mínimo no imponible, casa habitación, escala e índices">⚙ Parámetros ${anio}</button>
+        <button class="btn btn-accent" data-action="bp-add-open">+ Agregar contribuyente</button></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      ${P.prov ? `<div class="bp-prov">⚠ Los parámetros ${anio} son provisorios (los publica ARCA a fin de año). Revisalos en ⚙ Parámetros.</div>` : ""}
+      <div class="kpi-row">
+        <div class="kpi"><span class="k-label">DDJJ presentadas</span><span class="k-value">${env} / ${todas.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pct}%;background:var(--favor);"></i></div><span class="k-sub">${pct}% presentado</span></div>
+        <div class="kpi ${totalPagar > 0 ? "state-pagar" : ""}"><span class="k-label">Impuesto a pagar · pendientes</span><span class="k-value">${fmtMoney(totalPagar)}</span><span class="k-sub">de las DDJJ sin presentar</span></div>
+        <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Pendientes de presentar</span><span class="k-value">${pend.length}</span><span class="k-sub">${urgentes ? urgentes + " vence" + (urgentes === 1 ? "" : "n") + " en ≤ 7 días" : "sin vencimientos cercanos"}</span></div>
+      </div>
+      <div class="card"><div class="card-head"><h3>DDJJ por contribuyente</h3><div class="seg">${seg("todos", "Todos")}${seg("pend", "Pendientes")}${seg("env", "Presentadas")}</div></div>
+        <div class="card-body"><div class="table-scroll"><table class="panel-table" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col style="width:240px"><col><col><col><col><col style="width:50px"></colgroup><tr><th style="text-align:left;">Contribuyente</th><th style="text-align:center;">Bienes gravados</th><th style="text-align:center;">Saldo</th><th style="text-align:center;">Vence</th><th style="text-align:center;">DDJJ presentada</th><th></th></tr>${trs}</table></div>
+        <p class="foot-note">Cargá el vencimiento de cada uno (depende de la terminación del CUIT). Hacé click en el nombre para abrir la carga de bienes y el borrador de la DDJJ.</p></div></div>
+    </div>`;
+}
+
+// ---- Detalle ----
+function renderBpDetalle() {
+  const c = getClient(state.bpCli);
+  if (!c) { state.bpCli = null; return renderBpLista(); }
+  const anio = state.bpAnio, r = bpGet(c.id, anio), P = bpParams(anio);
+  BV = bpCalc(c.id, anio);
+  const tabs = [["inm", "Inmuebles"], ["rod", "Rodados"], ["din", "Dinero y depósitos"], ["tit", "Títulos y participaciones"], ["cre", "Créditos"], ["otr", "Otros bienes"], ["ddjj", "DDJJ modelo"]];
+  if (!tabs.some((t) => t[0] === state.bpTab)) state.bpTab = "inm";
+  const cont = { inm: renderBpTabInm, rod: renderBpTabRod, din: renderBpTabDin, tit: renderBpTabTit, cre: renderBpTabCre, otr: renderBpTabOtr, ddjj: renderBpTabDdjj }[state.bpTab]();
+  const prevN = bpItems(c.id, anio - 1).filter((it) => it.sit !== "baja").length;
+  const copiar = !bpItems(c.id, anio).length && prevN ? `<button class="btn" data-action="bp-copiar" title="Trae los bienes del período anterior (sin las bajas) para actualizar los importes">⧉ Copiar bienes de ${anio - 1}</button>` : "";
+  return `
+    <div class="topbar"><div class="client-title"><button class="btn btn-sm btn-ghost" data-action="bp-back" style="margin-bottom:4px;">← Contribuyentes</button><h1>${escapeHtml(c.name)}</h1><div class="meta"><span>Bienes Personales ${anio}</span>${c.cuit ? `<span>·</span><span>${escapeHtml(c.cuit)}</span>` : ""}</div></div>
+      <div class="topbar-actions">
+        <select data-action="bp-anio" title="Período fiscal">${BP_ANIOS.map((a) => `<option value="${a}" ${a === anio ? "selected" : ""}>Período ${a}</option>`).join("")}</select>
+        ${copiar}
+        <button class="btn" data-action="bp-params-open" title="Mínimo no imponible, casa habitación, escala e índices">⚙ Parámetros</button>
+        <label class="btn" title="Vencimiento de la DDJJ">Vence <input type="date" data-action="bp-vence" data-client="${c.id}" value="${escapeHtml(r.vence || "")}" style="padding:2px 6px;font-size:12px;"></label>
+        <label class="btn" style="cursor:pointer;"><input type="checkbox" data-action="bp-pres" data-client="${c.id}" ${r.pres ? "checked" : ""}> DDJJ presentada</label>
+        <button class="btn btn-accent" data-action="bp-excel">⬇ Exportar Excel</button></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      ${P.prov ? `<div class="bp-prov">⚠ Los parámetros ${anio} (mínimo no imponible, escala e índices) son provisorios: los publica ARCA a fin de año. <button class="linklike" data-action="bp-params-open">Revisar parámetros</button></div>` : ""}
+      <div class="kpi-row" style="grid-template-columns:repeat(4,minmax(0,1fr));">
+        <div class="kpi"><span class="k-label">Bienes gravados</span><span class="k-value" data-bv="gravado">${fmtMoneyRaw(BV.gravado)}</span><span class="k-sub">país + exterior, con objetos del hogar</span></div>
+        <div class="kpi"><span class="k-label">Base imponible</span><span class="k-value" data-bv="base">${fmtMoneyRaw(BV.base)}</span><span class="k-sub">excedente del mínimo no imponible</span></div>
+        <div class="kpi"><span class="k-label">Impuesto determinado</span><span class="k-value" data-bv="impuesto">${fmtMoneyRaw(BV.impuesto)}</span><span class="k-sub">${BV.reibp ? "adherido al REIBP" : BV.cump ? "escala de cumplidores" : "escala general"}</span></div>
+        <div class="kpi ${BV.saldoArca > 0 ? "state-pagar" : BV.saldoContrib > 0 ? "state-favor" : ""}"><span class="k-label">${BV.saldoContrib > 0 ? "Saldo a favor" : "Saldo a pagar"}</span><span class="k-value" data-bv="${BV.saldoContrib > 0 ? "saldoContrib" : "saldoArca"}">${fmtMoneyRaw(BV.saldoContrib > 0 ? BV.saldoContrib : BV.saldoArca)}</span><span class="k-sub">después de pagos a cuenta</span></div>
+      </div>
+      <div class="tabs">${tabs.map(([k, l]) => `<button class="tab ${state.bpTab === k ? "active" : ""}" data-action="bp-tab" data-tab="${k}">${l}</button>`).join("")}</div>
+      ${cont}
+    </div>`;
+}
+function renderBpView() { return state.bpCli ? renderBpDetalle() : renderBpLista(); }
+
+function bpRefrescar() {
+  if (!state.bpCli) return;
+  BV = bpCalc(state.bpCli, state.bpAnio);
+  document.querySelectorAll("[data-bv]").forEach((el) => {
+    const x = BV[el.dataset.bv] || 0;
+    el.textContent = fmtMoneyRaw(x);
+    if (el.classList.contains("bp-copy")) el.dataset.copy = bpRaw(x);
+  });
+  const items = bpItems(state.bpCli, state.bpAnio);
+  items.forEach((it) => {
+    const x = BV._det[it.id] || { nota: "", av: [] };
+    const n = document.querySelector(`[data-bn="${it.id}"]`); if (n) n.textContent = x.av.length ? "⚠ " + x.av[0] : x.nota + (x.sust ? " · sustituto " + BP_SUST_ALIC.toString().replace(".", ",") + "%: " + fmtMoneyRaw(x.sust) : "");
+    if (n) n.classList.toggle("bp-warn", !!x.av.length);
+    const t = document.querySelector(`[data-bt="${it.id}"]`); if (t) t.textContent = bpItemTitulo(it);
+  });
+  const cs = document.querySelector("[data-bcasa]");
+  if (cs) cs.textContent = BV.casaN ? `Casa habitación: ${fmtMoneyRaw(BV.casaTot)} · exenta hasta ${fmtMoneyRaw(BV.casaExe)}${BV.casaExc > 0 ? " · excedente gravado " + fmtMoneyRaw(BV.casaExc) : ""} (límite ${fmtMoneyRaw(BV._P.casa)}).` : "";
+  const su = document.querySelector("[data-bsust]");
+  if (su) su.textContent = BV.sust > 0 ? `Impuesto que ingresan las sociedades como responsable sustituto (${BP_SUST_ALIC.toString().replace(".", ",")}%): ${fmtMoneyRaw(BV.sust)}.` : "";
+  document.querySelectorAll(".kpi .k-label").forEach((l) => { if (/^Saldo/.test(l.textContent)) { const kpi = l.closest(".kpi"), val = kpi.querySelector(".k-value"), fav = BV.saldoContrib > 0; l.textContent = fav ? "Saldo a favor" : "Saldo a pagar"; val.dataset.bv = fav ? "saldoContrib" : "saldoArca"; val.textContent = fmtMoneyRaw(fav ? BV.saldoContrib : BV.saldoArca); kpi.classList.toggle("state-pagar", BV.saldoArca > 0); kpi.classList.toggle("state-favor", fav); } });
+}
+// Después de renderizar una pestaña de carga hay que completar los importes calculados.
+function bpPostRender() { if (state.view === "bp" && state.bpCli) bpRefrescar(); }
+
+// ---- Modales ----
+function renderBpAddModal() {
+  const g = bpDb(), libres = state.clients.filter((c) => !g.clientes[c.id]).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
+  document.getElementById("modal-root").innerHTML = `<div class="modal-backdrop"><div class="modal" style="max-width:480px;">
+    <div class="modal-head"><h3>Agregar contribuyente a Bienes Personales</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+    <div class="modal-body">${libres.length ? `<div class="field"><label>Cliente</label><select id="bp-add-sel" style="max-width:none;">${libres.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}${c.cuit ? " · " + escapeHtml(c.cuit) : ""}</option>`).join("")}</select></div>` : `<p class="hint-sm">Todos tus clientes ya están en Bienes Personales. Si falta alguien, primero agregalo como cliente.</p>`}</div>
+    <div class="modal-foot"><button class="btn" data-action="close-modal">Cancelar</button>${libres.length ? `<button class="btn btn-accent" data-action="bp-add-ok">Agregar</button>` : ""}</div></div></div>`;
+  if (typeof wireModalBackdropClose === "function") wireModalBackdropClose();
+}
+function renderBpParamsModal() {
+  const anio = state.bpAnio, P = bpParams(anio), base = BP_PARAMS_DEFAULT[anio] || BP_PARAMS_DEFAULT[2026], ov = bpDb().params[anio] || {};
+  const filas = BP_PARAM_CAMPOS.map(([k, l, kind]) => `<tr><td>${l.replace("{A}", anio).replace("{P}", anio - 1)}</td><td class="num"><input type="text" inputmode="decimal" data-kind="${kind}" data-action="bp-param" data-campo="${k}" value="${escapeHtml(ov[k] !== undefined && String(ov[k]).trim() !== "" ? (kind === "money" ? rawOrBlank(ov[k], "money") : ov[k]) : "")}" placeholder="${base[k] === "" ? "sin cargar" : kind === "money" ? fmtMoneyRaw(base[k]) : String(base[k]).replace(".", ",")}"></td></tr>`).join("");
+  const escTbl = (arr, key, tit) => !arr ? "" : `<h4 style="margin:14px 0 4px;">${tit}</h4><table class="gan-t"><thead><tr><th>Excedente desde $</th><th>Pagarán $</th><th>Más el %</th></tr></thead><tbody>${arr.map((t, i) => [0, 1, 2].map((j) => `<td class="num"><input type="text" inputmode="decimal" data-kind="${j === 2 ? "raw" : "money"}" data-action="bp-param-esc" data-key="${key}" data-i="${i}" data-j="${j}" value="${escapeHtml(ov[key] && ov[key][i] && ov[key][i][j] !== undefined ? ov[key][i][j] : "")}" placeholder="${j === 2 ? String(t[j]).replace(".", ",") : fmtMoneyRaw(t[j])}" ${i === 0 && j < 2 ? "disabled" : ""}></td>`).join("")).map((x) => `<tr>${x}</tr>`).join("")}</tbody></table>`;
+  document.getElementById("modal-root").innerHTML = `<div class="modal-backdrop"><div class="modal" style="max-width:760px;max-height:92vh;overflow:auto;">
+    <div class="modal-head"><h3>Parámetros del período ${anio}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+    <div class="modal-body">
+      <p class="hint-sm">Dejá en blanco para usar el valor de la app (gris); si ARCA publica otro, escribilo y se usa ese. ${P.prov ? "<b>Los valores de " + anio + " son provisorios: se copiaron de 2025 y ARCA los actualiza por IPC. Cargá los oficiales cuando se publiquen, incluidos el índice de actualización y el dólar al 31/12.</b>" : "Mínimo no imponible, casa habitación y escalas 2025 según lo publicado por ARCA."}</p>
+      <table class="gan-t"><tbody>${filas}</tbody></table>
+      ${escTbl(P.escala, "esc", "Escala general · " + anio)}${escTbl(P.escalaCump, "escC", "Escala contribuyentes cumplidores · " + anio)}
+    </div>
+    <div class="modal-foot"><button class="btn" data-action="bp-params-reset">Volver a los valores de la app</button><button class="btn btn-accent" data-action="close-modal">Listo</button></div></div></div>`;
+  if (typeof wireModalBackdropClose === "function") wireModalBackdropClose();
+}
+
+// ---- Copiar bienes del período anterior ----
+function bpCopiarAnterior(cid, anio) {
+  const prevP = bpParams(anio - 1);
+  const out = bpItems(cid, anio - 1).filter((it) => it.sit !== "baja").map((it) => {
+    const c = JSON.parse(JSON.stringify(it)), k = bpKind(c);
+    c.id = bpNewId();
+    if (k === "din") { c.cant = ""; if (c.moneda !== "ARS") c.cot = ""; }
+    else if (k === "cre") c.monto = "";
+    else if (k === "tit") { c.pn = ""; if (c.tipo === "acc") c.cot = ""; }
+    else if (k === "gen") c.importe = "";
+    else if (k === "inm") {
+      if (!(num(c.base17) > 0) && num(c.vfPrev) > 0 && prevP.coefPrev > 0) c.base17 = (Math.round(num(c.vfPrev) / prevP.coefPrev * 10000) / 10000).toString().replace(".", ",");
+      c.vfPrev = ""; c.vman = "";
+    } else if (k === "rod") { c.amort = ""; c.dnrpa = ""; c.vman = ""; }
+    return c;
+  });
+  bpData(cid, anio).items = out; persistExtras();
+  return out.length;
+}
+
+// ---- Excel ----
+function exportBpExcel() {
+  const cid = state.bpCli, anio = state.bpAnio, c = getClient(cid);
+  if (!c) return;
+  const wb = XLSX.utils.book_new(), nombre = (c.name || "").toUpperCase(), D = bpDdjj(cid, anio), V = D.V;
+  const rows = [["DDJJ MODELO · BIENES PERSONALES " + anio + " · " + nombre, "", "", "", ""], [""]], merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }], hl = new Map(), hdr = [];
+  const sec = (t) => { merges.push({ s: { r: rows.length, c: 0 }, e: { r: rows.length, c: 4 } }); rows.push([t, "", "", "", ""]); };
+  sec("1. Registración de bienes");
+  hdr.push(rows.length); rows.push(["Rubro", "En el país", "En el exterior", "Exentos / No alcanzado", "Baja en el período"]);
+  D.rubros.forEach((x) => rows.push([x.n, x.pais, x.ext, x.exe, x.baja]));
+  hl.set(rows.length, { fg: "3D2273", bg: "F5F1FC" }); rows.push(["Monto total", D.tot.pais, D.tot.ext, D.tot.exe, D.tot.baja]); rows.push([""]);
+  const bloque = (t, arr) => { sec(t); arr.forEach((x) => { if (x.tot) hl.set(rows.length, { fg: "3D2273", bg: "F5F1FC" }); rows.push([x.l + (x.nota ? " (" + x.nota + ")" : ""), round2(x.v), "", "", ""]); }); rows.push([""]); };
+  bloque("2. Determinación del impuesto", D.det); bloque("3. Determinación del saldo", D.sal);
+  const ws = newSheet(rows, { colWidths: [78, 20, 20, 24, 22], merges, headerRows: hdr, highlightRows: hl, wrapCols: [0], skipCols: [] });
+  XLSX.utils.book_append_sheet(wb, ws, "DDJJ modelo");
+  const sitN = { grav: "Gravado", exe: "Exento / no alcanzado", baja: "Baja en el período", casa: "Casa habitación" };
+  const hoja = (nombreHoja, filtro, cols, skip) => {
+    const its = bpItems(cid, anio).filter(filtro); if (!its.length) return;
+    const out = [[nombreHoja.toUpperCase() + " · " + anio, ""], [""], cols.map((x) => x[0]).concat(["Situación", "País", "Valuación"])];
+    its.forEach((it) => out.push(cols.map((x) => { const val = x[1](it); return val == null ? "" : val; }).concat([sitN[it.sit] || "Gravado", it.pais === "EX" ? "Exterior" : "Argentina", V["i." + it.id] || 0])));
+    out.push(["TOTAL"].concat(cols.slice(1).map(() => ""), ["", "", round2(its.reduce((s, it) => s + (V["i." + it.id] || 0), 0))]));
+    XLSX.utils.book_append_sheet(wb, newSheet(out, { colWidths: cols.map(() => 22).concat([22, 12, 20]), merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }], headerRows: [2], wrapCols: [], skipCols: skip || [] }), nombreHoja);
+  };
+  const t = (k) => (it) => it[k], m = (k) => (it) => (it[k] === "" || it[k] == null ? "" : num(it[k]));
+  hoja("Inmuebles", (it) => it.r === "inm", [["Tipo", t("tipo")], ["Destino", t("destino")], ["Dirección", t("dir")], ["Nomenclatura", t("nomen")], ["Fecha adq.", t("fecha")], ["% titularidad", (it) => bpPctOf(it)], ["Base 2017", m("base17")], ["Costo", m("costo")], ["Amortización", m("amort")], ["Créditos", m("cred")]], [5]);
+  hoja("Rodados", (it) => it.r === "rod", [["Descripción", t("desc")], ["Patente", t("patente")], ["Año", t("anioMod")], ["Fecha adq.", t("fecha")], ["% titularidad", (it) => bpPctOf(it)], ["Valor adquisición", m("costo")], ["Amortización", (it) => (V._det[it.id] && V._det[it.id].amort) || m("amort")(it)], ["Valor DNRPA", m("dnrpa")]], [4]);
+  hoja("Dinero y depósitos", (it) => it.r === "din", [["Tipo", t("tipo")], ["Entidad", t("entidad")], ["CBU / CVU", t("cbu")], ["Nº de cuenta", t("nro")], ["Moneda", t("moneda")], ["Cantidad", m("cant")], ["Cotización", (it) => (it.moneda === "ARS" || !it.moneda ? 1 : String(it.cot || "").trim() !== "" ? num(it.cot) : V._P.usd)], ["% titularidad", (it) => bpPctOf(it)]], [7]);
+  hoja("Títulos y participaciones", (it) => it.r === "tit", [["Descripción", t("desc")], ["Sociedad / emisor", t("emisor")], ["CUIT", t("cuit")], ["Cantidad", m("cant")], ["Cotización", m("cot")], ["Patrimonio neto", m("pn")], ["% participación", (it) => bpPctOf(it)]], [6]);
+  hoja("Créditos", (it) => it.r === "cre", [["Descripción", t("desc")], ["Deudor", t("deudor")], ["Importe", m("monto")], ["% titularidad", (it) => bpPctOf(it)]], [3]);
+  hoja("Otros bienes", (it) => bpKind(it) === "gen", [["Rubro", (it) => (BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1]], ["Descripción", t("desc")], ["Importe", m("importe")], ["% titularidad", (it) => bpPctOf(it)]], [3]);
+  const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const filename = `BienesPersonales_${anio}_${(c.name || "cliente").replace(/[^A-Za-z0-9ÁÉÍÓÚÑáéíóúñ ]/g, "").trim().replace(/\s+/g, "_")}.xlsx`;
+  if (state.downloads) state.downloads.save({ filename, data: blob }).then(() => showToast("Excel descargado")).catch((err) => { if (!(err && err.code === "declined")) showToast("No se pudo descargar el Excel"); });
+  else { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); }
+}
+
+// ---- Eventos ----
+state.bpAnio = state.bpAnio || 2025;
+state.bpCli = state.bpCli || null;
+state.bpTab = state.bpTab || "inm";
+const BP_PRESETS = {
+  efvo: { r: "din", tipo: "Dinero en efectivo", moneda: "ARS", sit: "grav", pais: "AR" },
+  part: { r: "tit", tipo: "part", sit: "exe", pais: "AR" },
+  acc: { r: "tit", tipo: "acc", sit: "grav", pais: "AR" },
+  iva: { r: "cre", desc: "IVA saldo a favor", deudor: "AGENCIA DE RECAUDACION Y CONTROL ADUANERO", sit: "grav", pais: "AR" },
+  gan: { r: "cre", desc: "Retenciones / percepciones Ganancias", deudor: "AGENCIA DE RECAUDACION Y CONTROL ADUANERO", sit: "grav", pais: "AR" },
+};
+function bpNuevoItem(r, preset) {
+  const base = { id: bpNewId(), r, sit: "grav", pais: "AR" };
+  if (r === "inm") Object.assign(base, { tipo: "Departamento", destino: "Inversión" });
+  if (r === "rod") Object.assign(base, { tipo: "Automotor" });
+  if (r === "din") Object.assign(base, { tipo: BP_DIN_TIPOS[0], moneda: "ARS" });
+  if (r === "tit") Object.assign(base, { tipo: "part", sit: "exe" });
+  return Object.assign(base, preset ? BP_PRESETS[preset] : {}, { id: base.id });
+}
+function bpCopyTxt(btn) {
+  const txt = btn.dataset.copy;
+  const ok = () => { btn.classList.add("copiado"); setTimeout(() => btn.classList.remove("copiado"), 900); showToast("Copiado: " + txt); };
+  const viejo = () => { const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); ok(); } catch (_) {} ta.remove(); };
+  try { navigator.clipboard.writeText(txt).then(ok).catch(viejo); } catch (_) { viejo(); }
+}
+function bpClick(a, btn) {
+  if (a === "bp-open") { state.view = "bp"; state.bpCli = btn.dataset.client; state.bpTab = "inm"; render(); }
+  else if (a === "bp-side-toggle") { state.sideBp = !sideBpAbierto(); try { localStorage.setItem("papeles_side_bp", state.sideBp ? "1" : "0"); } catch (e) {} render(); }
+  else if (a === "bp-back") { state.bpCli = null; render(); }
+  else if (a === "bp-filtro") { state.bpFiltro = btn.dataset.filtro; render(); }
+  else if (a === "bp-pres-toggle") { const r = bpGet(btn.dataset.client, state.bpAnio); bpSetPres(btn.dataset.client, state.bpAnio, !r.pres); render(); }
+  else if (a === "bp-tab") { state.bpTab = btn.dataset.tab; render(); }
+  else if (a === "bp-add-open") renderBpAddModal();
+  else if (a === "bp-add-ok") { const s = document.getElementById("bp-add-sel"); if (s && s.value) { bpDb().clientes[s.value] = true; persistExtras(); document.getElementById("modal-root").innerHTML = ""; state.bpCli = s.value; state.bpTab = "inm"; render(); } }
+  else if (a === "bp-quitar") { const c = getClient(btn.dataset.client); if (c && confirm(`¿Quitar a ${c.name} de Bienes Personales? Los datos cargados se conservan por si lo volvés a agregar.`)) { delete bpDb().clientes[c.id]; persistExtras(); render(); } }
+  else if (a === "bp-params-open") renderBpParamsModal();
+  else if (a === "bp-params-reset") { delete bpDb().params[state.bpAnio]; persistExtras(); renderBpParamsModal(); }
+  else if (a === "bp-new") { const d = bpData(state.bpCli, state.bpAnio); d.items.push(bpNuevoItem(btn.dataset.r, btn.dataset.preset)); persistExtras(); render(); }
+  else if (a === "bp-del") { const d = bpData(state.bpCli, state.bpAnio), it = d.items.find((x) => x.id === btn.dataset.id); if (it && confirm(`¿Quitar "${bpItemTitulo(it)}"?`)) { d.items = d.items.filter((x) => x.id !== btn.dataset.id); persistExtras(); render(); } }
+  else if (a === "bp-copy") bpCopyTxt(btn);
+  else if (a === "bp-excel") exportBpExcel();
+  else if (a === "bp-copiar") { const n = bpCopiarAnterior(state.bpCli, state.bpAnio); showToast(n + " bienes copiados de " + (state.bpAnio - 1)); render(); }
+}
+document.addEventListener("click", (e) => { const btn = e.target.closest("[data-action]"); if (btn && btn.dataset.action.indexOf("bp-") === 0 && btn.tagName !== "INPUT" && btn.tagName !== "SELECT") bpClick(btn.dataset.action, btn); });
+document.addEventListener("input", (e) => {
+  const t = e.target, a = t.dataset && t.dataset.action;
+  if (!a || a.indexOf("bp-") !== 0) return;
+  if (a === "bp-i") { const it = bpFindItem(t.dataset.id); if (it) { it[t.dataset.k] = t.value; persistExtras(); bpRefrescar(); } }
+  else if (a === "bp-f") { bpSet(state.bpCli, state.bpAnio, t.dataset.gp, t.value); bpRefrescar(); }
+  else if (a === "bp-param") { const p = bpDb().params; if (!p[state.bpAnio]) p[state.bpAnio] = {}; p[state.bpAnio][t.dataset.campo] = t.value; persistExtras(); }
+  else if (a === "bp-param-esc") { const p = bpDb().params; if (!p[state.bpAnio]) p[state.bpAnio] = {}; const o = p[state.bpAnio]; if (!o[t.dataset.key]) o[t.dataset.key] = []; const i = Number(t.dataset.i); if (!o[t.dataset.key][i]) o[t.dataset.key][i] = []; o[t.dataset.key][i][Number(t.dataset.j)] = t.value; persistExtras(); }
+});
+document.addEventListener("change", (e) => {
+  const t = e.target, a = t.dataset && t.dataset.action;
+  if (!a || a.indexOf("bp-") !== 0) return;
+  if (a === "bp-anio") { state.bpAnio = Number(t.value); render(); }
+  else if (a === "bp-isel") { const it = bpFindItem(t.dataset.id); if (it) { it[t.dataset.k] = t.value; persistExtras(); render(); } }
+  else if (a === "bp-chk") { bpSet(state.bpCli, state.bpAnio, t.dataset.gp, t.checked); render(); }
+  else if (a === "bp-pres") { bpSetPres(t.dataset.client, state.bpAnio, t.checked); render(); }
+  else if (a === "bp-vence") { bpSet(t.dataset.client, state.bpAnio, "vence", t.value); render(); }
+});
+document.addEventListener("focusout", (e) => {
+  const t = e.target, a = t && t.dataset && t.dataset.action;
+  if ((a !== "bp-i" && a !== "bp-f" && a !== "bp-param" && a !== "bp-param-esc") || t.dataset.kind !== "money") return;
+  const raw = String(t.value || "").trim();
+  if (raw === "") return;
+  const f = fmtMoneyRaw(num(raw));
+  t.value = f;
+  if (a === "bp-i") { const it = bpFindItem(t.dataset.id); if (it) { it[t.dataset.k] = f; persistExtras(); } }
+  else if (a === "bp-f") bpSet(state.bpCli, state.bpAnio, t.dataset.gp, f);
+  else if (a === "bp-param") { const p = bpDb().params; if (!p[state.bpAnio]) p[state.bpAnio] = {}; p[state.bpAnio][t.dataset.campo] = f; persistExtras(); }
+  else if (a === "bp-param-esc") { const o = bpDb().params[state.bpAnio]; if (o && o[t.dataset.key] && o[t.dataset.key][Number(t.dataset.i)]) { o[t.dataset.key][Number(t.dataset.i)][Number(t.dataset.j)] = f; persistExtras(); } }
 });
 
 function renderMonoVepDetalle(clientId, period) {
