@@ -205,7 +205,22 @@
   .bp-help div{ margin-top:6px; padding:10px 12px; background:var(--surface-2); border-radius:10px; line-height:1.5; }
   .bp-head{ cursor:pointer; margin-bottom:0 !important; }
   .bp-item.open .bp-head{ margin-bottom:12px !important; padding-bottom:10px; border-bottom:1px solid var(--border); }
-  .bp-item:not(.open) .bp-grid{ display:none; }
+  .bp-item:not(.open) .bp-body{ display:none; }
+  .bp-body{ display:grid; grid-template-columns:1fr 1fr; gap:22px; align-items:start; padding-bottom:6px; }
+  @media (max-width:980px){ .bp-body{ grid-template-columns:1fr; } }
+  .bp-sec{ font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:8px; }
+  .bp-row{ display:grid; grid-template-columns:128px 1fr; align-items:center; gap:8px; padding:3px 0; font-size:12px; color:var(--muted); }
+  .bp-row input, .bp-row select{ width:100%; max-width:none; box-sizing:border-box; padding:6px 9px; font-size:13px; color:var(--ink); }
+  .bp-row input[data-kind=money]{ text-align:right; }
+  .bp-valu{ border:1px solid var(--border); border-radius:10px; padding:12px 14px; background:var(--surface-2); }
+  .bp-seg{ display:flex; background:var(--surface); border:1px solid var(--border); border-radius:9px; padding:3px; gap:2px; margin-bottom:10px; }
+  .bp-seg button{ flex:1; border:0; background:transparent; padding:5px 4px; border-radius:7px; font:inherit; font-size:11.5px; color:var(--muted); cursor:pointer; }
+  .bp-seg button.on{ background:var(--accent-soft); color:var(--accent-strong); font-weight:700; }
+  .bp-calc{ display:flex; flex-direction:column; margin-top:8px; }
+  .bp-calc div{ display:flex; justify-content:space-between; gap:10px; padding:5px 0; border-bottom:1px dashed var(--border); color:var(--muted); font-size:12.5px; }
+  .bp-calc div b{ color:var(--ink); font-family:'IBM Plex Mono', monospace; font-weight:600; white-space:nowrap; }
+  .bp-res{ margin-top:10px; padding:10px 14px; background:var(--accent-soft); border-radius:10px; display:flex; justify-content:space-between; align-items:center; color:var(--accent-strong); font-weight:700; }
+  .bp-res .gan-copy{ font-size:17px; }
   .bp-chev{ color:var(--muted); font-size:11px; width:10px; transition:transform .12s; }
   .bp-item.open .bp-chev{ transform:rotate(90deg); }
   .bp-item:hover{ border-color:var(--accent); }
@@ -8015,41 +8030,62 @@ function bpEscala(x, esc) {
 // ---- Valuación de cada bien ----
 function bpKind(it) { return it.r === "inm" || it.r === "rod" || it.r === "din" || it.r === "tit" || it.r === "cre" ? it.r : "gen"; }
 function bpPctOf(it) { const s = String(it.pct == null ? "" : it.pct).trim(); return s === "" ? 100 : num(s); }
+function bpMetodo(it) {
+  if (it.metodo) return it.metodo;
+  if (it.r === "inm") return num(it.vman) > 0 ? "manual" : num(it.base17) > 0 ? "base17" : num(it.vfPrev) > 0 ? "vfPrev" : num(it.costo) > 0 ? "costo" : "base17";
+  if (it.r === "rod") return num(it.vman) > 0 ? "manual" : "calc";
+  return "";
+}
+const BP_METODOS = { inm: [["base17", "Base 2017"], ["vfPrev", "Valuación fiscal año anterior"], ["costo", "Costo residual"], ["manual", "Manual"]], rod: [["calc", "Costo y DNRPA"], ["manual", "Manual"]] };
 function bpVal(it, anio, P) {
-  const k = bpKind(it), av = [], out = { neto: 0, nota: "", av, sust: 0 };
+  const k = bpKind(it), av = [], calc = [], out = { neto: 0, nota: "", av, sust: 0, calc };
+  const pctN = bpPctOf(it), M = bpMetodo(it), coefTxt = (x) => x.toLocaleString("es-AR", { maximumFractionDigits: 8 });
   let bruto = 0;
   if (k === "inm") {
     const vman = num(it.vman), costo = num(it.costo), amort = num(it.amort), mej = num(it.mejoras), cred = num(it.cred);
-    let b17 = num(it.base17);
-    if (!(b17 > 0) && num(it.vfPrev) > 0) { if (P.coefPrev > 0) b17 = num(it.vfPrev) / P.coefPrev; else av.push("falta el índice al 31/12/" + (anio - 1) + " (⚙ Parámetros)"); }
-    if (vman > 0) { bruto = vman; out.nota = "valuación manual"; }
-    else if (b17 > 0) {
-      if (P.coef > 0) { bruto = Math.max(0, round2(b17 * P.coef) + mej - cred); out.nota = "base 2017 × índice " + P.coef.toLocaleString("es-AR", { maximumFractionDigits: 8 }); }
-      else av.push("falta el índice de actualización " + anio + " (⚙ Parámetros)");
-    } else {
-      bruto = Math.max(0, Math.max(0, costo - amort) + mej - cred); out.nota = "valor residual";
-      if (!(costo > 0)) av.push("sin valuación: cargá la base imponible 2017, la valuación fiscal del año anterior o el costo");
+    if (M === "manual") { bruto = vman; out.nota = "valuación manual"; calc.push(["Valuación manual", vman]); }
+    else {
+      let base = 0, b17 = 0;
+      if (M === "base17") { b17 = num(it.base17); calc.push(["Base imponible 31/12/2017", b17]); }
+      else if (M === "vfPrev") {
+        const vf = num(it.vfPrev); calc.push(["Valuación fiscal 31/12/" + (anio - 1), vf]);
+        if (P.coefPrev > 0) { b17 = vf / P.coefPrev; calc.push(["÷ índice al 31/12/" + (anio - 1), coefTxt(P.coefPrev)], ["= Base imponible 2017", round2(b17)]); } else if (vf > 0) av.push("falta el índice al 31/12/" + (anio - 1) + " (⚙ Parámetros)");
+      }
+      if (M === "costo") { base = Math.max(0, costo - amort); calc.push(["Costo de adquisición", costo], ["− Amortización acumulada", amort], ["= Valor residual", base]); out.nota = "valor residual"; }
+      else if (b17 > 0) {
+        if (P.coef > 0) { base = round2(b17 * P.coef); calc.push(["× índice de actualización " + anio, coefTxt(P.coef)], ["= Valuación", base]); out.nota = "base 2017 × índice " + coefTxt(P.coef); }
+        else av.push("falta el índice de actualización " + anio + " (⚙ Parámetros)");
+      }
+      if (mej) { base += mej; calc.push(["+ Mejoras / adq. complementarias", mej]); }
+      if (cred) { calc.push(["− Créditos para compra / construcción / mejora", cred]); }
+      bruto = Math.max(0, base - cred);
+      if (!(bruto > 0) && !av.length) av.push(M === "base17" ? "cargá la base imponible al 31/12/2017" : M === "vfPrev" ? "cargá la valuación fiscal del año anterior" : "cargá el costo de adquisición");
     }
   } else if (k === "rod") {
     const costo = num(it.costo), dn = num(it.dnrpa), vman = num(it.vman);
-    const anioAdq = it.fecha ? Number(String(it.fecha).slice(0, 4)) : (num(it.anioMod) || 0);
-    let amort = String(it.amort == null ? "" : it.amort).trim() !== "" ? num(it.amort) : (anioAdq && costo ? costo * Math.min(1, Math.max(0, anio - anioAdq + 1) / 5) : 0);
+    const anioAdq = it.fecha ? Number(String(it.fecha).slice(0, 4)) : (num(it.anioMod) || 0), estim = String(it.amort == null ? "" : it.amort).trim() === "";
+    let amort = !estim ? num(it.amort) : (anioAdq && costo ? costo * Math.min(1, Math.max(0, anio - anioAdq + 1) / 5) : 0);
     amort = Math.min(amort, costo); out.amort = round2(amort);
-    if (vman > 0) { bruto = vman; out.nota = "valuación manual"; }
-    else if (costo > 0 && amort >= costo - 0.005) { bruto = 0; out.nota = "amortizado totalmente"; }
-    else { const res = Math.max(0, costo - amort); bruto = Math.max(res, dn); out.nota = dn > res ? "valor según DNRPA" : "valor residual"; if (!(dn > 0)) av.push("falta el valor según DNRPA / tabla de ARCA"); }
+    if (M === "manual") { bruto = vman; out.nota = "valuación manual"; calc.push(["Valuación manual", vman]); }
+    else {
+      const res = Math.max(0, costo - amort);
+      calc.push(["Valor de adquisición", costo], ["− Amortización acumulada" + (estim && amort ? " (estimada)" : ""), round2(amort)], ["= Valor residual", round2(res)], ["Valor según DNRPA", dn]);
+      if (costo > 0 && amort >= costo - 0.005) { bruto = 0; out.nota = "amortizado totalmente"; calc.push(["→ Amortizado totalmente", "se valúa en 0"]); }
+      else { bruto = Math.max(res, dn); out.nota = dn > res ? "valor según DNRPA" : "valor residual"; calc.push(["→ Se toma el mayor", round2(bruto)]); if (!(dn > 0)) av.push("falta el valor según DNRPA / tabla de ARCA"); }
+    }
   } else if (k === "din") {
     const m = it.moneda || "ARS", cs = String(it.cot == null ? "" : it.cot).trim();
     const cot = m === "ARS" ? 1 : cs !== "" ? num(cs) : (m === "USD" ? P.usd : 0);
     if (m !== "ARS" && !(cot > 0)) av.push("falta la cotización al 31/12");
-    bruto = num(it.cant) * cot; if (m !== "ARS" && cot > 0) out.nota = "× cotización " + cot.toLocaleString("es-AR", { maximumFractionDigits: 4 });
+    bruto = num(it.cant) * cot; calc.push(["Cantidad nominal", num(it.cant)]); if (m !== "ARS") { calc.push(["× cotización al 31/12", cot > 0 ? coefTxt(cot) : "sin cargar"], ["= Valuación en pesos", round2(bruto)]); out.nota = "× cotización " + coefTxt(cot); }
   } else if (k === "tit") {
-    if (it.tipo === "acc") bruto = num(it.cant) * num(it.cot);
-    else { bruto = num(it.pn); out.nota = "patrimonio neto × % de participación"; }
-  } else if (k === "cre") bruto = num(it.monto);
-  else bruto = num(it.importe);
-  if (it.fecha && String(it.fecha) > anio + "-12-31") { bruto = 0; out.nota = "adquirido después del 31/12/" + anio; }
-  out.neto = round2(bruto * bpPctOf(it) / 100);
+    if (it.tipo === "acc") { bruto = num(it.cant) * num(it.cot); calc.push(["Cantidad de títulos", num(it.cant)], ["× cotización al 31/12", num(it.cot)], ["= Valuación", round2(bruto)]); }
+    else { bruto = num(it.pn); out.nota = "patrimonio neto × % de participación"; calc.push(["Patrimonio neto según balance", bruto]); }
+  } else if (k === "cre") { bruto = num(it.monto); calc.push(["Importe al 31/12", bruto]); }
+  else { bruto = num(it.importe); calc.push(["Valuación al 31/12", bruto]); }
+  if (it.fecha && String(it.fecha) > anio + "-12-31") { bruto = 0; out.nota = "adquirido después del 31/12/" + anio; calc.push(["⚠ Adquirido después del 31/12/" + anio, "no se computa"]); }
+  if (pctN !== 100) calc.push(["× % de titularidad", fmtMoneyRaw(pctN) + " %"]);
+  out.neto = round2(bruto * pctN / 100);
   if (k === "tit" && it.tipo !== "acc" && it.pais !== "EX") out.sust = round2(out.neto * BP_SUST_ALIC / 100);
   return out;
 }
@@ -8094,23 +8130,25 @@ function bpItemTitulo(it) {
   const t = k === "inm" ? j([it.tipo, it.dir]) : k === "rod" ? j([it.desc, it.patente]) : k === "din" ? j([it.entidad || it.tipo, it.cbu ? "CBU …" + String(it.cbu).slice(-6) : ""]) : k === "tit" ? j([it.desc, it.emisor]) : k === "cre" ? j([it.desc, it.deudor]) : j([(BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1], it.desc]);
   return t || "(sin descripción)";
 }
+// Cada bien se muestra en dos columnas: "Datos del bien" (izquierda) y "Valuación" (derecha, con la cuenta a la vista).
 function bpFields(it, anio) {
-  const k = bpKind(it), S = BP_SITS.concat(k === "inm" ? [["casa", "Casa habitación"]] : []);
-  const sit = ["sit", "Situación frente al impuesto", "sel", S], pais = ["pais", "País", "sel", BP_PAIS], pct = ["pct", "% de titularidad", "pct"];
-  if (k === "inm") return [["tipo", "Tipo de bien", "sels", BP_INM_TIPOS], ["destino", "Destino", "sels", BP_INM_DEST], sit, pais, ["fecha", "Fecha de adquisición", "date"], pct, ["dir", "Dirección (calle, número, piso, localidad)", "text", 0, 1], ["nomen", "Nomenclatura catastral", "text"],
-    ["base17", "Base imponible al 31/12/2017", "money"], ["vfPrev", "…o valuación fiscal al 31/12/" + (anio - 1), "money"], ["costo", "Costo de adquisición", "money"], ["amort", "Amortización acumulada", "money"], ["mejoras", "Mejoras / adquisiciones complementarias", "money"], ["cred", "Créditos para compra / construcción / mejora", "money"], ["vman", "Valuación manual (reemplaza el cálculo)", "money"]];
-  if (k === "rod") return [["tipo", "Tipo de bien", "sels", ["Automotor", "Motovehículo", "Embarcación deportiva", "Otro rodado"]], sit, pais, ["fecha", "Fecha de adquisición", "date"], pct, ["desc", "Descripción (marca, modelo)", "text", 0, 1], ["patente", "Patente / matrícula", "text"], ["anioMod", "Año", "raw"],
-    ["costo", "Valor de adquisición", "money"], ["amort", "Amortización acumulada (vacío = 5 años lineal)", "money"], ["dnrpa", "Valor según DNRPA / tabla ARCA", "money"], ["vman", "Valuación manual (reemplaza el cálculo)", "money"]];
-  if (k === "din") return [["tipo", "Tipo de bien", "sels", BP_DIN_TIPOS], sit, pais, pct, ["entidad", "Entidad financiera / PSP / ALyC", "text", 0, 1], ["cbu", "CBU / CVU", "text", 0, 1], ["nro", "Número de cuenta", "text"], ["moneda", "Moneda", "sel", BP_MONEDAS],
-    ["cant", "Cantidad nominal al 31/12", "money"], ["cot", "Cotización (vacío = dólar de ⚙ Parámetros)", "raw"]];
+  const k = bpKind(it), M = bpMetodo(it), S = BP_SITS.concat(k === "inm" ? [["casa", "Casa habitación"]] : []);
+  const sit = ["sit", "Situación", "sel", S], pais = ["pais", "País", "sel", BP_PAIS], pct = ["pct", "Titularidad %", "pct"];
+  if (k === "inm") return { datos: [["tipo", "Tipo", "sels", BP_INM_TIPOS], ["destino", "Destino", "sels", BP_INM_DEST], sit, pais, ["fecha", "Adquirido", "date"], pct, ["dir", "Dirección", "text"], ["nomen", "Nomenclatura", "text"]],
+    val: M === "manual" ? [["vman", "Valuación manual", "money"]] : M === "vfPrev" ? [["vfPrev", "Valuación fiscal 31/12/" + (anio - 1), "money"], ["mejoras", "Mejoras", "money"], ["cred", "Créditos hipotecarios", "money"]]
+      : M === "costo" ? [["costo", "Costo de adquisición", "money"], ["amort", "Amortización acum.", "money"], ["mejoras", "Mejoras", "money"], ["cred", "Créditos hipotecarios", "money"]]
+      : [["base17", "Base imponible 2017", "money"], ["mejoras", "Mejoras", "money"], ["cred", "Créditos hipotecarios", "money"]] };
+  if (k === "rod") return { datos: [["tipo", "Tipo", "sels", ["Automotor", "Motovehículo", "Embarcación deportiva", "Otro rodado"]], sit, pais, ["fecha", "Adquirido", "date"], pct, ["desc", "Descripción", "text"], ["patente", "Patente", "text"], ["anioMod", "Año", "raw"]],
+    val: M === "manual" ? [["vman", "Valuación manual", "money"]] : [["costo", "Valor de adquisición", "money"], ["amort", "Amortización (vacío = 5 años)", "money"], ["dnrpa", "Valor DNRPA / ARCA", "money"]] };
+  if (k === "din") return { datos: [["tipo", "Tipo", "sels", BP_DIN_TIPOS], sit, pais, pct, ["entidad", "Entidad / PSP", "text"], ["cbu", "CBU / CVU", "text"], ["nro", "N° de cuenta", "text"]], val: [["moneda", "Moneda", "sel", BP_MONEDAS], ["cant", "Cantidad nominal", "money"], ["cot", "Cotización (vacío = dólar de Parámetros)", "raw"]] };
   if (k === "tit") return it.tipo === "acc"
-    ? [["tipo", "Tipo de bien", "sel", BP_TIT_TIPOS], sit, pais, pct, ["desc", "Descripción (especie)", "text", 0, 1], ["emisor", "Denominación del emisor", "text", 0, 1], ["cant", "Cantidad de títulos", "raw"], ["cot", "Cotización al 31/12", "money"]]
-    : [["tipo", "Tipo de bien", "sel", BP_TIT_TIPOS], sit, pais, ["pct", "% de participación", "pct"], ["desc", "Descripción (cuotas, acciones…)", "text", 0, 1], ["emisor", "Denominación de la sociedad", "text", 0, 1], ["cuit", "CUIT de la sociedad", "text"], ["pn", "Patrimonio neto según balance", "money"]];
-  if (k === "cre") return [sit, pais, pct, ["desc", "Descripción", "text", 0, 1], ["deudor", "Denominación del deudor", "text", 0, 1], ["monto", "Importe al 31/12", "money"]];
-  return [["r", "Rubro de la DDJJ", "sel", BP_GEN_RUBROS], sit, pais, pct, ["desc", "Descripción", "text", 0, 1], ["importe", "Valuación al 31/12", "money"]];
+    ? { datos: [["tipo", "Tipo", "sel", BP_TIT_TIPOS], sit, pais, pct, ["desc", "Descripción", "text"], ["emisor", "Emisor", "text"]], val: [["cant", "Cantidad de títulos", "raw"], ["cot", "Cotización al 31/12", "money"]] }
+    : { datos: [["tipo", "Tipo", "sel", BP_TIT_TIPOS], sit, pais, ["pct", "Participación %", "pct"], ["desc", "Descripción", "text"], ["emisor", "Sociedad", "text"], ["cuit", "CUIT sociedad", "text"]], val: [["pn", "Patrimonio neto (balance)", "money"]] };
+  if (k === "cre") return { datos: [sit, pais, pct, ["desc", "Descripción", "text"], ["deudor", "Deudor", "text"]], val: [["monto", "Importe al 31/12", "money"]] };
+  return { datos: [["r", "Rubro de la DDJJ", "sel", BP_GEN_RUBROS], sit, pais, pct, ["desc", "Descripción", "text"]], val: [["importe", "Valuación al 31/12", "money"]] };
 }
 function bpFieldHtml(it, f) {
-  const [k, label, type, opts, wide] = f, val = it[k] == null ? "" : it[k], a = `data-id="${it.id}" data-k="${k}"`;
+  const [k, label, type, opts] = f, val = it[k] == null ? "" : it[k], a = `data-id="${it.id}" data-k="${k}"`;
   let inp;
   if (type === "sel") inp = `<select data-action="bp-isel" ${a}>${opts.map(([o, l]) => `<option value="${o}" ${String(val || opts[0][0]) === o ? "selected" : ""}>${l}</option>`).join("")}</select>`;
   else if (type === "sels") inp = `<select data-action="bp-isel" ${a}><option value="" ${val ? "" : "selected"}>—</option>${opts.map((o) => `<option ${val === o ? "selected" : ""}>${escapeHtml(o)}</option>`).join("")}</select>`;
@@ -8119,16 +8157,22 @@ function bpFieldHtml(it, f) {
   else if (type === "pct") inp = `<input type="text" inputmode="decimal" data-action="bp-i" ${a} value="${escapeHtml(val)}" placeholder="100">`;
   else if (type === "raw") inp = `<input type="text" inputmode="decimal" data-action="bp-i" ${a} value="${escapeHtml(val)}" placeholder="${k === "cot" ? "1,00" : ""}">`;
   else inp = `<input type="text" data-action="bp-i" ${a} value="${escapeHtml(val)}">`;
-  return `<label class="bp-f ${wide ? "w2" : ""}"><span>${label}</span>${inp}</label>`;
+  return `<label class="bp-row"><span>${label}</span>${inp}</label>`;
 }
 function bpSitClase(it) { return it.sit === "baja" ? "baja" : it.sit === "exe" ? "exe" : it.sit === "casa" ? "casa" : "grav"; }
 function bpItemHtml(it, n, anio) {
   const sl = { baja: "Baja", exe: "Exento", casa: "Casa habitación", grav: it.pais === "EX" ? "Gravado · exterior" : "Gravado" }[bpSitClase(it)], open = !!(state.bpOpen && state.bpOpen[it.id]);
+  const F = bpFields(it, anio), mets = BP_METODOS[bpKind(it)], M = bpMetodo(it);
+  const seg = mets ? `<div class="bp-seg">${mets.map(([m, l]) => `<button type="button" class="${M === m ? "on" : ""}" data-action="bp-metodo" data-id="${it.id}" data-m="${m}">${l}</button>`).join("")}</div>` : "";
   return `<div class="bp-item ${open ? "open" : ""}" data-item="${it.id}">
     <div class="bp-head" data-action="bp-toggle" data-id="${it.id}" title="Click para ver o editar los datos"><span class="bp-chev">▸</span><span class="gan-n">${n}</span><b class="bp-title" data-bt="${it.id}">${escapeHtml(bpItemTitulo(it))}</b><span class="bp-sit bp-sit-${bpSitClase(it)}" data-bs="${it.id}">${sl}</span><span class="hint-sm bp-nota" data-bn="${it.id}"></span><span class="bp-spacer"></span>
       <button type="button" class="gan-copy bp-copy" data-action="bp-copy" data-bv="i.${it.id}" data-copy="0,00" title="Click para copiar el importe y pegarlo en el aplicativo">0,00</button>
       <button class="btn btn-sm btn-ghost" data-action="bp-del" data-id="${it.id}" title="Quitar este bien">✕</button></div>
-    <div class="bp-grid">${bpFields(it, anio).map((f) => bpFieldHtml(it, f)).join("")}</div></div>`;
+    <div class="bp-body">
+      <div class="bp-datos"><div class="bp-sec">Datos del bien</div>${F.datos.map((f) => bpFieldHtml(it, f)).join("")}</div>
+      <div class="bp-valu"><div class="bp-sec">Valuación</div>${seg}${F.val.map((f) => bpFieldHtml(it, f)).join("")}<div class="bp-calc" data-bcalc="${it.id}"></div>
+        <div class="bp-res"><span>Importe a declarar</span><button type="button" class="gan-copy bp-copy" data-action="bp-copy" data-bv="i.${it.id}" data-copy="0,00" title="Click para copiar">0,00</button></div></div>
+    </div></div>`;
 }
 let BV = {};
 function bpTot(prefix) { return `<div class="bp-tots"><span>Gravado en el país <b data-bv="${prefix}.pais">0,00</b></span><span>Gravado en el exterior <b data-bv="${prefix}.ext">0,00</b></span><span>Exento / no alcanzado <b data-bv="${prefix}.exe">0,00</b></span><span>Baja en el período <b data-bv="${prefix}.baja">0,00</b></span></div>`; }
@@ -8287,6 +8331,7 @@ function bpRefrescar() {
     const n = document.querySelector(`[data-bn="${it.id}"]`); if (n) { n.textContent = x.av.length ? "⚠ " + x.av[0] : ""; n.title = x.nota; }
     if (n) n.classList.toggle("bp-warn", !!x.av.length);
     const t = document.querySelector(`[data-bt="${it.id}"]`); if (t) t.textContent = bpItemTitulo(it);
+    const cl = document.querySelector(`[data-bcalc="${it.id}"]`); if (cl) cl.innerHTML = (x.calc || []).map(([l, v]) => `<div><span>${escapeHtml(l)}</span><b>${typeof v === "number" ? fmtMoneyRaw(v) : escapeHtml(v)}</b></div>`).join("");
   });
   const cs = document.querySelector("[data-bcasa]");
   if (cs) cs.textContent = BV.casaN ? `Casa habitación: ${fmtMoneyRaw(BV.casaTot)} · exenta hasta ${fmtMoneyRaw(BV.casaExe)}${BV.casaExc > 0 ? " · excedente gravado " + fmtMoneyRaw(BV.casaExc) : ""} (límite ${fmtMoneyRaw(BV._P.casa)}).` : "";
@@ -8326,13 +8371,14 @@ function bpCopiarAnterior(cid, anio) {
   const prevP = bpParams(anio - 1);
   const out = bpItems(cid, anio - 1).filter((it) => it.sit !== "baja").map((it) => {
     const c = JSON.parse(JSON.stringify(it)), k = bpKind(c);
-    c.id = bpNewId();
+    c.id = bpNewId(); if (k === "inm" || k === "rod") c.metodo = bpMetodo(it);
     if (k === "din") { c.cant = ""; if (c.moneda !== "ARS") c.cot = ""; }
     else if (k === "cre") c.monto = "";
     else if (k === "tit") { c.pn = ""; if (c.tipo === "acc") c.cot = ""; }
     else if (k === "gen") c.importe = "";
     else if (k === "inm") {
       if (!(num(c.base17) > 0) && num(c.vfPrev) > 0 && prevP.coefPrev > 0) c.base17 = (Math.round(num(c.vfPrev) / prevP.coefPrev * 10000) / 10000).toString().replace(".", ",");
+      if (c.metodo === "vfPrev" && num(c.base17) > 0) c.metodo = "base17";
       c.vfPrev = ""; c.vman = "";
     } else if (k === "rod") { c.amort = ""; c.dnrpa = ""; c.vman = ""; }
     return c;
@@ -8404,8 +8450,8 @@ const BP_PRESETS = {
 };
 function bpNuevoItem(r, preset) {
   const base = { id: bpNewId(), r, sit: "grav", pais: "AR" };
-  if (r === "inm") Object.assign(base, { tipo: "Departamento", destino: "Inversión" });
-  if (r === "rod") Object.assign(base, { tipo: "Automotor" });
+  if (r === "inm") Object.assign(base, { tipo: "Departamento", destino: "Inversión", metodo: "base17" });
+  if (r === "rod") Object.assign(base, { tipo: "Automotor", metodo: "calc" });
   if (r === "din") Object.assign(base, { tipo: BP_DIN_TIPOS[0], moneda: "ARS" });
   if (r === "tit") Object.assign(base, { tipo: "part", sit: "exe" });
   return Object.assign(base, preset ? BP_PRESETS[preset] : {}, { id: base.id });
@@ -8429,6 +8475,7 @@ function bpClick(a, btn) {
   else if (a === "bp-params-open") renderBpParamsModal();
   else if (a === "bp-params-reset") { delete bpDb().params[state.bpAnio]; persistExtras(); renderBpParamsModal(); }
   else if (a === "bp-new") { const d = bpData(state.bpCli, state.bpAnio), it = bpNuevoItem(btn.dataset.r, btn.dataset.preset); d.items.push(it); (state.bpOpen = state.bpOpen || {})[it.id] = true; persistExtras(); render(); }
+  else if (a === "bp-metodo") { const it = bpFindItem(btn.dataset.id); if (it) { it.metodo = btn.dataset.m; persistExtras(); render(); } }
   else if (a === "bp-toggle") { state.bpOpen = state.bpOpen || {}; const on = !state.bpOpen[btn.dataset.id]; state.bpOpen[btn.dataset.id] = on; const el = btn.closest(".bp-item"); if (el) el.classList.toggle("open", on); }
   else if (a === "bp-expand") { state.bpOpen = state.bpOpen || {}; const on = btn.dataset.v === "1"; document.querySelectorAll(".bp-item").forEach((el) => { state.bpOpen[el.dataset.item] = on; el.classList.toggle("open", on); }); }
   else if (a === "bp-del") { const d = bpData(state.bpCli, state.bpAnio), it = d.items.find((x) => x.id === btn.dataset.id); if (it && confirm(`¿Quitar "${bpItemTitulo(it)}"?`)) { d.items = d.items.filter((x) => x.id !== btn.dataset.id); persistExtras(); render(); } }
