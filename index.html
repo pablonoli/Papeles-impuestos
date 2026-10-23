@@ -7984,6 +7984,7 @@ const BP_PARAMS_DEFAULT = {
 const BP_ANIOS = [2025, 2026];
 const BP_PARAM_CAMPOS = [["mni", "Mínimo no imponible", "money"], ["casa", "Casa habitación · límite exento", "money"], ["coef", "Índice de actualización base 2017 → 31/12/{A}", "raw"], ["coefPrev", "Índice de actualización base 2017 → 31/12/{P}", "raw"], ["usd", "Dólar comprador BNA al 31/12/{A}", "money"]];
 const BP_RUBROS = [["inm", "Inmuebles"], ["der", "Derechos reales"], ["nav", "Naves y aeronaves"], ["rod", "Automotores y otros rodados"], ["din", "Dinero y depósitos en dinero"], ["tit", "Títulos, acciones, cuotas o participaciones sociales y otros títulos valores"], ["uni", "Patrimonio de empresas o explotaciones unipersonales"], ["cre", "Créditos y debentures"], ["pi", "Derechos de propiedad científica, literaria o artística, marcas, patentes y sus licencias"], ["otr", "Otros bienes"], ["cri", "Monedas digitales, monedas virtuales, criptoactivos o similares"], ["obj", "Objetos personales y del hogar"]];
+const BP_OTR_TIPOS = ["Bienes Muebles Registrables", "Bienes Personales del Contribuyente", "Otros bienes"];
 const BP_GEN_RUBROS = [["otr", "Otros bienes"], ["der", "Derechos reales"], ["nav", "Naves y aeronaves"], ["uni", "Patrimonio de empresa o explotación unipersonal"], ["pi", "Propiedad científica, literaria o artística, marcas, patentes"], ["cri", "Monedas digitales / criptoactivos"]];
 const BP_SITS = [["grav", "Gravado"], ["exe", "Exento / no alcanzado"], ["baja", "Baja en el período"]];
 const BP_PAIS = [["AR", "Argentina"], ["EX", "Exterior"]];
@@ -8085,7 +8086,14 @@ function bpVal(it, anio, P) {
     if (it.tipo === "acc") { bruto = num(it.cant) * num(it.cot); calc.push(["Cantidad de títulos", num(it.cant)], ["× cotización al 31/12", num(it.cot)], ["= Valuación", round2(bruto)]); }
     else { bruto = num(it.pn); out.nota = "patrimonio neto × % de participación"; calc.push(["Patrimonio neto según balance", bruto]); }
   } else if (k === "cre") { bruto = num(it.monto); calc.push(["Importe al 31/12", bruto]); }
-  else { bruto = num(it.importe); calc.push(["Valuación al 31/12", bruto]); }
+  else {
+    const hayCosto = String(it.costo == null ? "" : it.costo).trim() !== "";
+    if (hayCosto) {
+      const c = num(it.costo), am = Math.min(num(it.amort), c);
+      bruto = Math.max(0, c - am); calc.push(["Valor de adquisición", c], ["− Amortización acumulada", round2(am)], ["= Importe neto del bien", round2(bruto)]);
+      if (String(it.amort == null ? "" : it.amort).trim() === "") av.push("cargá la amortización acumulada");
+    } else { bruto = num(it.importe); calc.push(["Valuación al 31/12", bruto]); }
+  }
   if (it.fecha && String(it.fecha) > anio + "-12-31") { bruto = 0; out.nota = "adquirido después del 31/12/" + anio; calc.push(["⚠ Adquirido después del 31/12/" + anio, "no se computa"]); }
   if (pctN !== 100) calc.push(["× % de titularidad", fmtMoneyRaw(pctN) + " %"]);
   out.neto = round2(bruto * pctN / 100);
@@ -8130,7 +8138,7 @@ function bpCalc(cid, anio) {
 // ---- Presentación de campos ----
 function bpItemTitulo(it) {
   const k = bpKind(it), j = (a) => a.filter((x) => x && String(x).trim()).join(" · ");
-  const t = k === "inm" ? j([it.tipo, it.dir]) : k === "rod" ? j([it.desc, it.patente]) : k === "din" ? j([it.entidad || it.tipo]) : k === "tit" ? j([it.desc, it.emisor]) : k === "cre" ? j([it.desc, it.deudor]) : j([(BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1], it.desc]);
+  const t = k === "inm" ? j([it.tipo, it.dir]) : k === "rod" ? j([it.desc, it.patente]) : k === "din" ? j([it.entidad || it.tipo]) : k === "tit" ? j([it.desc, it.emisor]) : k === "cre" ? j([it.desc, it.deudor]) : (it.r === "otr" && it.desc ? it.desc : j([(BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1], it.desc]));
   return t || "(sin descripción)";
 }
 // Cada bien se muestra en dos columnas: "Datos del bien" (izquierda) y "Valuación" (derecha, con la cuenta a la vista).
@@ -8161,7 +8169,8 @@ function bpFields(it, anio) {
     ? { datos: [["tipo", "Tipo", "sel", BP_TIT_TIPOS], sit, pais, pct, ["desc", "Descripción", "text"], ["emisor", "Emisor", "text"]], val: [["cant", "Cantidad de títulos", "raw"], ["cot", "Cotización al 31/12", "money"]] }
     : { datos: [["tipo", "Tipo", "sel", BP_TIT_TIPOS], sit, pais, ["pct", "Participación %", "pct"], ["desc", "Descripción", "text"], ["emisor", "Sociedad", "text"], ["cuit", "CUIT sociedad", "text"]], val: [["pn", "Patrimonio neto (balance)", "money"]] };
   if (k === "cre") return { datos: [sit, pais, pct, ["desc", "Descripción", "text"], ["deudor", "Deudor", "text"]], val: [["monto", "Importe al 31/12", "money"]] };
-  return { datos: [["r", "Rubro de la DDJJ", "sel", BP_GEN_RUBROS], sit, pais, pct, ["desc", "Descripción", "text"]], val: [["importe", "Valuación al 31/12", "money"]] };
+  return { datos: [["r", "Rubro de la DDJJ", "sel", BP_GEN_RUBROS], ["tipo", "Tipo de bien", "sels", BP_OTR_TIPOS], sit, pais, ["fecha", "Adquirido", "date"], pct, ["desc", "Detalle", "text"], ["ident", "Datos identificatorios / registrales", "text"], ["afect", "Afectado a Ganancias", "sel", [["no", "No"], ["si", "Sí"]]]],
+    val: [["costo", "Valor de adquisición", "money"], ["amort", "Amortización acumulada", "money"], ["importe", "Valuación directa (si no cargás costo)", "money"]] };
 }
 function bpFieldHtml(it, f) {
   const [k, label, type, opts] = f, val = it[k] == null ? "" : it[k], a = `data-id="${it.id}" data-k="${k}"`;
@@ -8393,7 +8402,7 @@ function bpCopiarAnterior(cid, anio) {
     if (k === "din") { c.cant = ""; if (c.moneda !== "ARS") c.cot = ""; }
     else if (k === "cre") c.monto = "";
     else if (k === "tit") { c.pn = ""; if (c.tipo === "acc") c.cot = ""; }
-    else if (k === "gen") c.importe = "";
+    else if (k === "gen") { c.importe = ""; if (String(c.costo == null ? "" : c.costo).trim() !== "") c.amort = ""; }
     else if (k === "inm") {
       if (!(num(c.base17) > 0) && num(c.vfPrev) > 0 && prevP.coefPrev > 0) c.base17 = (Math.round(num(c.vfPrev) / prevP.coefPrev * 10000) / 10000).toString().replace(".", ",");
       if (c.metodo === "vfPrev" && num(c.base17) > 0) c.metodo = "base17";
@@ -8447,7 +8456,7 @@ function exportBpExcel() {
   hoja("Dinero y depósitos", (it) => it.r === "din", [["Tipo", t("tipo")], ["Entidad", t("entidad")], ["CBU / CVU", t("cbu")], ["Nº de cuenta", t("nro")], ["Moneda", t("moneda")], ["Cantidad", m("cant")], ["Cotización", (it) => (it.moneda === "ARS" || !it.moneda ? 1 : String(it.cot || "").trim() !== "" ? num(it.cot) : V._P.usd)], ["% titularidad", (it) => bpPctOf(it)]], [7]);
   hoja("Títulos y participaciones", (it) => it.r === "tit", [["Descripción", t("desc")], ["Sociedad / emisor", t("emisor")], ["CUIT", t("cuit")], ["Cantidad", m("cant")], ["Cotización", m("cot")], ["Patrimonio neto", m("pn")], ["% participación", (it) => bpPctOf(it)]], [6]);
   hoja("Créditos", (it) => it.r === "cre", [["Descripción", t("desc")], ["Deudor", t("deudor")], ["Importe", m("monto")], ["% titularidad", (it) => bpPctOf(it)]], [3]);
-  hoja("Otros bienes", (it) => bpKind(it) === "gen", [["Rubro", (it) => (BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1]], ["Descripción", t("desc")], ["Importe", m("importe")], ["% titularidad", (it) => bpPctOf(it)]], [3]);
+  hoja("Otros bienes", (it) => bpKind(it) === "gen", [["Rubro", (it) => (BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1]], ["Tipo de bien", t("tipo")], ["Detalle", t("desc")], ["Datos identificatorios", t("ident")], ["Fecha adq.", t("fecha")], ["Valor adquisición", m("costo")], ["Amortización", m("amort")], ["Valuación directa", m("importe")], ["% titularidad", (it) => bpPctOf(it)]], [5, 6, 7]);
   const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const filename = `BienesPersonales_${anio}_${(c.name || "cliente").replace(/[^A-Za-z0-9ÁÉÍÓÚÑáéíóúñ ]/g, "").trim().replace(/\s+/g, "_")}.xlsx`;
