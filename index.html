@@ -228,6 +228,9 @@
   .bp-head{ display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
   .bp-spacer{ flex:1; }
   .bp-title{ font-size:14px; }
+  .bp-tt{ display:flex; flex-direction:column; min-width:0; line-height:1.25; }
+  .bp-sub{ font-size:11.5px; color:var(--muted); font-family:'IBM Plex Mono', monospace; letter-spacing:-.01em; }
+  .bp-sub:empty{ display:none; }
   .bp-nota{ font-size:11.5px; }
   .bp-nota.bp-warn{ color:var(--pagar); }
   .bp-sit{ font-size:11px; padding:2px 8px; border-radius:20px; background:var(--surface-2); color:var(--muted); border:1px solid var(--border); }
@@ -8127,10 +8130,23 @@ function bpCalc(cid, anio) {
 // ---- Presentación de campos ----
 function bpItemTitulo(it) {
   const k = bpKind(it), j = (a) => a.filter((x) => x && String(x).trim()).join(" · ");
-  const t = k === "inm" ? j([it.tipo, it.dir]) : k === "rod" ? j([it.desc, it.patente]) : k === "din" ? j([it.entidad || it.tipo, it.cbu ? "CBU …" + String(it.cbu).slice(-6) : ""]) : k === "tit" ? j([it.desc, it.emisor]) : k === "cre" ? j([it.desc, it.deudor]) : j([(BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1], it.desc]);
+  const t = k === "inm" ? j([it.tipo, it.dir]) : k === "rod" ? j([it.desc, it.patente]) : k === "din" ? j([it.entidad || it.tipo]) : k === "tit" ? j([it.desc, it.emisor]) : k === "cre" ? j([it.desc, it.deudor]) : j([(BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1], it.desc]);
   return t || "(sin descripción)";
 }
 // Cada bien se muestra en dos columnas: "Datos del bien" (izquierda) y "Valuación" (derecha, con la cuenta a la vista).
+function bpIdCuenta(it) { return /billetera|PSP|ALyC/i.test(it.tipo || "") ? "CVU" : "CBU"; }
+function bpItemSub(it) {
+  if (bpKind(it) !== "din") return "";
+  const tipo = String(it.tipo || "").replace(/^Depósito en dinero · /, "").replace(/^Fondos en /, "");
+  const mon = (BP_MONEDAS.find((m) => m[0] === (it.moneda || "ARS")) || [0, ""])[1];
+  const cbu = it.cbu && String(it.cbu).trim() ? bpIdCuenta(it) + " " + String(it.cbu).trim() : "";
+  const t = tipo === "Dinero en efectivo" ? "" : tipo.charAt(0).toUpperCase() + tipo.slice(1);
+  return [t, it.tipo === "Dinero en efectivo" && mon === "Pesos" ? "" : mon, cbu].filter(Boolean).join(" · ");
+}
+function bpOrdenDin(items) {
+  const clave = (it) => String(it.entidad || "").trim().toUpperCase() || "\uffff" + String(it.tipo || "");
+  return items.map((it, i) => [it, i]).sort((a, b) => { const x = clave(a[0]), y = clave(b[0]); return x < y ? -1 : x > y ? 1 : BP_DIN_TIPOS.indexOf(a[0].tipo) - BP_DIN_TIPOS.indexOf(b[0].tipo) || a[1] - b[1]; }).map((p) => p[0]);
+}
 function bpFields(it, anio) {
   const k = bpKind(it), M = bpMetodo(it), S = BP_SITS.concat(k === "inm" ? [["casa", "Casa habitación"]] : []);
   const sit = ["sit", "Situación", "sel", S], pais = ["pais", "País", "sel", BP_PAIS], pct = ["pct", "Titularidad %", "pct"];
@@ -8140,7 +8156,7 @@ function bpFields(it, anio) {
       : [["base17", "Base imponible 2017", "money"], ["mejoras", "Mejoras", "money"], ["cred", "Créditos hipotecarios", "money"]] };
   if (k === "rod") return { datos: [["tipo", "Tipo", "sels", ["Automotor", "Motovehículo", "Embarcación deportiva", "Otro rodado"]], sit, pais, ["fecha", "Adquirido", "date"], pct, ["desc", "Descripción", "text"], ["patente", "Patente", "text"], ["anioMod", "Año", "raw"]],
     val: M === "manual" ? [["vman", "Valuación manual", "money"]] : [["costo", "Valor de adquisición", "money"], ["amort", "Amortización (vacío = 5 años)", "money"], ["dnrpa", "Valor DNRPA / ARCA", "money"]] };
-  if (k === "din") return { datos: [["tipo", "Tipo", "sels", BP_DIN_TIPOS], sit, pais, pct, ["entidad", "Entidad / PSP", "text"], ["cbu", "CBU / CVU", "text"], ["nro", "N° de cuenta", "text"]], val: [["moneda", "Moneda", "sel", BP_MONEDAS], ["cant", "Cantidad nominal", "money"], ["cot", "Cotización (vacío = dólar de Parámetros)", "raw"]] };
+  if (k === "din") return { datos: [["tipo", "Tipo", "sels", BP_DIN_TIPOS], sit, pais, pct, ["entidad", "Banco / PSP / ALyC", "text"], ["cbu", bpIdCuenta(it), "text"], ["nro", "N° de cuenta", "text"], ["obs", "Observaciones", "text"]], val: [["moneda", "Moneda", "sel", BP_MONEDAS], ["cant", "Cantidad nominal", "money"], ["cot", "Cotización (vacío = dólar de Parámetros)", "raw"]] };
   if (k === "tit") return it.tipo === "acc"
     ? { datos: [["tipo", "Tipo", "sel", BP_TIT_TIPOS], sit, pais, pct, ["desc", "Descripción", "text"], ["emisor", "Emisor", "text"]], val: [["cant", "Cantidad de títulos", "raw"], ["cot", "Cotización al 31/12", "money"]] }
     : { datos: [["tipo", "Tipo", "sel", BP_TIT_TIPOS], sit, pais, ["pct", "Participación %", "pct"], ["desc", "Descripción", "text"], ["emisor", "Sociedad", "text"], ["cuit", "CUIT sociedad", "text"]], val: [["pn", "Patrimonio neto (balance)", "money"]] };
@@ -8165,7 +8181,7 @@ function bpItemHtml(it, n, anio) {
   const F = bpFields(it, anio), mets = BP_METODOS[bpKind(it)], M = bpMetodo(it);
   const seg = mets ? `<div class="bp-seg">${mets.map(([m, l]) => `<button type="button" class="${M === m ? "on" : ""}" data-action="bp-metodo" data-id="${it.id}" data-m="${m}">${l}</button>`).join("")}</div>` : "";
   return `<div class="bp-item ${open ? "open" : ""}" data-item="${it.id}">
-    <div class="bp-head" data-action="bp-toggle" data-id="${it.id}" title="Click para ver o editar los datos"><span class="bp-chev">▸</span><span class="gan-n">${n}</span><b class="bp-title" data-bt="${it.id}">${escapeHtml(bpItemTitulo(it))}</b><span class="bp-sit bp-sit-${bpSitClase(it)}" data-bs="${it.id}">${sl}</span><span class="hint-sm bp-nota" data-bn="${it.id}"></span><span class="bp-spacer"></span>
+    <div class="bp-head" data-action="bp-toggle" data-id="${it.id}" title="Click para ver o editar los datos"><span class="bp-chev">▸</span><span class="gan-n">${n}</span><span class="bp-tt"><b class="bp-title" data-bt="${it.id}">${escapeHtml(bpItemTitulo(it))}</b><small class="bp-sub" data-bsub="${it.id}">${escapeHtml(bpItemSub(it))}</small></span><span class="bp-sit bp-sit-${bpSitClase(it)}" data-bs="${it.id}">${sl}</span><span class="hint-sm bp-nota" data-bn="${it.id}"></span><span class="bp-spacer"></span>
       <button type="button" class="gan-copy bp-copy" data-action="bp-copy" data-bv="i.${it.id}" data-copy="0,00" title="Click para copiar el importe y pegarlo en el aplicativo">0,00</button>
       <button class="btn btn-sm btn-ghost" data-action="bp-del" data-id="${it.id}" title="Quitar este bien">✕</button></div>
     <div class="bp-body">
@@ -8179,6 +8195,7 @@ function bpTot(prefix) { return `<div class="bp-tots"><span>Gravado en el país 
 // Pestaña de carga: barra con botones, totales, ayuda plegable y lista de bienes (cada uno plegado: una sola línea)
 function bpTabHtml(grupo, vacio, ayuda, botones, lineas) {
   const anio = state.bpAnio, items = bpItems(state.bpCli, anio).filter((it) => (grupo === "gen" ? bpKind(it) === "gen" : it.r === grupo));
+  if (grupo === "din") items.splice(0, items.length, ...bpOrdenDin(items));
   const lista = items.map((it, i) => bpItemHtml(it, i + 1, anio)).join("") || `<p class="hint-sm" style="margin:6px 2px;">${vacio}</p>`;
   const todo = items.length > 1 ? `<span class="bp-bar-r"><button class="btn btn-sm btn-ghost" data-action="bp-expand" data-v="1">Expandir todo</button><button class="btn btn-sm btn-ghost" data-action="bp-expand" data-v="0">Contraer todo</button></span>` : "";
   return `<div class="bp-bar"><span class="bp-adds">${botones}</span>${todo}</div>${bpTot(grupo === "gen" ? "g" : "r." + grupo)}${lineas || ""}<details class="bp-help"><summary>ⓘ Cómo se valúa</summary><div>${ayuda}</div></details><div class="bp-list">${lista}</div>`;
@@ -8331,6 +8348,7 @@ function bpRefrescar() {
     const n = document.querySelector(`[data-bn="${it.id}"]`); if (n) { n.textContent = x.av.length ? "⚠ " + x.av[0] : ""; n.title = x.nota; }
     if (n) n.classList.toggle("bp-warn", !!x.av.length);
     const t = document.querySelector(`[data-bt="${it.id}"]`); if (t) t.textContent = bpItemTitulo(it);
+    const sb = document.querySelector(`[data-bsub="${it.id}"]`); if (sb) sb.textContent = bpItemSub(it);
     const cl = document.querySelector(`[data-bcalc="${it.id}"]`); if (cl) cl.innerHTML = (x.calc || []).map(([l, v]) => `<div><span>${escapeHtml(l)}</span><b>${typeof v === "number" ? fmtMoneyRaw(v) : escapeHtml(v)}</b></div>`).join("");
   });
   const cs = document.querySelector("[data-bcasa]");
