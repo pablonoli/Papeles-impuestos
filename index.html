@@ -194,8 +194,22 @@
   .gan-copy{ background:none; border:1px dashed transparent; border-radius:6px; font:inherit; color:inherit; padding:2px 8px; cursor:copy; }
   .gan-copy:hover{ border-color:var(--accent); background:var(--accent-soft); }
   .gan-copy.copiado{ background:var(--favor-soft); border-color:var(--favor); }
-  .bp-list{ display:flex; flex-direction:column; gap:12px; }
-  .bp-item{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
+  .bp-list{ display:flex; flex-direction:column; gap:8px; }
+  .bp-bar{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .bp-adds{ display:flex; gap:8px; flex-wrap:wrap; }
+  .bp-bar-r{ display:flex; gap:4px; }
+  .bp-linea{ margin:0; }
+  .bp-help{ font-size:12.5px; color:var(--muted); }
+  .bp-help summary{ cursor:pointer; list-style:none; display:inline-block; padding:2px 0; }
+  .bp-help summary:hover{ color:var(--accent); }
+  .bp-help div{ margin-top:6px; padding:10px 12px; background:var(--surface-2); border-radius:10px; line-height:1.5; }
+  .bp-head{ cursor:pointer; margin-bottom:0 !important; }
+  .bp-item.open .bp-head{ margin-bottom:12px !important; padding-bottom:10px; border-bottom:1px solid var(--border); }
+  .bp-item:not(.open) .bp-grid{ display:none; }
+  .bp-chev{ color:var(--muted); font-size:11px; width:10px; transition:transform .12s; }
+  .bp-item.open .bp-chev{ transform:rotate(90deg); }
+  .bp-item:hover{ border-color:var(--accent); }
+  .bp-item{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:9px 14px; }
   .bp-head{ display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
   .bp-spacer{ flex:1; }
   .bp-title{ font-size:14px; }
@@ -8109,30 +8123,31 @@ function bpFieldHtml(it, f) {
 }
 function bpSitClase(it) { return it.sit === "baja" ? "baja" : it.sit === "exe" ? "exe" : it.sit === "casa" ? "casa" : "grav"; }
 function bpItemHtml(it, n, anio) {
-  const sl = { baja: "Baja", exe: "Exento", casa: "Casa habitación", grav: it.pais === "EX" ? "Gravado · exterior" : "Gravado" }[bpSitClase(it)];
-  return `<div class="bp-item" data-item="${it.id}">
-    <div class="bp-head"><span class="gan-n">${n}</span><b class="bp-title" data-bt="${it.id}">${escapeHtml(bpItemTitulo(it))}</b><span class="bp-sit bp-sit-${bpSitClase(it)}" data-bs="${it.id}">${sl}</span><span class="hint-sm bp-nota" data-bn="${it.id}"></span><span class="bp-spacer"></span>
+  const sl = { baja: "Baja", exe: "Exento", casa: "Casa habitación", grav: it.pais === "EX" ? "Gravado · exterior" : "Gravado" }[bpSitClase(it)], open = !!(state.bpOpen && state.bpOpen[it.id]);
+  return `<div class="bp-item ${open ? "open" : ""}" data-item="${it.id}">
+    <div class="bp-head" data-action="bp-toggle" data-id="${it.id}" title="Click para ver o editar los datos"><span class="bp-chev">▸</span><span class="gan-n">${n}</span><b class="bp-title" data-bt="${it.id}">${escapeHtml(bpItemTitulo(it))}</b><span class="bp-sit bp-sit-${bpSitClase(it)}" data-bs="${it.id}">${sl}</span><span class="hint-sm bp-nota" data-bn="${it.id}"></span><span class="bp-spacer"></span>
       <button type="button" class="gan-copy bp-copy" data-action="bp-copy" data-bv="i.${it.id}" data-copy="0,00" title="Click para copiar el importe y pegarlo en el aplicativo">0,00</button>
       <button class="btn btn-sm btn-ghost" data-action="bp-del" data-id="${it.id}" title="Quitar este bien">✕</button></div>
     <div class="bp-grid">${bpFields(it, anio).map((f) => bpFieldHtml(it, f)).join("")}</div></div>`;
 }
 let BV = {};
 function bpTot(prefix) { return `<div class="bp-tots"><span>Gravado en el país <b data-bv="${prefix}.pais">0,00</b></span><span>Gravado en el exterior <b data-bv="${prefix}.ext">0,00</b></span><span>Exento / no alcanzado <b data-bv="${prefix}.exe">0,00</b></span><span>Baja en el período <b data-bv="${prefix}.baja">0,00</b></span></div>`; }
-function bpTabHtml(grupo, titulo, vacio, extra) {
+// Pestaña de carga: barra con botones, totales, ayuda plegable y lista de bienes (cada uno plegado: una sola línea)
+function bpTabHtml(grupo, vacio, ayuda, botones, lineas) {
   const anio = state.bpAnio, items = bpItems(state.bpCli, anio).filter((it) => (grupo === "gen" ? bpKind(it) === "gen" : it.r === grupo));
-  const lista = items.map((it, i) => bpItemHtml(it, i + 1, anio)).join("") || `<div class="card"><div class="card-body"><p class="hint-sm" style="margin:0;">${vacio}</p></div></div>`;
-  return `${extra || ""}<div class="bp-list">${lista}</div>${bpTot(grupo === "gen" ? "g" : "r." + grupo)}`;
+  const lista = items.map((it, i) => bpItemHtml(it, i + 1, anio)).join("") || `<p class="hint-sm" style="margin:6px 2px;">${vacio}</p>`;
+  const todo = items.length > 1 ? `<span class="bp-bar-r"><button class="btn btn-sm btn-ghost" data-action="bp-expand" data-v="1">Expandir todo</button><button class="btn btn-sm btn-ghost" data-action="bp-expand" data-v="0">Contraer todo</button></span>` : "";
+  return `<div class="bp-bar"><span class="bp-adds">${botones}</span>${todo}</div>${bpTot(grupo === "gen" ? "g" : "r." + grupo)}${lineas || ""}<details class="bp-help"><summary>ⓘ Cómo se valúa</summary><div>${ayuda}</div></details><div class="bp-list">${lista}</div>`;
 }
-function bpAddBtn(label, r, preset) { return `<button class="btn btn-sm" data-action="bp-new" data-r="${r}" ${preset ? `data-preset="${preset}"` : ""}>+ ${label}</button>`; }
+function bpAddBtn(label, r, preset) { return `<button class="btn btn-sm btn-accent" data-action="bp-new" data-r="${r}" ${preset ? `data-preset="${preset}"` : ""}>+ ${label}</button>`; }
+function bpAddBtn2(label, r, preset) { return `<button class="btn btn-sm" data-action="bp-new" data-r="${r}" ${preset ? `data-preset="${preset}"` : ""}>+ ${label}</button>`; }
 
-function renderBpTabInm() {
-  return bpTabHtml("inm", "Inmuebles", "Todavía no cargaste inmuebles.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;"><b>Valuación:</b> si cargás la base imponible al 31/12/2017 (o la valuación fiscal del año anterior, que se divide por su índice) se actualiza con el índice del período; si no, se usa el valor residual (costo − amortización + mejoras). Podés pisar el cálculo con la valuación manual. Los <b>créditos hipotecarios</b> para compra/construcción/mejora se restan del bien.</div><div class="hint-sm" style="margin:0;" data-bcasa></div><div>${bpAddBtn("Agregar inmueble", "inm")}</div></div></div>`);
-}
-function renderBpTabRod() { return bpTabHtml("rod", "Rodados", "Todavía no cargaste rodados.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;"><b>Valuación:</b> valor de adquisición menos amortización (5 años lineal contando el año de compra, salvo que la cargues); no puede ser menor al valor DNRPA / tabla de ARCA. Si está amortizado totalmente se valúa en cero.</div><div>${bpAddBtn("Agregar rodado", "rod")}</div></div></div>`); }
-function renderBpTabDin() { return bpTabHtml("din", "Dinero", "Todavía no cargaste cuentas ni dinero.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;">Cargá el saldo al 31/12 de cada cuenta. Las cuentas en dólares usan la cotización de ⚙ Parámetros (comprador BNA al 31/12) salvo que escribas otra en la cuenta.</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${bpAddBtn("Agregar cuenta", "din")}${bpAddBtn("Efectivo", "din", "efvo")}</div></div></div>`); }
-function renderBpTabTit() { return bpTabHtml("tit", "Títulos", "Todavía no cargaste participaciones ni títulos.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;">Las <b>participaciones en sociedades argentinas</b> se valúan a valor patrimonial proporcional y quedan exentas: la sociedad ingresa el impuesto como <b>responsable sustituto (${BP_SUST_ALIC.toString().replace(".", ",")}%)</b>. Acciones, bonos y cedears se valúan por cantidad × cotización al 31/12.</div><div class="hint-sm" style="margin:0;" data-bsust></div><div style="display:flex;gap:8px;flex-wrap:wrap;">${bpAddBtn("Participación societaria", "tit", "part")}${bpAddBtn("Acciones / cedears / títulos", "tit", "acc")}</div></div></div>`); }
-function renderBpTabCre() { return bpTabHtml("cre", "Créditos", "Todavía no cargaste créditos.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;">Créditos a favor al 31/12: saldos a favor de impuestos, préstamos otorgados, cuentas a cobrar.</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${bpAddBtn("Agregar crédito", "cre")}${bpAddBtn("Saldo a favor de IVA", "cre", "iva")}${bpAddBtn("Retenciones / percepciones de Ganancias", "cre", "gan")}</div></div></div>`); }
-function renderBpTabOtr() { return bpTabHtml("gen", "Otros bienes", "Acá van derechos reales, naves y aeronaves, empresa unipersonal, marcas y patentes, criptoactivos y otros bienes.", `<div class="card"><div class="card-body" style="display:flex;flex-direction:column;gap:6px;"><div class="hint-sm" style="margin:0;">Derechos reales, naves y aeronaves, empresa unipersonal, propiedad intelectual, criptoactivos y otros bienes. Cargá la valuación al 31/12 y elegí el rubro de la DDJJ.</div><div>${bpAddBtn("Agregar bien", "otr")}</div></div></div>`); }
+function renderBpTabInm() { return bpTabHtml("inm", "Todavía no cargaste inmuebles.", "Si cargás la <b>base imponible al 31/12/2017</b> (o la valuación fiscal del año anterior, que se divide por su índice) se actualiza con el índice del período; si no, se usa el valor residual (costo − amortización + mejoras). Podés pisar el cálculo con la valuación manual. Los <b>créditos hipotecarios</b> para compra, construcción o mejora se restan del bien. La casa habitación es exenta hasta el límite de Parámetros.", bpAddBtn("Agregar inmueble", "inm"), `<div class="hint-sm bp-linea" data-bcasa></div>`); }
+function renderBpTabRod() { return bpTabHtml("rod", "Todavía no cargaste rodados.", "Valor de adquisición menos amortización (5 años lineal contando el año de compra, salvo que la cargues); no puede ser menor al valor DNRPA / tabla de ARCA. Si está amortizado totalmente se valúa en cero.", bpAddBtn("Agregar rodado", "rod")); }
+function renderBpTabDin() { return bpTabHtml("din", "Todavía no cargaste cuentas ni dinero.", "Cargá el saldo al 31/12 de cada cuenta. Las cuentas en dólares usan la cotización de ⚙ Parámetros (comprador BNA al 31/12) salvo que escribas otra en la cuenta.", bpAddBtn("Agregar cuenta", "din") + bpAddBtn2("Efectivo", "din", "efvo")); }
+function renderBpTabTit() { return bpTabHtml("tit", "Todavía no cargaste participaciones ni títulos.", `Las <b>participaciones en sociedades argentinas</b> se valúan a valor patrimonial proporcional y quedan exentas: la sociedad ingresa el impuesto como <b>responsable sustituto (${BP_SUST_ALIC.toString().replace(".", ",")}%)</b>. Acciones, bonos y cedears se valúan por cantidad × cotización al 31/12.`, bpAddBtn("Participación societaria", "tit", "part") + bpAddBtn2("Acciones / cedears / títulos", "tit", "acc"), `<div class="hint-sm bp-linea" data-bsust></div>`); }
+function renderBpTabCre() { return bpTabHtml("cre", "Todavía no cargaste créditos.", "Créditos a favor al 31/12: saldos a favor de impuestos, préstamos otorgados, cuentas a cobrar.", bpAddBtn("Agregar crédito", "cre") + bpAddBtn2("Saldo a favor de IVA", "cre", "iva") + bpAddBtn2("Retenciones / percepciones de Ganancias", "cre", "gan")); }
+function renderBpTabOtr() { return bpTabHtml("gen", "Acá van derechos reales, naves y aeronaves, empresa unipersonal, marcas y patentes, criptoactivos y otros bienes.", "Derechos reales, naves y aeronaves, empresa unipersonal, propiedad intelectual, criptoactivos y otros bienes. Cargá la valuación al 31/12 y elegí el rubro de la DDJJ.", bpAddBtn("Agregar bien", "otr")); }
 
 // ---- Controles / avisos ----
 function bpAvisos(cid, anio, V) {
@@ -8269,7 +8284,7 @@ function bpRefrescar() {
   const items = bpItems(state.bpCli, state.bpAnio);
   items.forEach((it) => {
     const x = BV._det[it.id] || { nota: "", av: [] };
-    const n = document.querySelector(`[data-bn="${it.id}"]`); if (n) n.textContent = x.av.length ? "⚠ " + x.av[0] : x.nota + (x.sust ? " · sustituto " + BP_SUST_ALIC.toString().replace(".", ",") + "%: " + fmtMoneyRaw(x.sust) : "");
+    const n = document.querySelector(`[data-bn="${it.id}"]`); if (n) { n.textContent = x.av.length ? "⚠ " + x.av[0] : ""; n.title = x.nota; }
     if (n) n.classList.toggle("bp-warn", !!x.av.length);
     const t = document.querySelector(`[data-bt="${it.id}"]`); if (t) t.textContent = bpItemTitulo(it);
   });
@@ -8413,7 +8428,9 @@ function bpClick(a, btn) {
   else if (a === "bp-quitar") { const c = getClient(btn.dataset.client); if (c && confirm(`¿Quitar a ${c.name} de Bienes Personales? Los datos cargados se conservan por si lo volvés a agregar.`)) { delete bpDb().clientes[c.id]; persistExtras(); render(); } }
   else if (a === "bp-params-open") renderBpParamsModal();
   else if (a === "bp-params-reset") { delete bpDb().params[state.bpAnio]; persistExtras(); renderBpParamsModal(); }
-  else if (a === "bp-new") { const d = bpData(state.bpCli, state.bpAnio); d.items.push(bpNuevoItem(btn.dataset.r, btn.dataset.preset)); persistExtras(); render(); }
+  else if (a === "bp-new") { const d = bpData(state.bpCli, state.bpAnio), it = bpNuevoItem(btn.dataset.r, btn.dataset.preset); d.items.push(it); (state.bpOpen = state.bpOpen || {})[it.id] = true; persistExtras(); render(); }
+  else if (a === "bp-toggle") { state.bpOpen = state.bpOpen || {}; const on = !state.bpOpen[btn.dataset.id]; state.bpOpen[btn.dataset.id] = on; const el = btn.closest(".bp-item"); if (el) el.classList.toggle("open", on); }
+  else if (a === "bp-expand") { state.bpOpen = state.bpOpen || {}; const on = btn.dataset.v === "1"; document.querySelectorAll(".bp-item").forEach((el) => { state.bpOpen[el.dataset.item] = on; el.classList.toggle("open", on); }); }
   else if (a === "bp-del") { const d = bpData(state.bpCli, state.bpAnio), it = d.items.find((x) => x.id === btn.dataset.id); if (it && confirm(`¿Quitar "${bpItemTitulo(it)}"?`)) { d.items = d.items.filter((x) => x.id !== btn.dataset.id); persistExtras(); render(); } }
   else if (a === "bp-copy") bpCopyTxt(btn);
   else if (a === "bp-excel") exportBpExcel();
