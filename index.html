@@ -8239,6 +8239,7 @@ function renderBpDetalle() {
       <div class="topbar-actions">
         <select data-action="bp-anio" title="Período fiscal">${BP_ANIOS.map((a) => `<option value="${a}" ${a === anio ? "selected" : ""}>Período ${a}</option>`).join("")}</select>
         ${copiar}
+        <label class="btn" style="cursor:pointer;" title="Cargar de una vez los bienes desde un archivo .json"><input type="file" accept=".json,application/json" data-action="bp-import" style="display:none;">⬆ Importar bienes</label>
         <button class="btn" data-action="bp-params-open" title="Mínimo no imponible, casa habitación, escala e índices">⚙ Parámetros</button>
         <label class="btn" title="Vencimiento de la DDJJ">Vence <input type="date" data-action="bp-vence" data-client="${c.id}" value="${escapeHtml(r.vence || "")}" style="padding:2px 6px;font-size:12px;"></label>
         <label class="btn" style="cursor:pointer;"><input type="checkbox" data-action="bp-pres" data-client="${c.id}" ${r.pres ? "checked" : ""}> DDJJ presentada</label>
@@ -8325,6 +8326,19 @@ function bpCopiarAnterior(cid, anio) {
   return out.length;
 }
 
+// ---- Importar bienes desde un archivo .json ({ anio, cuit, items:[...] }) ----
+function bpImportar(obj) {
+  const items = Array.isArray(obj) ? obj : (obj && Array.isArray(obj.items) ? obj.items : null);
+  if (!items) { showToast("El archivo no tiene bienes (falta \"items\")"); return; }
+  const c = getClient(state.bpCli), anio = obj && obj.anio ? Number(obj.anio) : state.bpAnio;
+  const norm = (s) => String(s || "").replace(/\D/g, "");
+  if (obj && obj.cuit && c && c.cuit && norm(obj.cuit) !== norm(c.cuit) && !confirm(`El archivo es del CUIT ${obj.cuit} y este cliente tiene ${c.cuit}. ¿Importar igual?`)) return;
+  const d = bpData(state.bpCli, anio);
+  if (d.items.length && !confirm(`Ya hay ${d.items.length} bienes cargados en ${anio}. ¿Reemplazarlos por los ${items.length} del archivo?`)) return;
+  d.items = items.map((it) => Object.assign({ sit: "grav", pais: "AR" }, it, { id: bpNewId() }));
+  persistExtras(); state.bpAnio = anio; state.bpTab = "inm"; render();
+  showToast(items.length + " bienes importados en " + anio);
+}
 // ---- Excel ----
 function exportBpExcel() {
   const cid = state.bpCli, anio = state.bpAnio, c = getClient(cid);
@@ -8422,6 +8436,7 @@ document.addEventListener("change", (e) => {
   else if (a === "bp-chk") { bpSet(state.bpCli, state.bpAnio, t.dataset.gp, t.checked); render(); }
   else if (a === "bp-pres") { bpSetPres(t.dataset.client, state.bpAnio, t.checked); render(); }
   else if (a === "bp-vence") { bpSet(t.dataset.client, state.bpAnio, "vence", t.value); render(); }
+  else if (a === "bp-import") { const f = (t.files || [])[0]; t.value = ""; if (f) f.text().then((txt) => { try { bpImportar(JSON.parse(txt)); } catch (err) { showToast("No se pudo leer el archivo: " + err.message); } }); }
 });
 document.addEventListener("focusout", (e) => {
   const t = e.target, a = t && t.dataset && t.dataset.action;
