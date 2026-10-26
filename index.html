@@ -7985,6 +7985,7 @@ const BP_ANIOS = [2025, 2026];
 const BP_PARAM_CAMPOS = [["mni", "Mínimo no imponible", "money"], ["casa", "Casa habitación · límite exento", "money"], ["coef", "Índice de actualización base 2017 → 31/12/{A}", "raw"], ["coefPrev", "Índice de actualización base 2017 → 31/12/{P}", "raw"], ["usd", "Dólar comprador BNA al 31/12/{A}", "money"]];
 const BP_RUBROS = [["inm", "Inmuebles"], ["der", "Derechos reales"], ["nav", "Naves y aeronaves"], ["rod", "Automotores y otros rodados"], ["din", "Dinero y depósitos en dinero"], ["tit", "Títulos, acciones, cuotas o participaciones sociales y otros títulos valores"], ["uni", "Patrimonio de empresas o explotaciones unipersonales"], ["cre", "Créditos y debentures"], ["pi", "Derechos de propiedad científica, literaria o artística, marcas, patentes y sus licencias"], ["otr", "Otros bienes"], ["cri", "Monedas digitales, monedas virtuales, criptoactivos o similares"], ["obj", "Objetos personales y del hogar"]];
 const BP_OTR_TIPOS = ["Bienes Muebles Registrables", "Bienes Personales del Contribuyente", "Otros bienes"];
+const BP_TIT_CLASES = ["Títulos valores sin cotización pública", "Títulos valores con cotización pública", "Cuotas o participaciones sociales", "Otros títulos valores"];
 const BP_GEN_RUBROS = [["otr", "Otros bienes"], ["der", "Derechos reales"], ["nav", "Naves y aeronaves"], ["uni", "Patrimonio de empresa o explotación unipersonal"], ["pi", "Propiedad científica, literaria o artística, marcas, patentes"], ["cri", "Monedas digitales / criptoactivos"]];
 const BP_SITS = [["grav", "Gravado"], ["exe", "Exento / no alcanzado"], ["baja", "Baja en el período"]];
 const BP_PAIS = [["AR", "Argentina"], ["EX", "Exterior"]];
@@ -8138,12 +8139,16 @@ function bpCalc(cid, anio) {
 // ---- Presentación de campos ----
 function bpItemTitulo(it) {
   const k = bpKind(it), j = (a) => a.filter((x) => x && String(x).trim()).join(" · ");
-  const t = k === "inm" ? j([it.tipo, it.dir]) : k === "rod" ? j([it.desc, it.patente]) : k === "din" ? j([it.entidad || it.tipo]) : k === "tit" ? j([it.desc, it.emisor]) : k === "cre" ? j([it.desc, it.deudor]) : (it.r === "otr" && it.desc ? it.desc : j([(BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1], it.desc]));
+  const t = k === "inm" ? j([it.tipo, it.dir]) : k === "rod" ? j([it.desc, it.patente]) : k === "din" ? j([it.entidad || it.tipo]) : k === "tit" ? (it.clase || (it.tipo === "acc" ? "Títulos valores" : "Cuotas o participaciones sociales")) : k === "cre" ? j([it.desc, it.deudor]) : (it.r === "otr" && it.desc ? it.desc : j([(BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1], it.desc]));
   return t || "(sin descripción)";
 }
 // Cada bien se muestra en dos columnas: "Datos del bien" (izquierda) y "Valuación" (derecha, con la cuenta a la vista).
 function bpIdCuenta(it) { return /billetera|PSP|ALyC/i.test(it.tipo || "") ? "CVU" : "CBU"; }
 function bpItemSub(it) {
+  if (bpKind(it) === "tit") {
+    const soc = String(it.emisor || it.desc || "").trim(), p = it.tipo === "acc" ? String(it.partic || "").trim() : String(it.pct == null ? "" : it.pct).trim();
+    return [soc, p && num(p) > 0 && num(p) !== 100 ? fmtMoneyRaw(num(p)) + "% de participación" : ""].filter(Boolean).join(" · ");
+  }
   if (bpKind(it) !== "din") return "";
   const tipo = String(it.tipo || "").replace(/^Depósito en dinero · /, "").replace(/^Fondos en /, "");
   const mon = (BP_MONEDAS.find((m) => m[0] === (it.moneda || "ARS")) || [0, ""])[1];
@@ -8166,8 +8171,8 @@ function bpFields(it, anio) {
     val: M === "manual" ? [["vman", "Valuación manual", "money"]] : [["costo", "Valor de adquisición", "money"], ["amort", "Amortización (vacío = 5 años)", "money"], ["dnrpa", "Valor DNRPA / ARCA", "money"]] };
   if (k === "din") return { datos: [["tipo", "Tipo", "sels", BP_DIN_TIPOS], sit, pais, pct, ["entidad", "Banco / PSP / ALyC", "text"], ["cbu", bpIdCuenta(it), "text"], ["nro", "N° de cuenta", "text"], ["obs", "Observaciones", "text"]], val: [["moneda", "Moneda", "sel", BP_MONEDAS], ["cant", "Cantidad nominal", "money"], ["cot", "Cotización (vacío = dólar de Parámetros)", "raw"]] };
   if (k === "tit") return it.tipo === "acc"
-    ? { datos: [["tipo", "Tipo", "sel", BP_TIT_TIPOS], sit, pais, pct, ["desc", "Descripción", "text"], ["emisor", "Emisor", "text"]], val: [["cant", "Cantidad de títulos", "raw"], ["cot", "Cotización al 31/12", "money"]] }
-    : { datos: [["tipo", "Tipo", "sel", BP_TIT_TIPOS], sit, pais, ["pct", "Participación %", "pct"], ["desc", "Descripción", "text"], ["emisor", "Sociedad", "text"], ["cuit", "CUIT sociedad", "text"]], val: [["pn", "Patrimonio neto (balance)", "money"]] };
+    ? { datos: [["clase", "Clase de título", "sels", BP_TIT_CLASES], ["tipo", "Valuación", "sel", BP_TIT_TIPOS], sit, pais, pct, ["emisor", "Sociedad / emisor", "text"], ["cuit", "CUIT emisor", "text"], ["partic", "% de participación (informativo)", "raw"], ["desc", "Descripción", "text"]], val: [["cant", "Cantidad de títulos", "raw"], ["cot", "Cotización al 31/12", "money"]] }
+    : { datos: [["clase", "Clase de título", "sels", BP_TIT_CLASES], ["tipo", "Valuación", "sel", BP_TIT_TIPOS], sit, pais, ["pct", "Participación %", "pct"], ["emisor", "Sociedad", "text"], ["cuit", "CUIT sociedad", "text"], ["desc", "Descripción", "text"]], val: [["pn", "Patrimonio neto (balance)", "money"]] };
   if (k === "cre") return { datos: [sit, pais, pct, ["desc", "Descripción", "text"], ["deudor", "Deudor", "text"]], val: [["monto", "Importe al 31/12", "money"]] };
   return { datos: [["r", "Rubro de la DDJJ", "sel", BP_GEN_RUBROS], ["tipo", "Tipo de bien", "sels", BP_OTR_TIPOS], sit, pais, ["fecha", "Adquirido", "date"], pct, ["desc", "Detalle", "text"], ["ident", "Datos identificatorios / registrales", "text"], ["afect", "Afectado a Ganancias", "sel", [["no", "No"], ["si", "Sí"]]]],
     val: [["costo", "Valor de adquisición", "money"], ["amort", "Amortización acumulada", "money"], ["importe", "Valuación directa (si no cargás costo)", "money"]] };
