@@ -8112,7 +8112,7 @@ function bpCalc(cid, anio) {
     const x = bpVal(it, anio, P); det[it.id] = x; v["i." + it.id] = x.neto; sust += x.sust;
     const R = rub[it.r] || rub.otr;
     if (it.sit === "baja") R.baja += x.neto;
-    else if (it.sit === "exe") R.exe += x.neto;
+    else if (it.sit === "exe" || it.sit === "nuda") R.exe += x.neto;
     else if (it.sit === "casa") { casaTot += x.neto; casaN++; }
     else if (it.pais === "EX") R.ext += x.neto;
     else R.pais += x.neto;
@@ -8163,9 +8163,9 @@ function bpOrdenDin(items) {
   return items.map((it, i) => [it, i]).sort((a, b) => { const x = clave(a[0]), y = clave(b[0]); return x < y ? -1 : x > y ? 1 : BP_DIN_TIPOS.indexOf(a[0].tipo) - BP_DIN_TIPOS.indexOf(b[0].tipo) || a[1] - b[1]; }).map((p) => p[0]);
 }
 function bpFields(it, anio) {
-  const k = bpKind(it), M = bpMetodo(it), S = BP_SITS.concat(k === "inm" ? [["casa", "Casa habitación"]] : []);
+  const k = bpKind(it), M = bpMetodo(it), S = BP_SITS.concat(k === "inm" ? [["casa", "Casa habitación"], ["nuda", "Titular de la nuda propiedad"]] : []);
   const sit = ["sit", "Situación", "sel", S], pais = ["pais", "País", "sel", BP_PAIS], pct = ["pct", "Titularidad %", "pct"];
-  if (k === "inm") return { datos: [["tipo", "Tipo", "sels", BP_INM_TIPOS], ["destino", "Destino", "sels", BP_INM_DEST], sit, pais, ["fecha", "Adquirido", "date"], pct, ["dir", "Dirección", "text"], ["nomen", "Nomenclatura", "text"]],
+  if (k === "inm") return { datos: [["tipo", "Tipo", "sels", BP_INM_TIPOS], ["destino", "Destino", "sels", BP_INM_DEST], sit, pais, ["fecha", "Adquirido", "date"], pct, ["dir", "Dirección", "text"], ["nomen", "Nomenclatura", "text"]].concat(it.sit === "nuda" ? [["usufN", "Usufructuario", "text"], ["usufC", "CUIT usufructuario", "text"]] : []),
     val: M === "manual" ? [["vman", "Valuación manual", "money"]] : M === "vfPrev" ? [["vfPrev", "Valuación fiscal 31/12/" + (anio - 1), "money"], ["mejoras", "Mejoras", "money"], ["cred", "Créditos hipotecarios", "money"]]
       : M === "costo" ? [["costo", "Costo de adquisición", "money"], ["amort", "Amortización acum.", "money"], ["mejoras", "Mejoras", "money"], ["cred", "Créditos hipotecarios", "money"]]
       : [["base17", "Base imponible 2017", "money"], ["mejoras", "Mejoras", "money"], ["cred", "Créditos hipotecarios", "money"]] };
@@ -8191,9 +8191,9 @@ function bpFieldHtml(it, f) {
   else inp = `<input type="text" data-action="bp-i" ${a} value="${escapeHtml(val)}">`;
   return `<label class="bp-row"><span>${label}</span>${inp}</label>`;
 }
-function bpSitClase(it) { return it.sit === "baja" ? "baja" : it.sit === "exe" ? "exe" : it.sit === "casa" ? "casa" : "grav"; }
+function bpSitClase(it) { return it.sit === "baja" ? "baja" : it.sit === "exe" ? "exe" : it.sit === "casa" ? "casa" : it.sit === "nuda" ? "nuda" : "grav"; }
 function bpItemHtml(it, n, anio) {
-  const sl = { baja: "Baja", exe: "Exento", casa: "Casa habitación", grav: it.pais === "EX" ? "Gravado · exterior" : "Gravado" }[bpSitClase(it)], open = !!(state.bpOpen && state.bpOpen[it.id]);
+  const sl = { baja: "Baja", exe: "Exento", casa: "Casa habitación", nuda: "Nuda propiedad", grav: it.pais === "EX" ? "Gravado · exterior" : "Gravado" }[bpSitClase(it)], open = !!(state.bpOpen && state.bpOpen[it.id]);
   const F = bpFields(it, anio), mets = BP_METODOS[bpKind(it)], M = bpMetodo(it);
   const seg = mets ? `<div class="bp-seg">${mets.map(([m, l]) => `<button type="button" class="${M === m ? "on" : ""}" data-action="bp-metodo" data-id="${it.id}" data-m="${m}">${l}</button>`).join("")}</div>` : "";
   return `<div class="bp-item ${open ? "open" : ""}" data-item="${it.id}">
@@ -8339,10 +8339,10 @@ function renderBpDetalle() {
     <div style="display:flex;flex-direction:column;gap:16px;">
       ${P.prov ? `<div class="bp-prov">⚠ Los parámetros ${anio} (mínimo no imponible, escala e índices) son provisorios: los publica ARCA a fin de año. <button class="linklike" data-action="bp-params-open">Revisar parámetros</button></div>` : ""}
       <div class="kpi-row" style="grid-template-columns:repeat(4,minmax(0,1fr));">
-        <div class="kpi"><span class="k-label">Bienes gravados</span><span class="k-value" data-bv="gravado">${fmtMoneyRaw(BV.gravado)}</span><span class="k-sub">país + exterior, con objetos del hogar</span></div>
-        <div class="kpi"><span class="k-label">Base imponible</span><span class="k-value" data-bv="base">${fmtMoneyRaw(BV.base)}</span><span class="k-sub">excedente del mínimo no imponible</span></div>
-        <div class="kpi"><span class="k-label">Impuesto determinado</span><span class="k-value" data-bv="impuesto">${fmtMoneyRaw(BV.impuesto)}</span><span class="k-sub">${BV.reibp ? "adherido al REIBP" : BV.cump ? "escala de cumplidores" : "escala general"}</span></div>
-        <div class="kpi ${BV.saldoArca > 0 ? "state-pagar" : BV.saldoContrib > 0 ? "state-favor" : ""}"><span class="k-label">${BV.saldoContrib > 0 ? "Saldo a favor" : "Saldo a pagar"}</span><span class="k-value" data-bv="${BV.saldoContrib > 0 ? "saldoContrib" : "saldoArca"}">${fmtMoneyRaw(BV.saldoContrib > 0 ? BV.saldoContrib : BV.saldoArca)}</span><span class="k-sub">después de pagos a cuenta</span></div>
+        <div class="kpi"><span class="k-label">Bienes gravados</span><span class="k-value" data-bv="gravado">${fmtMoneyRaw(BV.gravado)}</span></div>
+        <div class="kpi"><span class="k-label">Base imponible</span><span class="k-value" data-bv="base">${fmtMoneyRaw(BV.base)}</span></div>
+        <div class="kpi"><span class="k-label">Impuesto determinado</span><span class="k-value" data-bv="impuesto">${fmtMoneyRaw(BV.impuesto)}</span></div>
+        <div class="kpi ${BV.saldoArca > 0 ? "state-pagar" : BV.saldoContrib > 0 ? "state-favor" : ""}"><span class="k-label">${BV.saldoContrib > 0 ? "Saldo a favor" : "Saldo a pagar"}</span><span class="k-value" data-bv="${BV.saldoContrib > 0 ? "saldoContrib" : "saldoArca"}">${fmtMoneyRaw(BV.saldoContrib > 0 ? BV.saldoContrib : BV.saldoArca)}</span></div>
       </div>
       <div class="tabs">${tabs.map(([k, l]) => `<button class="tab ${state.bpTab === k ? "active" : ""}" data-action="bp-tab" data-tab="${k}">${l}</button>`).join("")}</div>
       ${cont}
@@ -8449,7 +8449,7 @@ function exportBpExcel() {
   bloque("2. Determinación del impuesto", D.det); bloque("3. Determinación del saldo", D.sal);
   const ws = newSheet(rows, { colWidths: [78, 20, 20, 24, 22], merges, headerRows: hdr, highlightRows: hl, wrapCols: [0], skipCols: [] });
   XLSX.utils.book_append_sheet(wb, ws, "DDJJ modelo");
-  const sitN = { grav: "Gravado", exe: "Exento / no alcanzado", baja: "Baja en el período", casa: "Casa habitación" };
+  const sitN = { grav: "Gravado", exe: "Exento / no alcanzado", baja: "Baja en el período", casa: "Casa habitación", nuda: "Titular de la nuda propiedad" };
   const hoja = (nombreHoja, filtro, cols, skip) => {
     const its = bpItems(cid, anio).filter(filtro); if (!its.length) return;
     const out = [[nombreHoja.toUpperCase() + " · " + anio, ""], [""], cols.map((x) => x[0]).concat(["Situación", "País", "Valuación"])];
