@@ -8139,7 +8139,7 @@ function bpCalc(cid, anio) {
 // ---- Presentación de campos ----
 function bpItemTitulo(it) {
   const k = bpKind(it), j = (a) => a.filter((x) => x && String(x).trim()).join(" · ");
-  const t = k === "inm" ? j([it.tipo, it.dir]) : k === "rod" ? j([it.desc, it.patente]) : k === "din" ? j([it.entidad || it.tipo]) : k === "tit" ? (it.clase || (it.tipo === "acc" ? "Títulos valores" : "Cuotas o participaciones sociales")) : k === "cre" ? j([it.desc, it.deudor]) : (it.r === "otr" && it.desc ? it.desc : j([(BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1], it.desc]));
+  const t = k === "inm" ? j([it.tipo, it.dir]) : k === "rod" ? j([it.desc, it.patente]) : k === "din" ? j([it.entidad || it.tipo]) : k === "tit" ? (it.clase || (it.tipo === "acc" ? "Títulos valores" : "Cuotas o participaciones sociales")) : k === "cre" ? (it.desc || "Crédito") : (it.r === "otr" ? (it.desc || "Otros bienes") : (BP_GEN_RUBROS.find((x) => x[0] === it.r) || [])[1]);
   return t || "(sin descripción)";
 }
 // Cada bien se muestra en dos columnas: "Datos del bien" (izquierda) y "Valuación" (derecha, con la cuenta a la vista).
@@ -8149,6 +8149,8 @@ function bpItemSub(it) {
     const soc = String(it.emisor || it.desc || "").trim(), p = it.tipo === "acc" ? String(it.partic || "").trim() : String(it.pct == null ? "" : it.pct).trim();
     return [soc, p && num(p) > 0 && num(p) !== 100 ? fmtMoneyRaw(num(p)) + "% de participación" : ""].filter(Boolean).join(" · ");
   }
+  if (bpKind(it) === "cre") return [String(it.deudor || "").trim(), it.cuit ? "CUIT " + String(it.cuit).trim() : ""].filter(Boolean).join(" · ");
+  if (bpKind(it) === "gen") return it.r !== "otr" ? String(it.desc || "").trim() : "";
   if (bpKind(it) !== "din") return "";
   const tipo = String(it.tipo || "").replace(/^Depósito en dinero · /, "").replace(/^Fondos en /, "");
   const mon = (BP_MONEDAS.find((m) => m[0] === (it.moneda || "ARS")) || [0, ""])[1];
@@ -8173,7 +8175,7 @@ function bpFields(it, anio) {
   if (k === "tit") return it.tipo === "acc"
     ? { datos: [["clase", "Clase de título", "sels", BP_TIT_CLASES], ["tipo", "Valuación", "sel", BP_TIT_TIPOS], sit, pais, pct, ["emisor", "Sociedad / emisor", "text"], ["cuit", "CUIT emisor", "text"], ["partic", "% de participación (informativo)", "raw"], ["desc", "Descripción", "text"]], val: [["cant", "Cantidad de títulos", "raw"], ["cot", "Cotización al 31/12", "money"]] }
     : { datos: [["clase", "Clase de título", "sels", BP_TIT_CLASES], ["tipo", "Valuación", "sel", BP_TIT_TIPOS], sit, pais, ["pct", "Participación %", "pct"], ["emisor", "Sociedad", "text"], ["cuit", "CUIT sociedad", "text"], ["desc", "Descripción", "text"]], val: [["pn", "Patrimonio neto (balance)", "money"]] };
-  if (k === "cre") return { datos: [sit, pais, pct, ["desc", "Descripción", "text"], ["deudor", "Deudor", "text"]], val: [["monto", "Importe al 31/12", "money"]] };
+  if (k === "cre") return { datos: [sit, pais, ["fecha", "Incorporado", "date"], pct, ["desc", "Descripción", "text"], ["deudor", "Deudor", "text"], ["cuit", "CUIT deudor", "text"]], val: [["monto", "Importe al 31/12", "money"]] };
   return { datos: [["r", "Rubro de la DDJJ", "sel", BP_GEN_RUBROS], ["tipo", "Tipo de bien", "sels", BP_OTR_TIPOS], sit, pais, ["fecha", "Adquirido", "date"], pct, ["desc", "Detalle", "text"], ["ident", "Datos identificatorios / registrales", "text"], ["afect", "Afectado a Ganancias", "sel", [["no", "No"], ["si", "Sí"]]]],
     val: [["costo", "Valor de adquisición", "money"], ["amort", "Amortización acumulada", "money"], ["importe", "Valuación directa (si no cargás costo)", "money"]] };
 }
