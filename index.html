@@ -8455,8 +8455,15 @@ async function bpImportar(obj) {
   const d = bpData(state.bpCli, anio);
   if (d.items.length && !(await appConfirm(`Ya hay ${d.items.length} bienes cargados en ${anio}. ¿Reemplazarlos por los ${items.length} del archivo?`, { title: "Importar bienes", ok: "Reemplazar" }))) return;
   d.items = items.map((it) => Object.assign({ sit: "grav", pais: "AR" }, it, { id: bpNewId() }));
+  // Opcional: pagos a cuenta (claves de BP_PG) y opciones de la DDJJ
+  let pgN = 0;
+  if (obj && !Array.isArray(obj)) {
+    if (obj.pg && typeof obj.pg === "object") { d.pg = Object.assign({}, d.pg || {}); BP_PG.forEach(([k]) => { if (obj.pg[k] !== undefined) { d.pg[k] = String(obj.pg[k]); if (Math.abs(num(obj.pg[k])) > 0.004) pgN++; } }); }
+    if (typeof obj.cump === "boolean") d.cump = obj.cump;
+    if (typeof obj.reibp === "boolean") d.reibp = obj.reibp;
+  }
   persistExtras(); state.bpAnio = anio; state.bpTab = "inm"; render();
-  showToast(items.length + " bienes importados en " + anio);
+  showToast(items.length + " bienes importados en " + anio + (pgN ? " · " + pgN + " pago" + (pgN > 1 ? "s" : "") + " a cuenta" : ""));
 }
 // ---- Excel ----
 function exportBpExcel() {
