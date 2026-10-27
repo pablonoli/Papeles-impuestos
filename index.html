@@ -8648,6 +8648,9 @@ function socParams(anio) {
   return { aliG: f("aliG"), aliM: f("aliM"), prov: !!base.prov };
 }
 function socEnt(n) { return Math.round(Number(n) || 0).toLocaleString("es-AR", { maximumFractionDigits: 0 }); }
+// Porcentaje de participación: hasta 10 decimales (S.A. con acciones que no dan porcentajes redondos).
+function socPctStr(p) { return Number(p).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 10 }); }
+function socPctShow(p) { return Number(p).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 4 }); }
 function socAli(x) { return Number(x).toLocaleString("es-AR", { minimumFractionDigits: 3, maximumFractionDigits: 3 }); }
 
 // ---- Cálculo de la DDJJ F.899/A ----
@@ -8657,7 +8660,11 @@ function socCalc(cid, anio) {
   const pn = pnTxt !== "" ? num(pnTxt) : (activo || pasivo ? round2(activo - pasivo) : 0), cuotas = num(d.cuotas);
   const reducida = !!d.mipyme && !d.blanqueo, ali = reducida ? P.aliM : P.aliG, base = Math.max(0, pn), impuesto = round2(base * ali / 100);
   const saldoAnt = num(d.saldoAnt), pagos = num(d.pg), neto = round2(impuesto - saldoAnt - pagos);
-  const socios = (Array.isArray(d.socios) ? d.socios : []).map((s) => { const pct = num(s.pct); return { s, pct, cuotas: Math.round(cuotas * pct / 100), vpp: round2(pn * pct / 100) }; });
+  const socios = (Array.isArray(d.socios) ? d.socios : []).map((s) => {
+    // Si el socio tiene su cantidad de cuotas / acciones, el porcentaje sale de ahí (cantidad ÷ total); si no, la cantidad sale del porcentaje.
+    if (String(s.cant == null ? "" : s.cant).trim() !== "" && cuotas > 0) { const cu = Math.round(num(s.cant)); return { s, cant: true, pct: cu / cuotas * 100, cuotas: cu, vpp: round2(pn * cu / cuotas) }; }
+    const pct = num(s.pct); return { s, cant: false, pct, cuotas: Math.round(cuotas * pct / 100), vpp: round2(pn * pct / 100) };
+  });
   const sumPct = round2(socios.reduce((t, x) => t + x.pct, 0));
   return { pn, activo, pasivo, cuotas, valorCuota: cuotas > 0 ? round2(pn / cuotas) : 0, ali, reducida, base, impuesto, saldoAnt, pagos, saldoArca: neto > 0 ? neto : 0, saldoContrib: neto < 0 ? -neto : 0, socios, sumPct, sumCuotas: Math.round(socios.reduce((t, x) => t + x.cuotas, 0)), sumVpp: round2(socios.reduce((t, x) => t + x.vpp, 0)), hay: pn !== 0 || socios.length > 0 };
 }
@@ -8670,6 +8677,10 @@ function socAvisos(cid, anio, V) {
   if (!(V.cuotas > 0)) out.push("Falta la cantidad de cuotas o acciones.");
   if (!V.socios.length) out.push("Todavía no cargaste los socios.");
   else if (Math.abs(V.sumPct - 100) > 0.005) out.push(`Los socios suman ${fmtMoneyRaw(V.sumPct)} %: deberían sumar 100 %.`);
+  const sinCuit = V.socios.filter((x) => socDigits(x.s.cuit).length !== 11);
+  if (sinCuit.length) out.push(`Falta el CUIT / CUIL de ${sinCuit.map((x) => x.s.nombre || "un socio").join(", ")}.`);
+  const dup = V.socios.filter((x, i) => socDigits(x.s.cuit).length === 11 && V.socios.findIndex((y) => socDigits(y.s.cuit) === socDigits(x.s.cuit)) !== i);
+  if (dup.length) out.push(`CUIT / CUIL repetido: ${dup.map((x) => x.s.nombre || x.s.cuit).join(", ")}.`);
   if (d.mipyme && d.blanqueo) out.push("Adhirió al blanqueo: no corresponde la reducción de alícuota para MiPyME, se aplica la general.");
   return out;
 }
@@ -8714,7 +8725,7 @@ function socBpCargar(cid, anio, socioId) {
   const V = socCalc(cid, anio), x = V.socios.find((y) => y.s.id === socioId), est = socBpEstado(cid, anio, x);
   if (!est.cli) { showToast("El socio no está cargado como cliente (CUIT " + (s.cuit || "sin cargar") + ")"); return; }
   bpDb().clientes[est.cli.id] = true;
-  const campos = { clase: "Cuotas o participaciones sociales", emisor: sc.name, cuit: sc.cuit || "", pct: fmtMoneyRaw(x.pct), pn: fmtMoneyRaw(V.pn) };
+  const campos = { clase: "Cuotas o participaciones sociales", emisor: sc.name, cuit: sc.cuit || "", pct: socPctStr(x.pct), pn: fmtMoneyRaw(V.pn) };
   if (est.it) Object.assign(est.it, campos);
   else bpData(est.cli.id, anio).items.push(Object.assign({ id: bpNewId(), r: "tit", tipo: "part", sit: "exe", pais: "AR" }, campos));
   persistExtras(); showToast("Cargado en la BP de " + est.cli.name + " (" + anio + ")"); render();
@@ -8768,11 +8779,12 @@ function socSociosTabla(cid, anio, V) {
     const bp = !e.cli ? `<span class="hint-sm">no es cliente</span>` : e.same ? `<span class="pill favor">✓ cargada</span>` : `<button class="btn btn-sm" data-action="soc-bp-cargar" data-id="${x.s.id}" title="Agrega las cuotas de esta sociedad, con su valor patrimonial proporcional, en la BP de ${escapeHtml(e.cli.name)}">${e.it ? "Actualizar" : "Cargar"} en su BP</button>`;
     return `<tr><td style="text-align:left;"><input type="text" data-action="soc-s" data-id="${x.s.id}" data-k="nombre" value="${escapeHtml(x.s.nombre || "")}" placeholder="Apellido y nombre" style="${inp}text-align:left;"></td>
       <td><input type="text" data-action="soc-s" data-id="${x.s.id}" data-k="cuit" value="${escapeHtml(x.s.cuit || "")}" placeholder="CUIT / CUIL" style="${inp}text-align:left;"></td>
-      <td><div style="display:flex;align-items:center;gap:5px;"><input type="text" inputmode="decimal" data-kind="money" data-action="soc-s" data-id="${x.s.id}" data-k="pct" value="${escapeHtml(rawOrBlank(x.s.pct, "money"))}" placeholder="0,00" style="${inp}flex:1;text-align:right;"><span>%</span></div></td>
-      <td class="num" data-ssv="${x.s.id}.cuotas">${socEnt(x.cuotas)}</td><td class="num" data-ssv="${x.s.id}.vpp">${fmtMoneyRaw(x.vpp)}</td><td data-ssv="${x.s.id}.bp" style="text-align:center;">${bp}</td>
+      <td><div style="display:flex;align-items:center;gap:5px;"><input type="text" inputmode="decimal" data-action="soc-s" data-id="${x.s.id}" data-k="pct" data-sp="${x.s.id}" value="${escapeHtml(x.cant ? socPctShow(x.pct) : rawOrBlank(x.s.pct, "money"))}" placeholder="0,00" style="${inp}flex:1;text-align:right;"><span>%</span></div></td>
+      <td><input type="text" inputmode="numeric" data-action="soc-s" data-id="${x.s.id}" data-k="cant" data-sc="${x.s.id}" value="${escapeHtml(x.cant ? String(x.s.cant) : (x.cuotas ? String(x.cuotas) : ""))}" placeholder="0" style="${inp}text-align:right;"></td>
+      <td class="num" data-ssv="${x.s.id}.vpp">${fmtMoneyRaw(x.vpp)}</td><td data-ssv="${x.s.id}.bp" style="text-align:center;">${bp}</td>
       <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="soc-socio-del" data-id="${x.s.id}" title="Quitar socio">✕</button></td></tr>`;
   }).join("");
-  return `<table class="gan-t soc-socios" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col><col style="width:150px"><col style="width:130px"><col style="width:80px"><col style="width:170px"><col style="width:150px"><col style="width:40px"></colgroup><thead><tr><th style="text-align:left;">Socio</th><th style="text-align:left;">CUIT / CUIL</th><th>Participación</th><th>Cuotas</th><th title="Valor patrimonial proporcional">VPP</th><th>En su BP personal</th><th></th></tr></thead><tbody>${filas || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Todavía no cargaste socios.</td></tr>`}
+  return `<table class="gan-t soc-socios" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col><col style="width:150px"><col style="width:140px"><col style="width:110px"><col style="width:170px"><col style="width:150px"><col style="width:40px"></colgroup><thead><tr><th style="text-align:left;">Socio</th><th style="text-align:left;">CUIT / CUIL</th><th>Participación</th><th title="Cantidad de cuotas o acciones">Cuotas</th><th title="Valor patrimonial proporcional">VPP</th><th>En su BP personal</th><th></th></tr></thead><tbody>${filas || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Todavía no cargaste socios.</td></tr>`}
     <tr class="tot"><td style="text-align:left;">Totales</td><td></td><td class="num" data-sv="sumPct">${fmtMoneyRaw(V.sumPct)} %</td><td class="num" data-sv="sumCuotas">${socEnt(V.sumCuotas)}</td><td class="num" data-sv="sumVpp">${fmtMoneyRaw(V.sumVpp)}</td><td></td><td></td></tr></tbody></table>`;
 }
 function renderSocDetalle() {
@@ -8827,8 +8839,11 @@ function socRefrescar() {
   document.querySelectorAll("[data-bv]").forEach((el) => { if (bv[el.dataset.bv] !== undefined) { el.textContent = fmtMoneyRaw(bv[el.dataset.bv]); if (el.classList.contains("bp-copy")) el.dataset.copy = bpRaw(bv[el.dataset.bv]); } });
   document.querySelectorAll("[data-scol]").forEach((el) => { const k = el.dataset.scol; el.style.color = bv[k] > 0 ? (k === "saldoArca" ? "var(--pagar)" : "var(--favor)") : "inherit"; });
   V.socios.forEach((x) => {
-    const a = document.querySelector(`[data-ssv="${x.s.id}.cuotas"]`), b = document.querySelector(`[data-ssv="${x.s.id}.vpp"]`), bp = document.querySelector(`[data-ssv="${x.s.id}.bp"]`);
-    if (a) a.textContent = socEnt(x.cuotas); if (b) b.textContent = fmtMoneyRaw(x.vpp);
+    const b = document.querySelector(`[data-ssv="${x.s.id}.vpp"]`), bp = document.querySelector(`[data-ssv="${x.s.id}.bp"]`);
+    const ip = document.querySelector(`[data-sp="${x.s.id}"]`), ic = document.querySelector(`[data-sc="${x.s.id}"]`);
+    if (ic && ic !== document.activeElement && !x.cant) ic.value = x.cuotas ? String(x.cuotas) : "";
+    if (ip && ip !== document.activeElement && x.cant) ip.value = socPctShow(x.pct);
+    if (b) b.textContent = fmtMoneyRaw(x.vpp);
     if (bp) { const e = socBpEstado(cid, state.socAnio, x); bp.innerHTML = !e.cli ? `<span class="hint-sm">no es cliente</span>` : e.same ? `<span class="pill favor">✓ cargada</span>` : `<button class="btn btn-sm" data-action="soc-bp-cargar" data-id="${x.s.id}">${e.it ? "Actualizar" : "Cargar"} en su BP</button>`; }
   });
   const av = socAvisos(cid, state.socAnio, V), box = document.querySelector("[data-sav]");
@@ -8837,7 +8852,7 @@ function socRefrescar() {
 function socPostRender() { if (state.view === "soc" && state.socCli) socRefrescar(); }
 
 // ---- Régimen de información de participaciones societarias ----
-function riSociosTxt(cid, anio) { const V = socCalc(cid, anio); return V.socios.map((x) => [x.s.cuit || "", x.s.nombre || "", bpRaw(x.pct), String(x.cuotas), bpRaw(x.vpp)].join("\t")).join("\n"); }
+function riSociosTxt(cid, anio) { const V = socCalc(cid, anio); return V.socios.map((x) => [x.s.cuit || "", x.s.nombre || "", String(Math.round(x.pct * 1e6) / 1e6).replace(".", ","), String(x.cuotas), bpRaw(x.vpp)].join("\t")).join("\n"); }
 function renderRiView() { return state.riCli && socDb().clientes[state.riCli] ? renderRiDetalle() : renderRiLista(); }
 function renderRiLista() {
   const anio = state.socAnio, filtro = state.riFiltro || "todos";
@@ -8879,7 +8894,7 @@ function renderRiDetalle() {
   const prevD = socGet(cid, anio - 1), puedeCopiar = !(d.autor || []).length && (prevD.autor || []).length;
   const chk = k.map((x) => `<div class="chk">${x.auto ? `<span class="b ${x.ok ? "on" : ""}">${x.ok ? "✓" : ""}</span>` : ""}<div>${x.auto ? escapeHtml(x.l) : `<label style="cursor:pointer;display:flex;gap:6px;align-items:center;"><input type="checkbox" data-action="ri-chk" data-k="${x.k}" ${x.ok ? "checked" : ""}> ${escapeHtml(x.l)}</label>`}${x.sub ? `<div class="hint-sm">${escapeHtml(x.sub)}</div>` : ""}${x.btn ? ` <button class="btn btn-sm" data-action="${x.btn}">${x.ok ? "Ver / editar" : "Cargar"}</button>` : ""}${!x.ok && x.auto ? ` <span class="pill pagar">falta</span>` : ""}</div></div>`).join("");
   const autor = (d.autor || []).map((a) => `<tr><td style="text-align:left;">${escapeHtml(a.nombre || "—")}<div class="hint-sm">${escapeHtml(a.cuit || "sin CUIT")}</div></td><td style="text-align:left;">${escapeHtml(a.cargo || "")}</td></tr>`).join("");
-  const socios = v.socios.map((x) => `<tr><td style="text-align:left;">${escapeHtml(x.s.nombre || "—")}<div class="hint-sm">${escapeHtml(x.s.cuit || "sin CUIT")}</div></td><td class="num">${fmtMoneyRaw(x.pct)} %</td><td class="num">${socEnt(x.cuotas)}</td><td class="num">${fmtMoneyRaw(x.vpp)}</td></tr>`).join("") || `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px;">Cargá los socios en el papel de trabajo de Bienes Personales.</td></tr>`;
+  const socios = v.socios.map((x) => `<tr><td style="text-align:left;">${escapeHtml(x.s.nombre || "—")}<div class="hint-sm">${escapeHtml(x.s.cuit || "sin CUIT")}</div></td><td class="num">${socPctShow(x.pct)} %</td><td class="num">${socEnt(x.cuotas)}</td><td class="num">${fmtMoneyRaw(x.vpp)}</td></tr>`).join("") || `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px;">Cargá los socios en el papel de trabajo de Bienes Personales.</td></tr>`;
   return `
     <div class="topbar"><div class="client-title"><button class="btn btn-sm btn-ghost" data-action="ri-back" style="margin-bottom:4px;">← Régimen informativo</button><h1>${escapeHtml(c.name)}</h1><div class="meta"><span>Régimen de información de participaciones societarias ${anio}</span>${c.cuit ? `<span>·</span><span>${escapeHtml(c.cuit)}</span>` : ""}<span>·</span><span>${listos} de ${k.length} controles listos</span></div></div>
       <div class="topbar-actions">
@@ -8957,7 +8972,7 @@ async function socImportar(obj) {
   ["balanceFecha", "pn", "activo", "pasivo", "cuotas", "saldoAnt", "pg"].forEach((k) => { if (obj[k] !== undefined) d[k] = k === "balanceFecha" ? String(obj[k]) : (String(obj[k]).trim() === "" ? "" : k === "cuotas" ? String(Math.round(num(obj[k]))) : fmtMoneyRaw(num(obj[k]))); });
   if (typeof obj.mipyme === "boolean") d.mipyme = obj.mipyme;
   if (typeof obj.blanqueo === "boolean") d.blanqueo = obj.blanqueo;
-  d.socios = obj.socios.map((s) => ({ id: socNewId(), nombre: s.nombre || "", cuit: s.cuit || "", pct: String(s.pct == null || String(s.pct).trim() === "" ? "" : fmtMoneyRaw(num(s.pct))) }));
+  d.socios = obj.socios.map((s) => { const o = { id: socNewId(), nombre: s.nombre || "", cuit: s.cuit || "" }; if (s.cant != null && String(s.cant).trim() !== "") o.cant = String(Math.round(num(s.cant))); else o.pct = String(s.pct == null || String(s.pct).trim() === "" ? "" : socPctStr(num(s.pct))); return o; });
   if (Array.isArray(obj.autoridades)) d.autor = obj.autoridades.map((s) => ({ id: socNewId(), nombre: s.nombre || "", cuit: s.cuit || "", cargo: s.cargo || "Administrador" }));
   persistExtras(); state.socAnio = anio; render();
   showToast(d.socios.length + " socios importados en " + anio);
@@ -8969,7 +8984,7 @@ function socGuardarXlsx(wb, filename) {
   else { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); }
 }
 function socNombreArchivo(c) { return (c.name || "sociedad").replace(/[^A-Za-z0-9ÁÉÍÓÚÑáéíóúñ ]/g, "").trim().replace(/\s+/g, "_"); }
-function socSociosRows(V) { return V.socios.map((x) => [x.s.cuit || "", x.s.nombre || "", x.pct, x.cuotas, x.vpp]); }
+function socSociosRows(V) { return V.socios.map((x) => [x.s.cuit || "", x.s.nombre || "", Math.round(x.pct * 1e6) / 1e6, x.cuotas, x.vpp]); }
 function exportSocExcel() {
   const cid = state.socCli, anio = state.socAnio, c = getClient(cid); if (!c) return;
   const V = socCalc(cid, anio), d = socGet(cid, anio), wb = XLSX.utils.book_new(), hl = new Map();
@@ -9029,7 +9044,7 @@ document.addEventListener("input", (e) => {
   const t = e.target, a = t.dataset && t.dataset.action;
   if (!a || (a.indexOf("soc-") !== 0 && a.indexOf("ri-") !== 0)) return;
   if (a === "soc-f") { socSet(state.socCli, state.socAnio, t.dataset.gp, t.value); socRefrescar(); }
-  else if (a === "soc-s") { const s = socData(state.socCli, state.socAnio).socios.find((x) => x.id === t.dataset.id); if (s) { s[t.dataset.k] = t.value; persistExtras(); socRefrescar(); } }
+  else if (a === "soc-s") { const s = socData(state.socCli, state.socAnio).socios.find((x) => x.id === t.dataset.id); if (s) { s[t.dataset.k] = t.value; if (t.dataset.k === "pct") delete s.cant; else if (t.dataset.k === "cant") delete s.pct; persistExtras(); socRefrescar(); } }
   else if (a === "soc-param") { const p = socDb().params; if (!p[state.socAnio]) p[state.socAnio] = {}; p[state.socAnio][t.dataset.campo] = t.value; persistExtras(); }
   else if (a === "ri-aut") { const s = socData(state.riSel, state.socAnio).autor.find((x) => x.id === t.dataset.id); if (s) { s[t.dataset.k] = t.value; persistExtras(); } }
 });
@@ -9048,6 +9063,12 @@ document.addEventListener("change", (e) => {
 });
 document.addEventListener("focusout", (e) => {
   const t = e.target, a = t && t.dataset && t.dataset.action;
+  if (a === "soc-s" && t.dataset.k === "pct") {
+    const raw = String(t.value || "").trim(); if (raw === "") return;
+    const s = socData(state.socCli, state.socAnio).socios.find((x) => x.id === t.dataset.id);
+    if (s && s.cant === undefined) { const f = socPctStr(num(raw)); t.value = f; s.pct = f; persistExtras(); }
+    return;
+  }
   if ((a !== "soc-f" && a !== "soc-s") || t.dataset.kind !== "money") return;
   const raw = String(t.value || "").trim(); if (raw === "") return;
   const f = fmtMoneyRaw(num(raw)); t.value = f;
