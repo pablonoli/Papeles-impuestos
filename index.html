@@ -9218,22 +9218,28 @@ function lcPersTxt(cid, anio) { return (lcGet(cid, anio).pers || []).map((p) => 
 // ---- Lista de contribuyentes ----
 function renderLcLista() {
   const anio = state.lcAnio, filtro = state.lcFiltro || "todos";
-  const todas = []; lcContribuyentes().forEach((c) => lcLics(c.id).forEach((lid, k, arr) => todas.push({ c, lid, multi: arr.length > 1, v: lcCalc(lid, anio), d: lcGet(lid, anio), i: lcPresInfo(lid, anio) })));
+  const todas = []; lcContribuyentes().forEach((c) => {
+    const items = lcLics(c.id).slice().sort((x, y) => (Number(lcTxt(lcGet(x, anio), "licencia")) || 1e9) - (Number(lcTxt(lcGet(y, anio), "licencia")) || 1e9)).map((lid) => ({ lid, v: lcCalc(lid, anio), d: lcGet(lid, anio), i: lcPresInfo(lid, anio) }));
+    if (!items.length) return;
+    const obl = items.filter((x) => !x.i.na), f0 = items[0], vAll = obl.map((x) => x.i.vence).filter(Boolean).sort(), vPend = obl.filter((x) => !x.i.pres).map((x) => x.i.vence).filter(Boolean).sort(), vence = vPend[0] || vAll[0] || "";
+    const nPres = obl.filter((x) => x.i.pres).length, i = { pres: obl.length > 0 && nPres === obl.length, na: !obl.length, vence, dias: vence ? diasHasta(vence) : null, fPres: items.length === 1 ? f0.i.fPres : "", nPres, nObl: obl.length, varias: new Set(vAll).size > 1 };
+    todas.push({ c, lid: f0.lid, items, n: items.length, multi: items.length > 1, v: f0.v, d: f0.d, i });
+  });
   const obl = todas.filter((f) => !f.i.na), env = obl.filter((f) => f.i.pres).length, pend = obl.filter((f) => !f.i.pres), pct = obl.length ? Math.round(env / obl.length * 100) : 0;
   const filas = todas.filter((f) => filtro === "pend" ? !f.i.na && !f.i.pres : filtro === "env" ? f.i.pres : true);
   const seg = (k, l) => `<button class="${filtro === k ? "on" : ""}" data-action="lc-filtro" data-filtro="${k}">${l}</button>`;
   const trs = filas.map((f) => {
-    const { c, lid, multi, v, d, i } = f, u = i.dias != null ? urgenciaDe(i.dias) : "";
-    const pres = i.na ? `<span class="hint-sm">No presenta DDJJ</span>` : `<button type="button" class="est ${i.pres ? "est-ok" : i.dias != null && i.dias < 0 ? "est-venc" : "est-falta"}" title="${i.pres ? "DDJJ presentada. Click para desmarcar." : "DDJJ sin presentar. Click para marcarla como presentada."}" data-action="lc-pres-toggle" data-client="${lid}">${i.pres ? "✓ Presentada" : i.dias != null && i.dias < 0 ? "⛔ Sin presentar" : "○ Sin presentar"}</button>${i.pres && i.fPres ? `<div class="hint-sm">el ${i.fPres}</div>` : ""}`;
-    const vence = i.na ? `<span class="hint-sm">—</span>` : `<input type="date" data-action="lc-vence" data-client="${lid}" value="${i.vence}" title="Vencimiento de la DDJJ" style="padding:3px 6px;font-size:12px;">${i.vence && !i.pres ? `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(i.dias)}</div>` : ""}`;
+    const { c, lid, multi, v, d, i, n, items } = f, u = i.dias != null ? urgenciaDe(i.dias) : "", all = multi ? " data-all=\"1\"" : "";
+    const pres = i.na ? `<span class="hint-sm">No presenta DDJJ</span>` : `<button type="button" class="est ${i.pres ? "est-ok" : i.nPres ? "est-falta" : i.dias != null && i.dias < 0 ? "est-venc" : "est-falta"}" title="${i.pres ? "DDJJ presentada. Click para desmarcar." + (multi ? " (todas las licencias)" : "") : multi ? "Click para marcar todas las licencias como presentadas." : "DDJJ sin presentar. Click para marcarla como presentada."}" data-action="lc-pres-toggle" data-client="${lid}"${all}>${i.pres ? "✓ Presentada" : i.nPres ? "◐ " + i.nPres + " de " + i.nObl + " presentadas" : i.dias != null && i.dias < 0 ? "⛔ Sin presentar" : "○ Sin presentar"}</button>${i.pres && i.fPres ? `<div class="hint-sm">el ${i.fPres}</div>` : ""}`;
+    const vence = i.na ? `<span class="hint-sm">—</span>` : `<input type="date" data-action="lc-vence" data-client="${lid}"${all} value="${i.vence}" title="${multi ? "Vencimiento de la DDJJ (se aplica a todas las licencias)" : "Vencimiento de la DDJJ"}" style="padding:3px 6px;font-size:12px;">${i.vence && !i.pres ? `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(i.dias)}</div>` : ""}${i.varias ? `<div class="hint-sm">fechas distintas por licencia</div>` : ""}`;
     return `<tr>
-      <td style="text-align:left;"><button type="button" class="linklike" data-action="lc-open" data-client="${lid}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div><div class="hint-sm">${d.licencia ? "Lic. " + escapeHtml(d.licencia) : "Licencia sin número"}${d.actividad ? " · " + escapeHtml(d.actividad) : ""}${multi && v.pctEst !== 100 ? " · " + socEnt(v.pctEst) + " % de los ingresos" : ""}</div></td>
-      <td style="text-align:center;">${v.reg === "mono" ? "—" : v.base ? fmtMoney(v.base) : "—"}<div class="hint-sm">${v.reg === "mono" ? "" : v.base ? lcTramoTxt(v) : ""}</div></td>
-      <td style="text-align:center;">${escapeHtml(lcRegTxt(v))}</td>
-      <td style="text-align:center;">${v.hay ? `<div style="font-weight:700;">${fmtMoney(v.tributo)}</div>${v.pisoAplica ? `<div class="hint-sm">tributo mínimo</div>` : ""}` : `<span class="hint-sm">Sin datos</span>`}</td>
+      <td style="text-align:left;">${multi ? `<button type="button" class="linklike" data-action="lc-open" data-client="${lid}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")} · ${n} licencias</div><div class="hint-sm">${items.map((x) => escapeHtml(x.d.licencia || "s/n")).join(" · ")}</div>` : `<button type="button" class="linklike" data-action="lc-open" data-client="${lid}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div><div class="hint-sm">${d.licencia ? "Lic. " + escapeHtml(d.licencia) : "Licencia sin número"}${d.actividad ? " · " + escapeHtml(d.actividad) : ""}</div>`}</td>
+      <td style="text-align:center;">${multi && new Set(items.map((x) => x.v.base)).size > 1 ? `<span class="hint-sm">distinta por licencia</span>` : `${v.reg === "mono" ? "—" : v.base ? fmtMoney(v.base) : "—"}<div class="hint-sm">${v.reg === "mono" ? "" : v.base ? lcTramoTxt(v) : ""}</div>`}</td>
+      <td style="text-align:center;">${multi && new Set(items.map((x) => lcRegTxt(x.v))).size > 1 ? "Varios" : escapeHtml(lcRegTxt(v))}</td>
+      <td style="text-align:center;">${multi ? (items.some((x) => x.v.hay) ? `<div style="font-weight:700;">${fmtMoney(items.reduce((t, x) => t + (x.v.hay ? x.v.tributo : 0), 0))}</div><div class="hint-sm">${n} licencias</div>` : `<span class="hint-sm">Sin datos</span>`) : v.hay ? `<div style="font-weight:700;">${fmtMoney(v.tributo)}</div>${v.pisoAplica ? `<div class="hint-sm">tributo mínimo</div>` : ""}` : `<span class="hint-sm">Sin datos</span>`}</td>
       <td style="text-align:center;">${vence}</td>
       <td style="text-align:center;">${pres}</td>
-      <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="lc-quitar" data-client="${lid}" title="${multi ? "Quitar esta licencia" : "Quitar de Licencia comercial"}">✕</button></td></tr>`;
+      <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="lc-quitar" data-client="${lid}"${all} title="${multi ? "Quitar las " + n + " licencias de Licencia comercial" : "Quitar de Licencia comercial"}">✕</button></td></tr>`;
   }).join("") || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:28px;">${todas.length ? "No hay contribuyentes en este filtro." : "Todavía no agregaste contribuyentes. Tocá + Agregar contribuyente y elegí entre tus clientes."}</td></tr>`;
   return `
     <div class="topbar"><div class="client-title"><h1>Licencia comercial · Neuquén</h1><div class="meta"><span>DDJJ anual de Industria, Comercio y Prestadores de Servicios</span><span>·</span><span>ejercicio ${anio} · ingresos ${anio - 1}</span></div></div>
@@ -9352,6 +9358,7 @@ function renderLcDetalle() {
         <select data-action="lc-anio" title="Ejercicio fiscal">${LC_ANIOS.map((a) => `<option value="${a}" ${a === anio ? "selected" : ""}>Ejercicio ${a}</option>`).join("")}</select>
         <label class="btn" style="cursor:pointer;" title="Cargar de una vez los datos desde un archivo .json"><input type="file" accept=".json,application/json" data-action="lc-import" style="display:none;">⬆ Importar</label>
         <button class="btn" data-action="lc-lic-add" title="Agrega otra licencia comercial de este contribuyente (por ejemplo, otro local)">+ Otra licencia</button>
+        ${hermanas.length > 1 ? `<button class="btn" data-action="lc-quitar" data-client="${lid}" title="Quita solo esta licencia; las demás quedan">Quitar esta licencia</button>` : ""}
         <button class="btn" data-action="lc-params-open" title="Crédito por personal y bonificaciones">⚙ Parámetros</button>
         ${mono ? "" : `<label class="btn" title="Vencimiento de la DDJJ">Vence <input type="date" data-action="lc-vence" data-client="${lid}" value="${escapeHtml(i.vence)}" style="padding:2px 6px;font-size:12px;"></label>
         <label class="btn" style="cursor:pointer;"><input type="checkbox" data-action="lc-pres" data-client="${lid}" ${i.pres ? "checked" : ""}> DDJJ presentada</label>`}
@@ -9456,9 +9463,10 @@ function lcClick(a, btn) {
   else if (a === "lc-open") { state.view = "lc"; state.lcCli = cid; render(); }
   else if (a === "lc-back") { state.lcCli = null; render(); }
   else if (a === "lc-filtro") { state.lcFiltro = btn.dataset.filtro; render(); }
-  else if (a === "lc-pres-toggle") { lcSetPres(cid, anio, !lcGet(cid, anio).pres); render(); }
+  else if (a === "lc-pres-toggle") { const ids = btn.dataset.all ? lcLics(String(cid).split("~")[0]) : [cid], on = !ids.every((x) => lcGet(x, anio).pres); ids.forEach((x) => lcSetPres(x, anio, on)); render(); }
   else if (a === "lc-add-open") renderLcAddModal();
   else if (a === "lc-add-ok") { const ids = maddElegidos(); if (ids.length) { ids.forEach((id) => { lcDb().clientes[id] = true; }); persistExtras(); document.getElementById("modal-root").innerHTML = ""; if (ids.length === 1) state.lcCli = ids[0]; else showToast(ids.length + " contribuyentes agregados"); render(); } }
+  else if (a === "lc-quitar" && btn.dataset.all) { const c = lcCliOf(cid); if (c) appConfirm(`¿Quitar a ${c.name} de Licencia comercial, con sus ${lcLics(c.id).length} licencias? Los datos cargados se conservan por si lo volvés a agregar.`, { ok: "Quitar" }).then((ok) => { if (ok) { delete lcDb().lics[c.id]; delete lcDb().clientes[c.id]; persistExtras(); if (state.lcCli && String(state.lcCli).split("~")[0] === c.id) state.lcCli = null; render(); } }); }
   else if (a === "lc-quitar") { const c = lcCliOf(cid), multi = c && lcLics(c.id).length > 1, nro = lcTxt(lcGet(cid, anio), "licencia"); if (c) appConfirm(multi ? `¿Quitar la licencia ${nro || "sin número"} de ${c.name}? Los datos cargados se conservan.` : `¿Quitar a ${c.name} de Licencia comercial? Los datos cargados se conservan por si lo volvés a agregar.`, { ok: "Quitar" }).then((ok) => { if (ok) { lcLicQuitar(cid); if (state.lcCli === cid) state.lcCli = null; render(); } }); }
   else if (a === "lc-lic-add") { const c = lcCliOf(state.lcCli); if (c) { state.lcCli = lcLicAdd(c.id); showToast("Licencia agregada: cargá el número y los ingresos"); render(); } }
   else if (a === "lc-params-open") renderLcParamsModal();
@@ -9490,7 +9498,7 @@ document.addEventListener("change", (e) => {
   else if (a === "lc-p-cat") { const p = lcData(cid, anio).pers.find((x) => x.id === t.dataset.id); if (p) { p.cat = t.value; persistExtras(); lcRefrescar(); } }
   else if (a === "lc-p-inc") { const p = lcData(cid, anio).pers.find((x) => x.id === t.dataset.id); if (p) { p.inc = t.checked; persistExtras(); lcRefrescar(); } }
   else if (a === "lc-pres") { lcSetPres(t.dataset.client, anio, t.checked); render(); }
-  else if (a === "lc-vence") { lcSet(t.dataset.client, anio, "vence", t.value); render(); }
+  else if (a === "lc-vence") { (t.dataset.all ? lcLics(String(t.dataset.client).split("~")[0]) : [t.dataset.client]).forEach((x) => lcSet(x, anio, "vence", t.value)); render(); }
   else if (a === "lc-import") { const f = (t.files || [])[0]; t.value = ""; if (f) f.text().then((txt) => { try { lcImportar(JSON.parse(txt)); } catch (err) { showToast("No se pudo leer el archivo: " + err.message); } }); }
   else if (a === "lc-pers-import") {
     const f = (t.files || [])[0]; t.value = "";
