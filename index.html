@@ -9255,17 +9255,25 @@ function lcIngHint(V, anio) {
 function lcCalcInner(V, anio) {
   const fila = (l, v, cls, h) => `<tr class="${cls || ""}"><td>${l}${h ? `<div class="hint-sm">${h}</div>` : ""}</td><td class="num">${v}</td></tr>`;
   if (V.reg === "mono") return `<table class="gan-t"><tbody>${fila("Categoría del Monotributo", V.cat ? "<b>" + V.cat + "</b>" : "—")}${fila("Tributo anual de la categoría", fmtMoneyRaw(V.bruto), "", "no presenta DDJJ anual (art. 124)")}${fila("Tributo anual a abonar", bpCopyBtn(V.tributo), "tot")}</tbody></table>`;
-  const nota = V.pisoAplica ? `<div style="padding:8px 12px;font-size:12px;color:var(--muted);">Los descuentos no bajan el tributo del mínimo: ${V.pisoAct > V.pisoEsc ? "tributo mínimo de la actividad" : "primer rango de la escala"} (art. 137).</div>` : V.topeAplica ? `<div style="padding:8px 12px;font-size:12px;color:var(--muted);">Los descuentos llegan al tope del ${socEnt(V.P.tope)} % del tributo (art. 137).</div>` : "";
+  const sinEfecto = V.pisoAplica, pisoTxt = V.pisoAct > V.pisoEsc ? "tributo mínimo de la actividad" : "primer rango de la escala";
+  const nota = !sinEfecto && V.topeAplica ? `<div style="padding:8px 12px;font-size:12px;color:var(--muted);">Los descuentos llegan al tope del ${socEnt(V.P.tope)} % del tributo (art. 137).</div>` : "";
   const esc = V.reg === "pozos" ? "apartado B" : V.reg === "crudo" ? "apartado C" : "apartado A";
+  const credH = V.cred.n + " " + (V.cred.n === 1 ? "persona" : "personas") + (V.cred.inc ? " · " + V.cred.inc + " incorporada" + (V.cred.inc === 1 ? "" : "s") : "");
+  const bonH = V.reg === "banco" ? "los bancos solo computan el crédito por personal" : V.d.inc131 ? "no corresponden (art. 131)" : "";
+  const filas = sinEfecto
+    ? `${fila("(−) Crédito por personal ocupado", fmtMoneyRaw(V.credito), "auto", credH + " · sin efecto")}
+    ${fila("(−) Bonificaciones" + (V.bonifPct ? " · " + socEnt(V.bonifPct) + " %" : ""), fmtMoneyRaw(V.bonifImp), "auto", (bonH ? bonH + " · " : "") + "sin efecto")}
+    ${fila("Tributo mínimo · se aplica", fmtMoneyRaw(V.piso), "sub", pisoTxt + " (art. 137): el tributo no puede ser menor")}`
+    : `${fila("(−) Crédito por personal ocupado", fmtMoneyRaw(V.credito), "", credH)}
+    ${fila("(−) Bonificaciones" + (V.bonifPct ? " · " + socEnt(V.bonifPct) + " %" : ""), fmtMoneyRaw(V.bonifImp), "", bonH)}
+    ${fila("Descuentos aplicados", fmtMoneyRaw(V.descAp), "", "tope " + socEnt(V.P.tope) + " % del tributo")}
+    ${fila("Tributo luego de descuentos", fmtMoneyRaw(V.neto))}
+    ${fila("Tributo mínimo", fmtMoneyRaw(V.piso), "auto", pisoTxt)}`;
   return `<table class="gan-t"><tbody>
     ${fila("Base imponible", fmtMoneyRaw(V.base), "", V.meses < 12 ? "anualizada: " + V.meses + " meses de actividad (art. 120)" : "ingresos del establecimiento")}
     ${fila("Tramo de la escala · " + esc, lcTramoTxt(V), "auto")}
     ${fila("Tributo según escala", fmtMoneyRaw(V.bruto), "sub")}
-    ${fila("(−) Crédito por personal ocupado", fmtMoneyRaw(V.credito), "", V.cred.n + " " + (V.cred.n === 1 ? "persona" : "personas") + (V.cred.inc ? " · " + V.cred.inc + " incorporada" + (V.cred.inc === 1 ? "" : "s") : ""))}
-    ${fila("(−) Bonificaciones" + (V.bonifPct ? " · " + socEnt(V.bonifPct) + " %" : ""), fmtMoneyRaw(V.bonifImp), "", V.reg === "banco" ? "los bancos solo computan el crédito por personal" : V.d.inc131 ? "no corresponden (art. 131)" : "")}
-    ${fila("Descuentos aplicados", fmtMoneyRaw(V.descAp), "", "tope " + socEnt(V.P.tope) + " % del tributo")}
-    ${fila("Tributo luego de descuentos", fmtMoneyRaw(V.neto))}
-    ${fila("Tributo mínimo", fmtMoneyRaw(V.piso), "auto", V.pisoAct > V.pisoEsc ? "el de la actividad" : "primer rango de la escala")}
+    ${filas}
     ${fila("Tributo anual a abonar", bpCopyBtn(V.tributo), "tot")}
   </tbody></table>${nota}`;
 }
