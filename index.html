@@ -8619,6 +8619,7 @@ function renderMonoVepView() {
   const totalMes = sum(todas, "cuotaTotal"), totalPend = sum(pend, "cuotaTotal");
   const urgentes = pend.filter((f) => f.dias != null && f.dias <= 7).length;
   const pct = todas.length ? Math.round(env / todas.length * 100) : 0;
+  const vtoMes = (todas.find((f) => f.vto) || {}).vto || "", diasMes = vtoMes ? diasHasta(vtoMes) : null;
   const pill = (k, l) => `<button class="${filtro === k ? "on" : ""}" data-action="mono-vep-filtro" data-filtro="${k}">${l}</button>`;
   const trs = filas.map((f) => {
     const { c, mc } = f, u = f.dias != null ? urgenciaDe(f.dias) : "";
@@ -8636,8 +8637,7 @@ function renderMonoVepView() {
     <div style="display:flex;flex-direction:column;gap:16px;">
       <div class="kpi-row">
         <div class="kpi"><span class="k-label">VEP enviados</span><span class="k-value">${env} / ${todas.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pct}%;background:var(--favor);"></i></div><span class="k-sub">${pct}% enviado</span></div>
-        <div class="kpi"><span class="k-label">Total a cobrar del mes</span><span class="k-value">${fmtMoney(totalMes)}</span><span class="k-sub">${todas.filter((f) => !f.sinCat).length} VEP de ${periodLabel(period)}</span></div>
-        <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Pendientes de enviar</span><span class="k-value">${pend.length}</span><span class="k-sub">${fmtMoney(totalPend)}${urgentes ? " · " + urgentes + " vence" + (urgentes === 1 ? "" : "n") + " en ≤ 7 días" : ""}</span></div>
+        <div class="kpi ${vtoMes && pend.length && diasMes <= 7 ? "state-pagar" : ""}"><span class="k-label">Vencimiento del VEP</span><span class="k-value">${vtoMes ? vtoMes.slice(8, 10) + "/" + vtoMes.slice(5, 7) + "/" + vtoMes.slice(0, 4) : "Sin fecha"}</span><span class="k-sub">${!vtoMes ? "Sin vencimiento cargado" : !pend.length ? "✓ todos enviados" : diasMes < 0 ? "vencido hace " + (-diasMes) + (diasMes === -1 ? " día" : " días") : diasMes === 0 ? "vence hoy" : diasMes === 1 ? "vence mañana" : "faltan " + diasMes + " días"}</span></div>
       </div>
       <div class="card"><div class="card-head"><h3>VEP por cliente</h3><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><div class="seg">${pill("todos", "Todos")}${pill("pend", "Pendientes")}${pill("env", "Enviados")}</div>${pend.length ? `<button class="btn btn-sm" data-action="mono-vep-todos" title="Marca como enviados todos los VEP pendientes que se ven en la lista">✓ Marcar pendientes como enviados</button>` : ""}</div></div>
         <div class="card-body"><div class="table-scroll"><table class="panel-table" style="table-layout:fixed;width:100%;"><colgroup><col style="width:210px"><col style="width:56px"><col><col><col></colgroup><tr><th style="text-align:left;">Cliente</th><th style="text-align:center;">Cat.</th><th style="text-align:center;">Total del VEP</th><th style="text-align:center;">Vence</th><th style="text-align:center;">VEP enviado</th></tr>${trs}</table></div>
