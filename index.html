@@ -8760,16 +8760,17 @@ function renderSocLista() {
 // ---- Detalle de una sociedad: papel de trabajo + F.899/A + socios ----
 function socInp(path, ph) { const d = socGet(state.socCli, state.socAnio); return `<input type="text" inputmode="decimal" data-kind="money" data-action="soc-f" data-gp="${path}" value="${escapeHtml(rawOrBlank(d[path], "money"))}" placeholder="${ph || "0,00"}">`; }
 function socSociosTabla(cid, anio, V) {
+  const inp = "width:100%;box-sizing:border-box;min-width:0;";
   const filas = V.socios.map((x) => {
     const e = socBpEstado(cid, anio, x);
     const bp = !e.cli ? `<span class="hint-sm">no es cliente</span>` : e.same ? `<span class="pill favor">✓ cargada</span>` : `<button class="btn btn-sm" data-action="soc-bp-cargar" data-id="${x.s.id}" title="Agrega las cuotas de esta sociedad, con su valor patrimonial proporcional, en la BP de ${escapeHtml(e.cli.name)}">${e.it ? "Actualizar" : "Cargar"} en su BP</button>`;
-    return `<tr><td style="text-align:left;"><input type="text" data-action="soc-s" data-id="${x.s.id}" data-k="nombre" value="${escapeHtml(x.s.nombre || "")}" placeholder="Apellido y nombre" style="width:100%;min-width:230px;"></td>
-      <td><input type="text" data-action="soc-s" data-id="${x.s.id}" data-k="cuit" value="${escapeHtml(x.s.cuit || "")}" placeholder="CUIT / CUIL" style="width:130px;"></td>
-      <td style="white-space:nowrap;"><input type="text" inputmode="decimal" data-kind="money" data-action="soc-s" data-id="${x.s.id}" data-k="pct" value="${escapeHtml(rawOrBlank(x.s.pct, "money"))}" placeholder="0,00" style="width:90px;text-align:right;"> %</td>
-      <td class="num" data-ssv="${x.s.id}.cuotas">${socEnt(x.cuotas)}</td><td class="num" data-ssv="${x.s.id}.vpp">${fmtMoneyRaw(x.vpp)}</td><td data-ssv="${x.s.id}.bp">${bp}</td>
+    return `<tr><td style="text-align:left;"><input type="text" data-action="soc-s" data-id="${x.s.id}" data-k="nombre" value="${escapeHtml(x.s.nombre || "")}" placeholder="Apellido y nombre" style="${inp}text-align:left;"></td>
+      <td><input type="text" data-action="soc-s" data-id="${x.s.id}" data-k="cuit" value="${escapeHtml(x.s.cuit || "")}" placeholder="CUIT / CUIL" style="${inp}text-align:left;"></td>
+      <td><div style="display:flex;align-items:center;gap:5px;"><input type="text" inputmode="decimal" data-kind="money" data-action="soc-s" data-id="${x.s.id}" data-k="pct" value="${escapeHtml(rawOrBlank(x.s.pct, "money"))}" placeholder="0,00" style="${inp}flex:1;text-align:right;"><span>%</span></div></td>
+      <td class="num" data-ssv="${x.s.id}.cuotas">${socEnt(x.cuotas)}</td><td class="num" data-ssv="${x.s.id}.vpp">${fmtMoneyRaw(x.vpp)}</td><td data-ssv="${x.s.id}.bp" style="text-align:center;">${bp}</td>
       <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="soc-socio-del" data-id="${x.s.id}" title="Quitar socio">✕</button></td></tr>`;
   }).join("");
-  return `<table class="gan-t"><thead><tr><th style="text-align:left;">Socio</th><th>CUIT / CUIL</th><th>Participación</th><th>Cuotas</th><th title="Valor patrimonial proporcional">VPP</th><th>En su BP personal</th><th></th></tr></thead><tbody>${filas || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Todavía no cargaste socios.</td></tr>`}
+  return `<table class="gan-t" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col style="width:27%"><col style="width:16%"><col style="width:13%"><col style="width:8%"><col style="width:16%"><col style="width:15%"><col style="width:5%"></colgroup><thead><tr><th style="text-align:left;">Socio</th><th style="text-align:left;">CUIT / CUIL</th><th>Participación</th><th>Cuotas</th><th title="Valor patrimonial proporcional">VPP</th><th>En su BP personal</th><th></th></tr></thead><tbody>${filas || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Todavía no cargaste socios.</td></tr>`}
     <tr class="tot"><td style="text-align:left;">Totales</td><td></td><td class="num" data-sv="sumPct">${fmtMoneyRaw(V.sumPct)} %</td><td class="num" data-sv="sumCuotas">${socEnt(V.sumCuotas)}</td><td class="num" data-sv="sumVpp">${fmtMoneyRaw(V.sumVpp)}</td><td></td><td></td></tr></tbody></table>`;
 }
 function renderSocDetalle() {
