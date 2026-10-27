@@ -3433,6 +3433,22 @@ function diasTexto(dias) {
   if (dias === 1) return "vence mañana";
   return `en ${dias} días`;
 }
+// Tarjeta "Próximo vencimiento" de los paneles de DDJJ (Bienes Personales / Ganancias).
+// pend = contribuyentes sin presentar ({c, i:{vence, dias}}). Si hay vencidas, se pone en rojo y las nombra.
+function kpiProxVenc(pend) {
+  const conFecha = pend.filter((f) => f.i.vence).sort((a, b) => a.i.vence.localeCompare(b.i.vence));
+  const fmt = (iso) => iso.slice(8, 10) + "/" + iso.slice(5, 7) + "/" + iso.slice(0, 4);
+  if (!pend.length) return `<div class="kpi"><span class="k-label">Próximo vencimiento</span><span class="k-value">—</span><span class="k-sub">✓ todas presentadas</span></div>`;
+  if (!conFecha.length) return `<div class="kpi"><span class="k-label">Próximo vencimiento</span><span class="k-value">Sin fecha</span><span class="k-sub">${pend.length} sin vencimiento cargado</span></div>`;
+  const vencidas = conFecha.filter((f) => f.i.dias < 0);
+  if (vencidas.length) {
+    const nom = vencidas.slice(0, 3).map((f) => escapeHtml(f.c.name)).join(", ") + (vencidas.length > 3 ? " y " + (vencidas.length - 3) + " más" : "");
+    return `<div class="kpi state-pagar"><span class="k-label">Vencidas sin presentar</span><span class="k-value">${vencidas.length}</span><span class="k-sub">${nom}</span></div>`;
+  }
+  const f0 = conFecha[0], iso = f0.i.vence, n = conFecha.filter((f) => f.i.vence === iso).length, d = f0.i.dias;
+  const dTxt = d === 0 ? "vence hoy" : d === 1 ? "vence mañana" : "faltan " + d + " días";
+  return `<div class="kpi ${d <= 7 ? "state-pagar" : ""}"><span class="k-label">Próximo vencimiento</span><span class="k-value">${fmt(iso)}</span><span class="k-sub">${dTxt} · ${n} contribuyente${n === 1 ? "" : "s"}</span></div>`;
+}
 
 // ---------------------------------------------------------------------
 // Estado de cada impuesto en un período (para el panel de clientes)
@@ -7609,8 +7625,7 @@ function renderGanLista() {
     <div style="display:flex;flex-direction:column;gap:16px;">
       <div class="kpi-row">
         <div class="kpi"><span class="k-label">DDJJ presentadas</span><span class="k-value">${env} / ${todas.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pct}%;background:var(--favor);"></i></div><span class="k-sub">${pct}% presentado</span></div>
-        <div class="kpi ${totalPagar > 0 ? "state-pagar" : ""}"><span class="k-label">Saldo a pagar · pendientes</span><span class="k-value">${fmtMoney(totalPagar)}</span><span class="k-sub">de las DDJJ sin presentar</span></div>
-        <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Pendientes de presentar</span><span class="k-value">${pend.length}</span><span class="k-sub">${urgentes ? urgentes + " vence" + (urgentes === 1 ? "" : "n") + " en ≤ 7 días" : "sin vencimientos cercanos"}</span></div>
+        ${kpiProxVenc(pend)}
       </div>
       <div class="card"><div class="card-head"><h3>DDJJ por contribuyente</h3><div class="seg">${seg("todos", "Todos")}${seg("pend", "Pendientes")}${seg("env", "Presentadas")}</div></div>
         <div class="card-body"><div class="table-scroll"><table class="panel-table" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col style="width:240px"><col><col><col><col style="width:50px"></colgroup><tr><th style="text-align:left;">Contribuyente</th><th style="text-align:center;">Saldo</th><th style="text-align:center;">Vence</th><th style="text-align:center;">DDJJ presentada</th><th></th></tr>${trs}</table></div>
@@ -8313,7 +8328,7 @@ function renderBpLista() {
     const saldo = v.saldoArca > 0 ? `<span class="pill pagar">A pagar</span><div style="font-weight:700;margin-top:3px;">${fmtMoney(v.saldoArca)}</div>` : v.saldoContrib > 0 ? `<span class="pill favor">A favor</span><div style="font-weight:700;margin-top:3px;">${fmtMoney(v.saldoContrib)}</div>` : `<span class="hint-sm">${hay ? "Sin impuesto" : "Sin datos"}</span>`;
     return `<tr>
       <td style="text-align:left;"><button type="button" class="linklike" data-action="bp-open" data-client="${c.id}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div></td>
-      <td style="text-align:center;">${hay ? fmtMoney(v.gravado) : "—"}<div class="hint-sm">${hay ? (v.gravado > v.mniFull ? "supera el mínimo no imponible" : "bajo el mínimo no imponible") : ""}</div></td>
+      <td style="text-align:center;">${hay ? fmtMoney(v.gravado) : "—"}<div class="hint-sm">${hay && v.gravado > v.mniFull ? "supera el mínimo no imponible" : ""}</div></td>
       <td style="text-align:center;">${saldo}</td>
       <td style="text-align:center;"><input type="date" data-action="bp-vence" data-client="${c.id}" value="${i.vence}" title="Vencimiento de la DDJJ" style="padding:3px 6px;font-size:12px;">${i.vence && !i.pres ? `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(i.dias)}</div>` : ""}</td>
       <td style="text-align:center;"><button type="button" class="est ${i.pres ? "est-ok" : i.dias != null && i.dias < 0 ? "est-venc" : "est-falta"}" title="${i.pres ? "DDJJ presentada. Click para desmarcar." : "DDJJ sin presentar. Click para marcarla como presentada."}" data-action="bp-pres-toggle" data-client="${c.id}">${i.pres ? "✓ Presentada" : i.dias != null && i.dias < 0 ? "⛔ Sin presentar" : "○ Sin presentar"}</button>${i.pres && i.fPres ? `<div class="hint-sm">el ${i.fPres}</div>` : ""}</td>
@@ -8330,8 +8345,7 @@ function renderBpLista() {
       ${P.prov ? `<div class="bp-prov">⚠ Los parámetros ${anio} son provisorios (los publica ARCA a fin de año). Revisalos en ⚙ Parámetros.</div>` : ""}
       <div class="kpi-row">
         <div class="kpi"><span class="k-label">DDJJ presentadas</span><span class="k-value">${env} / ${todas.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pct}%;background:var(--favor);"></i></div><span class="k-sub">${pct}% presentado</span></div>
-        <div class="kpi ${totalPagar > 0 ? "state-pagar" : ""}"><span class="k-label">Impuesto a pagar · pendientes</span><span class="k-value">${fmtMoney(totalPagar)}</span><span class="k-sub">de las DDJJ sin presentar</span></div>
-        <div class="kpi ${urgentes ? "state-pagar" : ""}"><span class="k-label">Pendientes de presentar</span><span class="k-value">${pend.length}</span><span class="k-sub">${urgentes ? urgentes + " vence" + (urgentes === 1 ? "" : "n") + " en ≤ 7 días" : "sin vencimientos cercanos"}</span></div>
+        ${kpiProxVenc(pend)}
       </div>
       <div class="card"><div class="card-head"><h3>DDJJ por contribuyente</h3><div class="seg">${seg("todos", "Todos")}${seg("pend", "Pendientes")}${seg("env", "Presentadas")}</div></div>
         <div class="card-body"><div class="table-scroll"><table class="panel-table" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col style="width:240px"><col><col><col><col><col style="width:50px"></colgroup><tr><th style="text-align:left;">Contribuyente</th><th style="text-align:center;">Bienes gravados</th><th style="text-align:center;">Saldo</th><th style="text-align:center;">Vence</th><th style="text-align:center;">DDJJ presentada</th><th></th></tr>${trs}</table></div>
