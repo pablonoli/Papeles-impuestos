@@ -8658,25 +8658,45 @@ function renderRecatView() {
     filas.push({ c, cal, tc, sit: recatSituacion(cal) });
   });
   const n = (k) => filas.filter((f) => f.sit === k).length;
+  const finISO = (() => { const [fy, fm] = v.fin.split("-").map(Number); return fy + "-" + String(fm).padStart(2, "0") + "-" + String(new Date(fy, fm, 0).getDate()).padStart(2, "0"); })();
+  const diasCierre = diasHasta(finISO);
+  const cierreTxt = diasCierre > 0 ? "faltan " + diasCierre + " días para el cierre de la ventana" : diasCierre === 0 ? "la ventana cierra hoy" : "ventana cerrada";
+  const ventasHdr = (() => { let lastM = addMonths(todayPeriod(), -1); if (lastM > fin) lastM = fin; if (lastM < ini) return "Ventas del período"; const nM = (periodYear(lastM) - periodYear(ini)) * 12 + periodMonth(lastM) - periodMonth(ini) + 1; return "Ventas " + MESES_CORTOS[periodMonth(ini) - 1] + "–" + MESES_CORTOS[periodMonth(lastM) - 1] + " (" + nM + " de 12 meses)"; })();
+  const nivelDe = (pc) => pc >= 1 ? "excede" : pc >= 0.85 ? "cerca" : "ok";
+  const refExcl = addMonths(todayPeriod(), -1);   // último mes cerrado: los 12 meses móviles terminan ahí
+  const exclFilas = clientes.map((c) => ({ c, k: monoCalc(c, refExcl) })).filter((x) => x.k.maxTope > 0).sort((a, b) => (b.k.pctMax || 0) - (a.k.pctMax || 0));
+  const exclMaxTope = exclFilas.length ? exclFilas[0].k.maxTope : 0;
+  const exclTrs = exclFilas.map(({ c, k }) => {
+    const pc = k.pctMax || 0, niv = nivelDe(pc);
+    const est = pc >= 1 ? `<span class="pill pagar">⛔ Excedido</span>` : pc >= 0.9 ? `<span class="pill pagar">⛔ A punto de excluirse</span>` : pc >= 0.85 ? `<span class="pill" style="background:var(--surface-3);color:var(--diff);">▲ Cerca del tope</span>` : `<span class="pill favor">● En rango</span>`;
+    return `<tr>
+      <td style="text-align:left;"><button type="button" class="linklike" data-action="panel-abrir" data-client="${c.id}" data-tab="mono" data-period="${refExcl}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${k.cargados} de 12 meses cargados</div></td>
+      <td class="num">${fmtMoney(k.total12)}</td>
+      <td style="min-width:150px;"><div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;">${monoBarHtml(null, pc, niv)}</div><span class="hint-sm">${Math.round(pc * 100)}%</span></div></td>
+      <td class="num">${k.faltaExclusion >= 0 ? fmtMoney(k.faltaExclusion) : "excedido por " + fmtMoney(-k.faltaExclusion)}</td>
+      <td style="text-align:center;">${est}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">Cargá la escala de Monotributo para ver la exclusión.</td></tr>`;
   const pill = (sit, cal) => sit === "sube" ? `<span class="pill pagar">▲ Sube a la ${cal.catNew}</span>`
     : sit === "baja" ? `<span class="pill favor">▼ Baja a la ${cal.catNew}</span>`
     : sit === "excluido" ? `<span class="pill pagar">⛔ Excluido</span>`
     : `<span class="pill" style="background:var(--surface-2);color:var(--muted);border:1px solid var(--border);">= Se mantiene</span>`;
   const trs = filas.map((f) => {
-    const dif = f.sit === "excluido" ? null : round2(f.tc[1] - f.tc[0]);
+    const proyOk = f.cal.rest > 0 && f.cal.cargados > 0;
+    const catP = f.cal.catProy === "EXCLUIDO" ? "Excluido" : f.cal.catProy;
+    const rowT = monoRow(f.cal.catAct), tp = rowT ? num(rowT.tope) : 0, pcT = tp > 0 ? f.cal.total / tp : null;
     return `<tr>
       <td style="text-align:left;"><button type="button" class="linklike" data-action="panel-abrir" data-client="${f.c.id}" data-tab="mono" data-period="${fin}"><b>${escapeHtml(f.c.name)}</b></button><div class="hint-sm">${escapeHtml(f.c.cuit || "CUIT sin cargar")}</div></td>
       <td style="text-align:center;">${escapeHtml(f.cal.catAct)}</td>
       <td class="num">${fmtMoney(f.cal.total)}</td>
-      <td style="text-align:center;"><b>${f.cal.catNew === "EXCLUIDO" ? "—" : f.cal.catNew}</b></td>
-      <td class="num">${fmtMoney(f.tc[0])}</td>
-      <td class="num">${f.sit === "excluido" ? "—" : fmtMoney(f.tc[1])}</td>
-      <td class="num">${dif == null ? "—" : (dif > 0 ? "+" : "") + fmtMoney(dif)}</td>
-      <td style="text-align:center;">${pill(f.sit, f.cal)}</td>
+      <td style="min-width:100px;">${pcT == null ? `<span class="hint-sm">—</span>` : `<div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;">${monoBarHtml(null, pcT, nivelDe(pcT))}</div><span class="hint-sm">${Math.round(pcT * 100)}%</span></div>`}</td>
+      <td class="num">${proyOk ? fmtMoney(f.cal.proy) : `<span class="hint-sm">—</span>`}</td>
+      <td style="text-align:center;">${proyOk ? `<b>${catP}</b>` : `<span class="hint-sm">—</span>`}</td>
+      <td style="text-align:center;min-width:150px;">${pill(f.sit, f.cal)}${proyOk && f.cal.catProy !== f.cal.catNew ? `<div class="hint-sm" style="color:var(--diff);">proyecta ${f.cal.catProy === "EXCLUIDO" ? "exclusión" : "la " + f.cal.catProy}</div>` : ""}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Ningún cliente tiene la categoría de Monotributo asignada.</td></tr>`;
+  }).join("") || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Ningún cliente tiene la categoría de Monotributo asignada.</td></tr>`;
   return `
-    <div class="topbar"><div class="client-title"><h1>Recategorización de Monotributo</h1><div class="meta"><span>${cap(recat)}</span><span>·</span><span>ventas de ${monoRango(ini, fin)}</span></div></div>
+    <div class="topbar"><div class="client-title"><h1>Recategorización de Monotributo</h1><div class="meta"><span>${cap(recat)}</span><span>·</span><span>ventas de ${monoRango(ini, fin)}</span><span>·</span><span><b>${cierreTxt}</b></span></div></div>
       <div class="topbar-actions"><select data-action="recat-sel" title="Recategorización a evaluar">${lista.map((o) => `<option value="${key(o)}" ${key(o) === state.recatSel ? "selected" : ""}>${cap(o.recat)} · ventas ${monoRango(o.ini, o.fin)}</option>`).join("")}</select>
         <button class="btn btn-accent" data-action="mono-recat-exportar-vista" title="Un Excel con el Resumen y una hoja por cliente con el detalle de su facturación">⬇ Exportar Excel</button></div></div>
     <div style="display:flex;flex-direction:column;gap:16px;">
@@ -8688,7 +8708,10 @@ function renderRecatView() {
         <div class="kpi ${n("excluido") ? "state-pagar" : ""}"><span class="k-label">Excluidos</span><span class="k-value">${n("excluido")}</span><span class="k-sub">pasan al Régimen General</span></div>
       </div>
       <div class="card"><div class="card-head"><h3>Categoría que corresponde según las ventas del período</h3><span class="hint">Ventas cargadas a la fecha · cuotas según la escala vigente</span></div>
-        <div class="card-body"><div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Cliente</th><th>Cat. actual</th><th>Ventas del período</th><th>Cat. nueva</th><th>Cuota actual</th><th>Cuota nueva</th><th>Diferencia</th><th>Situación</th></tr>${trs}</table></div></div></div>
+        <div class="card-body"><div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Cliente</th><th>Cat. actual</th><th style="white-space:normal;">${ventasHdr}</th><th style="white-space:normal;" title="Ventas del período sobre el tope de la categoría actual">Uso del tope de su categoría</th><th style="white-space:normal;" title="Ventas del período proyectadas al cierre de la ventana, con el promedio de los meses cargados">Proyección a ${MESES_CORTOS[periodMonth(fin) - 1].toLowerCase()}.</th><th style="white-space:normal;">Cat. proyectada</th><th>Situación</th></tr>${trs}</table></div></div></div>
+      <div class="card"><div class="card-head"><h3>Exclusión · últimos 12 meses móviles</h3><span class="hint">${monoRango(addMonths(refExcl, -11), refExcl)}${exclMaxTope ? " · tope máximo de la escala " + fmtMoney(exclMaxTope) : ""}</span></div>
+        <div class="card-body"><div class="table-scroll"><table style="min-width:0;width:100%;"><tr><th style="text-align:left;">Cliente</th><th>Facturado 12 meses</th><th>Uso del tope máximo</th><th>Margen hasta la exclusión</th><th>Estado</th></tr>${exclTrs}</table></div>
+        <p class="foot-note">Es una medida distinta de la recategorización: se recalcula cada mes con los 12 meses anteriores y no depende de la ventana elegida arriba.</p></div></div>
       ${sinCat.length ? `<p class="foot-note">Sin categoría asignada (no figuran en la tabla): ${sinCat.map((c) => escapeHtml(c.name)).join(", ")}.</p>` : ""}
     </div>`;
 }
