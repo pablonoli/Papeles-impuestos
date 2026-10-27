@@ -9356,6 +9356,7 @@ function renderLcDetalle() {
         ${mono ? "" : `<label class="btn" title="Vencimiento de la DDJJ">Vence <input type="date" data-action="lc-vence" data-client="${lid}" value="${escapeHtml(i.vence)}" style="padding:2px 6px;font-size:12px;"></label>
         <label class="btn" style="cursor:pointer;"><input type="checkbox" data-action="lc-pres" data-client="${lid}" ${i.pres ? "checked" : ""}> DDJJ presentada</label>`}
         <button class="btn btn-accent" data-action="lc-excel">⬇ Exportar Excel</button></div></div>
+    ${hermanas.length > 1 ? `<div class="tabs" style="margin-bottom:14px;">${hermanas.map((l) => { const dl = lcGet(l, anio), vl = lcCalc(l, anio); return `<button class="tab ${l === lid ? "active" : ""}" data-action="lc-open" data-client="${l}" title="Tributo anual a abonar: $ ${socEnt(vl.tributo)}">${dl.licencia ? "Lic. " + escapeHtml(dl.licencia) : "Sin número"}${vl.pctEst !== 100 ? " · " + socEnt(vl.pctEst) + " %" : ""} · $ ${socEnt(vl.tributo)}</button>`; }).join("")}</div>` : ""}
     <div style="display:flex;flex-direction:column;gap:16px;">
       ${avCard}
       <div class="gan-grid">${c1}${c2}</div>
@@ -9412,7 +9413,8 @@ async function lcImportar(obj) {
   const usados = new Set(), plan = items.map((it) => {
     const o = Object.assign({}, comunes, it), nro = lcTxt(o, "licencia");
     let lid = nro ? lcLics(c.id).find((l) => !usados.has(l) && lcTxt(lcGet(l, anio), "licencia") === nro) : null;
-    if (!lid && !usados.has(cur) && vacia(cur)) lid = cur;
+    const sinNro = (l) => !usados.has(l) && !lcTxt(lcGet(l, anio), "licencia");
+    if (!lid) lid = sinNro(cur) ? cur : (lcLics(c.id).find(sinNro) || null);
     if (lid) usados.add(lid);
     return { o, lid };
   });
