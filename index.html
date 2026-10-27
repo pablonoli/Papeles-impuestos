@@ -9109,6 +9109,7 @@ function lcDb() {
   if (!e.lc.clientes || typeof e.lc.clientes !== "object") e.lc.clientes = {};
   if (!e.lc.datos || typeof e.lc.datos !== "object") e.lc.datos = {};
   if (!e.lc.params || typeof e.lc.params !== "object") e.lc.params = {};
+  if (!e.lc.lics || typeof e.lc.lics !== "object") e.lc.lics = {};
   return e.lc;
 }
 function lcGet(cid, anio) { return lcDb().datos[cid + "|" + anio] || {}; }
@@ -9121,13 +9122,18 @@ function lcData(cid, anio) {
 }
 function lcSet(cid, anio, path, valor) { setDeep(lcData(cid, anio), path, valor); persistExtras(); }
 function lcContribuyentes() { const g = lcDb(); return state.clients.filter((c) => g.clientes[c.id]).slice().sort((a, b) => a.name.localeCompare(b.name, "es")); }
+// Un contribuyente puede tener varias licencias comerciales: la primera se guarda con el id del cliente y las otras con "idCliente~xxxx".
+function lcCliOf(lid) { return getClient(String(lid).split("~")[0]); }
+function lcLics(cid) { const l = lcDb().lics[cid]; return Array.isArray(l) && l.length ? l : [cid]; }
+function lcLicAdd(cid) { const g = lcDb(), id = cid + "~" + Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 4); g.lics[cid] = lcLics(cid).concat(id); g.clientes[cid] = true; persistExtras(); return id; }
+function lcLicQuitar(lid) { const cid = String(lid).split("~")[0], g = lcDb(), l = lcLics(cid).filter((x) => x !== lid); if (l.length) g.lics[cid] = l; else { delete g.lics[cid]; delete g.clientes[cid]; } persistExtras(); }
 function lcParams(anio) {
   const base = LC_PARAMS_DEFAULT[anio] || LC_PARAMS_DEFAULT[LC_ANIOS[LC_ANIOS.length - 1]], ov = lcDb().params[anio] || {}, out = { prov: !!base.prov };
   Object.keys(base).forEach((k) => { if (k !== "prov") out[k] = ov[k] !== undefined && String(ov[k]).trim() !== "" ? num(ov[k]) : base[k]; });
   return out;
 }
 function lcTxt(d, k) { return String(d[k] == null ? "" : d[k]).trim(); }
-function lcIngIibb(cid, anio) { const c = getClient(cid); if (!c) return null; try { return ingresosJur(c, anio - 1, "Neuquén"); } catch (e) { return null; } }
+function lcIngIibb(cid, anio) { const c = lcCliOf(cid); if (!c) return null; try { return ingresosJur(c, anio - 1, "Neuquén"); } catch (e) { return null; } }
 function lcTramo(tabla, base) {
   let i = tabla.findIndex((f) => f[0] === null || base <= f[0]); if (i < 0) i = tabla.length - 1;
   return { idx: i, desde: i ? tabla[i - 1][0] : 0, hasta: tabla[i][0], tributo: tabla[i][1] };
@@ -9139,7 +9145,7 @@ function lcCredito(d, P) {
 }
 // ---- Cálculo de la DDJJ anual ----
 function lcCalc(cid, anio) {
-  const d = lcGet(cid, anio), P = lcParams(anio), T = LC_TABLAS[anio] || LC_TABLAS[LC_ANIOS[LC_ANIOS.length - 1]], reg = d.reg || "gral", c = getClient(cid) || {};
+  const d = lcGet(cid, anio), P = lcParams(anio), T = LC_TABLAS[anio] || LC_TABLAS[LC_ANIOS[LC_ANIOS.length - 1]], reg = d.reg || "gral", c = lcCliOf(cid) || {};
   const sug = lcIngIibb(cid, anio), provManual = lcTxt(d, "ingProv") !== "", prov = provManual ? num(d.ingProv) : (sug ? sug.monto : 0);
   const art122 = !!d.art122, gProv = num(d.gProv), gCap = num(d.gCap);
   const cap = art122 ? (gProv > 0 ? round2(prov * gCap / gProv) : 0) : (lcTxt(d, "ingCap") !== "" ? num(d.ingCap) : prov);
@@ -9167,17 +9173,20 @@ function lcCalc(cid, anio) {
   ];
   const bonifPct = admite ? bonif.reduce((t, b) => t + (b.ok ? b.p : 0), 0) : 0, bonifImp = round2(bruto * bonifPct / 100);
   const credito = R.cred.total, desc = round2(credito + bonifImp), tope = round2(bruto * P.tope / 100), descAp = Math.min(desc, tope), neto = round2(bruto - descAp), tributo = Math.max(neto, piso);
-  return Object.assign(R, { tramo: tr, bruto, piso, pisoEsc, pisoAct, credito, bonif, admite, bonifPct, bonifImp, desc, tope, descAp, neto, tributo, pisoAplica: piso > neto, topeAplica: desc > tope, hay: base > 0 });
+  return Object.assign(R, { tramo: tr, bruto, piso, pisoEsc, pisoAct, credito, bonif, admite, bonifPct, bonifImp, desc, tope, descAp, neto, tributo, pisoAplica: piso > neto, topeAplica: desc > tope, hay: prov > 0 || base > 0 });
 }
 function lcAvisos(cid, anio, V) {
   const d = lcGet(cid, anio), out = [];
   if (V.reg === "mono") { if (!V.cat) out.push("Elegí la categoría del Monotributo."); out.push("Los monotributistas no presentan la DDJJ anual: tributan el importe fijo de su categoría (art. 124)."); return out; }
-  if (!(V.base > 0)) out.push("Cargá los ingresos brutos de " + (anio - 1) + " (IIBB) o usá los de la app.");
+  if (!(V.prov > 0 || V.base > 0)) out.push("Cargá los ingresos brutos de " + (anio - 1) + " (IIBB) o usá los de la app.");
   if (!lcTxt(d, "licencia")) out.push("Falta el número de licencia comercial.");
   if ((V.reg === "otras" || V.reg === "banco") && !V.pisoAct) out.push("Elegí la actividad: define el tributo mínimo anual.");
   if (V.sug && V.provManual && Math.abs(V.sug.monto - V.prov) > 1) out.push("Los ingresos cargados difieren de los de IIBB en la app (" + fmtMoney(V.sug.monto) + ").");
   if (V.art122 && !(num(d.gProv) > 0)) out.push("Cargá los gastos imputables a la provincia: son el divisor del coeficiente (art. 122).");
-  if (!(V.pctEst > 0 && V.pctEst <= 100)) out.push("El porcentaje de ingresos del establecimiento debe estar entre 0 y 100.");
+  if (!(V.pctEst >= 0 && V.pctEst <= 100)) out.push("El porcentaje de ingresos de la licencia debe estar entre 0 y 100.");
+  const hermanas = lcLics(String(cid).split("~")[0]);
+  if (hermanas.length > 1) { const suma = hermanas.reduce((t, l) => { const x = lcTxt(lcGet(l, anio), "pctEst"); return t + (x !== "" ? num(x) : 100); }, 0); if (Math.abs(suma - 100) > 0.005) out.push("Las " + hermanas.length + " licencias del contribuyente suman " + fmtMoneyRaw(suma) + " % de los ingresos: deberían sumar 100 % (art. 116 inc. c).");
+    if (V.pctEst === 0) out.push("Esta licencia tiene 0 % de los ingresos: igual tributa el mínimo de la escala (art. 137)."); }
   const sinCuil = (d.pers || []).filter((p) => socDigits(p.cuil).length !== 11);
   if (sinCuil.length) out.push(`Falta el CUIL de ${sinCuil.map((p) => p.nombre || "una persona").join(", ")}.`);
   const dup = (d.pers || []).filter((p, i) => socDigits(p.cuil).length === 11 && d.pers.findIndex((q) => socDigits(q.cuil) === socDigits(p.cuil)) !== i);
@@ -9209,22 +9218,22 @@ function lcPersTxt(cid, anio) { return (lcGet(cid, anio).pers || []).map((p) => 
 // ---- Lista de contribuyentes ----
 function renderLcLista() {
   const anio = state.lcAnio, filtro = state.lcFiltro || "todos";
-  const todas = lcContribuyentes().map((c) => ({ c, v: lcCalc(c.id, anio), d: lcGet(c.id, anio), i: lcPresInfo(c.id, anio) }));
+  const todas = []; lcContribuyentes().forEach((c) => lcLics(c.id).forEach((lid, k, arr) => todas.push({ c, lid, multi: arr.length > 1, v: lcCalc(lid, anio), d: lcGet(lid, anio), i: lcPresInfo(lid, anio) })));
   const obl = todas.filter((f) => !f.i.na), env = obl.filter((f) => f.i.pres).length, pend = obl.filter((f) => !f.i.pres), pct = obl.length ? Math.round(env / obl.length * 100) : 0;
   const filas = todas.filter((f) => filtro === "pend" ? !f.i.na && !f.i.pres : filtro === "env" ? f.i.pres : true);
   const seg = (k, l) => `<button class="${filtro === k ? "on" : ""}" data-action="lc-filtro" data-filtro="${k}">${l}</button>`;
   const trs = filas.map((f) => {
-    const { c, v, d, i } = f, u = i.dias != null ? urgenciaDe(i.dias) : "";
-    const pres = i.na ? `<span class="hint-sm">No presenta DDJJ</span>` : `<button type="button" class="est ${i.pres ? "est-ok" : i.dias != null && i.dias < 0 ? "est-venc" : "est-falta"}" title="${i.pres ? "DDJJ presentada. Click para desmarcar." : "DDJJ sin presentar. Click para marcarla como presentada."}" data-action="lc-pres-toggle" data-client="${c.id}">${i.pres ? "✓ Presentada" : i.dias != null && i.dias < 0 ? "⛔ Sin presentar" : "○ Sin presentar"}</button>${i.pres && i.fPres ? `<div class="hint-sm">el ${i.fPres}</div>` : ""}`;
-    const vence = i.na ? `<span class="hint-sm">—</span>` : `<input type="date" data-action="lc-vence" data-client="${c.id}" value="${i.vence}" title="Vencimiento de la DDJJ" style="padding:3px 6px;font-size:12px;">${i.vence && !i.pres ? `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(i.dias)}</div>` : ""}`;
+    const { c, lid, multi, v, d, i } = f, u = i.dias != null ? urgenciaDe(i.dias) : "";
+    const pres = i.na ? `<span class="hint-sm">No presenta DDJJ</span>` : `<button type="button" class="est ${i.pres ? "est-ok" : i.dias != null && i.dias < 0 ? "est-venc" : "est-falta"}" title="${i.pres ? "DDJJ presentada. Click para desmarcar." : "DDJJ sin presentar. Click para marcarla como presentada."}" data-action="lc-pres-toggle" data-client="${lid}">${i.pres ? "✓ Presentada" : i.dias != null && i.dias < 0 ? "⛔ Sin presentar" : "○ Sin presentar"}</button>${i.pres && i.fPres ? `<div class="hint-sm">el ${i.fPres}</div>` : ""}`;
+    const vence = i.na ? `<span class="hint-sm">—</span>` : `<input type="date" data-action="lc-vence" data-client="${lid}" value="${i.vence}" title="Vencimiento de la DDJJ" style="padding:3px 6px;font-size:12px;">${i.vence && !i.pres ? `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(i.dias)}</div>` : ""}`;
     return `<tr>
-      <td style="text-align:left;"><button type="button" class="linklike" data-action="lc-open" data-client="${c.id}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}${d.licencia ? " · Lic. " + escapeHtml(d.licencia) : ""}</div></td>
+      <td style="text-align:left;"><button type="button" class="linklike" data-action="lc-open" data-client="${lid}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}</div><div class="hint-sm">${d.licencia ? "Lic. " + escapeHtml(d.licencia) : "Licencia sin número"}${d.actividad ? " · " + escapeHtml(d.actividad) : ""}${multi && v.pctEst !== 100 ? " · " + socEnt(v.pctEst) + " % de los ingresos" : ""}</div></td>
       <td style="text-align:center;">${v.reg === "mono" ? "—" : v.base ? fmtMoney(v.base) : "—"}<div class="hint-sm">${v.reg === "mono" ? "" : v.base ? lcTramoTxt(v) : ""}</div></td>
       <td style="text-align:center;">${escapeHtml(lcRegTxt(v))}</td>
       <td style="text-align:center;">${v.hay ? `<div style="font-weight:700;">${fmtMoney(v.tributo)}</div>${v.pisoAplica ? `<div class="hint-sm">tributo mínimo</div>` : ""}` : `<span class="hint-sm">Sin datos</span>`}</td>
       <td style="text-align:center;">${vence}</td>
       <td style="text-align:center;">${pres}</td>
-      <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="lc-quitar" data-client="${c.id}" title="Quitar de Licencia comercial">✕</button></td></tr>`;
+      <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="lc-quitar" data-client="${lid}" title="${multi ? "Quitar esta licencia" : "Quitar de Licencia comercial"}">✕</button></td></tr>`;
   }).join("") || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:28px;">${todas.length ? "No hay contribuyentes en este filtro." : "Todavía no agregaste contribuyentes. Tocá + Agregar contribuyente y elegí entre tus clientes."}</td></tr>`;
   return `
     <div class="topbar"><div class="client-title"><h1>Licencia comercial · Neuquén</h1><div class="meta"><span>DDJJ anual de Industria, Comercio y Prestadores de Servicios</span><span>·</span><span>ejercicio ${anio} · ingresos ${anio - 1}</span></div></div>
@@ -9292,16 +9301,16 @@ function lcControles(cid, anio, V) {
   const d = lcGet(cid, anio), ctl = d.ctl || {};
   return [
     { k: "base", l: "Ingresos brutos conciliados con la DDJJ anual de IIBB (Sifere)", ok: !!ctl.base },
-    { k: "pers", l: "Archivo de personal cargado", ok: V.cred.n > 0, auto: true },
+    { k: "pers", l: "Personal: archivo cargado o confirmado “No declara”", ok: V.cred.n > 0 || !!ctl.pers, auto: V.cred.n > 0 },
     { k: "rod", l: "Rodados: informados o confirmado “No declara”", ok: !!ctl.rod },
     { k: "pub", l: "Publicidad y propaganda: declarada o confirmado que no declara", ok: !!ctl.pub },
     { k: "esp", l: "Uso de espacios públicos y privados municipales: revisado", ok: !!ctl.esp },
   ];
 }
 function renderLcDetalle() {
-  const c = getClient(state.lcCli);
+  const lid = state.lcCli, c = lcCliOf(lid);
   if (!c) { state.lcCli = null; return renderLcLista(); }
-  const anio = state.lcAnio, d = lcGet(c.id, anio), V = lcCalc(c.id, anio), P = V.P, av = lcAvisos(c.id, anio, V), i = lcPresInfo(c.id, anio), mono = V.reg === "mono";
+  const anio = state.lcAnio, hermanas = lcLics(c.id), d = lcGet(lid, anio), V = lcCalc(lid, anio), P = V.P, av = lcAvisos(lid, anio, V), i = lcPresInfo(lid, anio), mono = V.reg === "mono";
   const avCard = av.length ? `<div class="card bp-avisos"><div class="card-head"><h3>⚠ Controles</h3></div><div class="card-body"><ul style="margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px;" data-lav>${av.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></div></div>` : `<div data-lav></div>`;
   const regSel = `<select data-action="lc-reg" style="width:100%;">${LC_REG.map((x) => `<option value="${x[0]}" ${V.reg === x[0] ? "selected" : ""}>${x[1]}</option>`).join("")}</select>`;
   let extraReg = "";
@@ -9331,20 +9340,21 @@ function renderLcDetalle() {
     <tr><td>Tiene DDJJ anteriores sin presentar o fuera de término<div class="hint-sm">art. 131: pierde las bonificaciones, no el crédito por personal</div></td><td class="num">${lcChk("inc131", d.inc131)}</td></tr>
     <tr class="auto"><td>Bonificaciones que corresponden</td><td class="num" data-lv="bonifSum">${V.admite ? socEnt(V.bonifPct) + " %" : "ninguna"}</td></tr>
     </tbody></table></div></div>`;
-  const k = lcControles(c.id, anio, V), listos = k.filter((x) => x.ok).length;
+  const k = lcControles(lid, anio, V), listos = k.filter((x) => x.ok).length;
   const chk = k.map((x) => `<div class="chk">${x.auto ? `<span class="b ${x.ok ? "on" : ""}">${x.ok ? "✓" : ""}</span>` : ""}<div>${x.auto ? escapeHtml(x.l) : `<label style="cursor:pointer;display:flex;gap:6px;align-items:center;"><input type="checkbox" data-action="lc-ctl" data-k="${x.k}" ${x.ok ? "checked" : ""}> ${escapeHtml(x.l)}</label>`}${!x.ok && x.auto ? ` <span class="pill pagar">falta</span>` : ""}</div></div>`).join("");
   const c4 = mono ? "" : `<div class="card"><div class="card-head"><h3><span class="gan-n">4</span> Control antes de presentar</h3><span class="hint">${listos} de ${k.length} listos</span></div><div class="card-body">${chk}
     <div class="hint-sm" style="margin-top:8px;">Código de validación del acuse<div style="margin-top:4px;">${lcTxtInp("acuse", "N° de validación", "180px")}</div></div></div></div>`;
-  const c5 = mono ? "" : `<div class="card"><div class="card-head"><h3><span class="gan-n">5</span> Personal ocupado · archivo para la DDJJ</h3><div style="display:flex;gap:8px;flex-wrap:wrap;"><label class="btn btn-sm" style="cursor:pointer;" title="Cargar el archivo de personal: una persona por línea, CUIL, Apellido y nombre y una “I” si se incorporó en el año"><input type="file" accept=".txt,text/plain" data-action="lc-pers-import" style="display:none;">⬆ Importar TXT</label><button class="btn btn-sm" data-action="lc-pers-txt" title="Descarga el archivo en el mismo formato que pide el sistema municipal">⬇ Exportar TXT</button></div></div><div class="card-body" style="padding:0;"><div class="table-scroll" data-lpers>${lcPersTabla(c.id, anio, V)}</div>
+  const c5 = mono ? "" : `<div class="card"><div class="card-head"><h3><span class="gan-n">5</span> Personal ocupado · archivo para la DDJJ</h3><div style="display:flex;gap:8px;flex-wrap:wrap;"><label class="btn btn-sm" style="cursor:pointer;" title="Cargar el archivo de personal: una persona por línea, CUIL, Apellido y nombre y una “I” si se incorporó en el año"><input type="file" accept=".txt,text/plain" data-action="lc-pers-import" style="display:none;">⬆ Importar TXT</label><button class="btn btn-sm" data-action="lc-pers-txt" title="Descarga el archivo en el mismo formato que pide el sistema municipal">⬇ Exportar TXT</button></div></div><div class="card-body" style="padding:0;"><div class="table-scroll" data-lpers>${lcPersTabla(lid, anio, V)}</div>
     <div style="padding:10px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><button class="btn btn-sm" data-action="lc-p-add">+ Agregar persona</button><span class="hint-sm">Crédito por persona: $ ${socEnt(P.credito)} (art. 128). Inscripto en desocupados ×3; mujer sostén de familia, persona trans o con discapacidad ×4; las incorporadas en ${anio} suman además el 50 % (art. 129).</span></div></div></div>`;
   return `
-    <div class="topbar"><div class="client-title"><button class="btn btn-sm btn-ghost" data-action="lc-back" style="margin-bottom:4px;">← Licencia comercial</button><h1>${escapeHtml(c.name)}</h1><div class="meta"><span>Licencia comercial · DDJJ ${anio}</span>${c.cuit ? `<span>·</span><span>${escapeHtml(c.cuit)}</span>` : ""}${d.licencia ? `<span>·</span><span>Lic. ${escapeHtml(d.licencia)}</span>` : ""}</div></div>
+    <div class="topbar"><div class="client-title"><button class="btn btn-sm btn-ghost" data-action="lc-back" style="margin-bottom:4px;">← Licencia comercial</button><h1>${escapeHtml(c.name)}</h1><div class="meta"><span>Licencia comercial · DDJJ ${anio}${hermanas.length > 1 ? " · licencia " + (hermanas.indexOf(lid) + 1) + " de " + hermanas.length : ""}</span>${c.cuit ? `<span>·</span><span>${escapeHtml(c.cuit)}</span>` : ""}${d.licencia ? `<span>·</span><span>Lic. ${escapeHtml(d.licencia)}</span>` : ""}</div></div>
       <div class="topbar-actions">
         <select data-action="lc-anio" title="Ejercicio fiscal">${LC_ANIOS.map((a) => `<option value="${a}" ${a === anio ? "selected" : ""}>Ejercicio ${a}</option>`).join("")}</select>
         <label class="btn" style="cursor:pointer;" title="Cargar de una vez los datos desde un archivo .json"><input type="file" accept=".json,application/json" data-action="lc-import" style="display:none;">⬆ Importar</label>
+        <button class="btn" data-action="lc-lic-add" title="Agrega otra licencia comercial de este contribuyente (por ejemplo, otro local)">+ Otra licencia</button>
         <button class="btn" data-action="lc-params-open" title="Crédito por personal y bonificaciones">⚙ Parámetros</button>
-        ${mono ? "" : `<label class="btn" title="Vencimiento de la DDJJ">Vence <input type="date" data-action="lc-vence" data-client="${c.id}" value="${escapeHtml(i.vence)}" style="padding:2px 6px;font-size:12px;"></label>
-        <label class="btn" style="cursor:pointer;"><input type="checkbox" data-action="lc-pres" data-client="${c.id}" ${i.pres ? "checked" : ""}> DDJJ presentada</label>`}
+        ${mono ? "" : `<label class="btn" title="Vencimiento de la DDJJ">Vence <input type="date" data-action="lc-vence" data-client="${lid}" value="${escapeHtml(i.vence)}" style="padding:2px 6px;font-size:12px;"></label>
+        <label class="btn" style="cursor:pointer;"><input type="checkbox" data-action="lc-pres" data-client="${lid}" ${i.pres ? "checked" : ""}> DDJJ presentada</label>`}
         <button class="btn btn-accent" data-action="lc-excel">⬇ Exportar Excel</button></div></div>
     <div style="display:flex;flex-direction:column;gap:16px;">
       ${avCard}
@@ -9382,21 +9392,35 @@ function renderLcParamsModal() {
 }
 
 // ---- Importar / exportar ----
+function lcAplicar(d, o) {
+  ["licencia", "actividad", "acuse", "persNqn", "pctEst", "meses", "actMin", "monoCat"].forEach((k) => { if (o[k] !== undefined) d[k] = String(o[k]); });
+  ["ingProv", "ingCap", "gCap", "gProv"].forEach((k) => { if (o[k] !== undefined) d[k] = String(o[k]).trim() === "" ? "" : fmtMoneyRaw(num(o[k])); });
+  if (o.reg && LC_REG.some((x) => x[0] === o.reg)) d.reg = o.reg;
+  ["art122", "ejido", "neuq", "comb", "parque", "flota", "inc131"].forEach((k) => { if (typeof o[k] === "boolean") d[k] = o[k]; });
+  if (o.presentada) { d.pres = true; d.presFecha = String(o.presentada); }
+  if (o.vence) d.vence = String(o.vence);
+  if (o.controles && typeof o.controles === "object") Object.keys(o.controles).forEach((k) => { d.ctl[k] = !!o.controles[k]; });
+  if (Array.isArray(o.personal)) d.pers = o.personal.map((p) => ({ id: socNewId(), cuil: socDigits(p.cuil), nombre: p.nombre || "", cat: p.cat || "", inc: !!p.inc }));
+}
+// El archivo puede traer una licencia (campos sueltos) o varias ("licencias": [...]); los datos comunes van afuera.
 async function lcImportar(obj) {
-  const c = getClient(state.lcCli), anio = obj && obj.anio ? Number(obj.anio) : state.lcAnio;
-  if (!obj || typeof obj !== "object" || Array.isArray(obj)) { showToast("El archivo no es válido"); return; }
-  if (obj.cuit && c && c.cuit && socDigits(obj.cuit) !== socDigits(c.cuit) && !(await appConfirm(`El archivo es del CUIT ${obj.cuit} y este contribuyente tiene ${c.cuit}. ¿Importar igual?`, { ok: "Importar igual" }))) return;
-  const d = lcData(state.lcCli, anio);
-  if ((d.ingProv || d.licencia || d.pers.length) && !(await appConfirm(`Ya hay datos cargados en ${anio}. ¿Reemplazar los datos por los del archivo?`, { title: "Importar", ok: "Reemplazar" }))) return;
-  ["licencia", "actividad", "acuse", "persNqn", "pctEst", "meses", "actMin", "monoCat"].forEach((k) => { if (obj[k] !== undefined) d[k] = String(obj[k]); });
-  ["ingProv", "ingCap", "gCap", "gProv"].forEach((k) => { if (obj[k] !== undefined) d[k] = String(obj[k]).trim() === "" ? "" : fmtMoneyRaw(num(obj[k])); });
-  if (obj.reg && LC_REG.some((x) => x[0] === obj.reg)) d.reg = obj.reg;
-  ["art122", "ejido", "neuq", "comb", "parque", "flota", "inc131"].forEach((k) => { if (typeof obj[k] === "boolean") d[k] = obj[k]; });
-  if (obj.presentada) { d.pres = true; d.presFecha = String(obj.presentada); }
-  if (obj.vence) d.vence = String(obj.vence);
-  if (Array.isArray(obj.personal)) d.pers = obj.personal.map((p) => ({ id: socNewId(), cuil: socDigits(p.cuil), nombre: p.nombre || "", cat: p.cat || "", inc: !!p.inc }));
-  persistExtras(); state.lcAnio = anio; render();
-  showToast("Datos importados en " + anio);
+  const cur = state.lcCli, c = lcCliOf(cur), anio = obj && obj.anio ? Number(obj.anio) : state.lcAnio;
+  if (!obj || typeof obj !== "object" || Array.isArray(obj) || !c) { showToast("El archivo no es válido"); return; }
+  if (obj.cuit && c.cuit && socDigits(obj.cuit) !== socDigits(c.cuit) && !(await appConfirm(`El archivo es del CUIT ${obj.cuit} y este contribuyente tiene ${c.cuit}. ¿Importar igual?`, { ok: "Importar igual" }))) return;
+  const items = Array.isArray(obj.licencias) && obj.licencias.length ? obj.licencias : [obj], comunes = Object.assign({}, obj); delete comunes.licencias;
+  const vacia = (lid) => { const d = lcGet(lid, anio); return !lcTxt(d, "licencia") && !lcTxt(d, "ingProv") && !(d.pers || []).length; };
+  const usados = new Set(), plan = items.map((it) => {
+    const o = Object.assign({}, comunes, it), nro = lcTxt(o, "licencia");
+    let lid = nro ? lcLics(c.id).find((l) => !usados.has(l) && lcTxt(lcGet(l, anio), "licencia") === nro) : null;
+    if (!lid && !usados.has(cur) && vacia(cur)) lid = cur;
+    if (lid) usados.add(lid);
+    return { o, lid };
+  });
+  const conDatos = plan.filter((x) => x.lid && !vacia(x.lid));
+  if (conDatos.length && !(await appConfirm(conDatos.length === 1 ? `Ya hay datos cargados en ${anio} para la licencia ${lcTxt(lcGet(conDatos[0].lid, anio), "licencia") || "sin número"}. ¿Reemplazarlos por los del archivo?` : `Ya hay datos cargados en ${anio} para ${conDatos.length} de las licencias. ¿Reemplazarlos por los del archivo?`, { title: "Importar", ok: "Reemplazar" }))) return;
+  const ids = plan.map((x) => { const lid = x.lid || lcLicAdd(c.id); lcAplicar(lcData(lid, anio), x.o); return lid; });
+  persistExtras(); state.lcAnio = anio; state.lcCli = ids.length === 1 ? ids[0] : null; state.view = "lc"; render();
+  showToast(ids.length === 1 ? "Datos importados en " + anio : ids.length + " licencias importadas en " + anio);
 }
 function lcGuardarTxt(txt, filename) {
   const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
@@ -9404,7 +9428,7 @@ function lcGuardarTxt(txt, filename) {
   else { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); }
 }
 function exportLcExcel() {
-  const cid = state.lcCli, anio = state.lcAnio, c = getClient(cid); if (!c) return;
+  const cid = state.lcCli, anio = state.lcAnio, c = lcCliOf(cid); if (!c) return;
   const V = lcCalc(cid, anio), d = lcGet(cid, anio), wb = XLSX.utils.book_new(), hl = new Map();
   const rows = [["LICENCIA COMERCIAL · NEUQUÉN · DDJJ " + anio + " · " + (c.name || "").toUpperCase(), ""], [""], ["Licencia comercial N°", d.licencia || ""], ["Actividad", d.actividad || ""], ["Régimen", lcRegTxt(V)]];
   if (V.reg === "mono") { rows.push(["Tributo anual de la categoría", V.bruto]); hl.set(rows.length, { fg: "3D2273", bg: "F5F1FC" }); rows.push(["Tributo anual a abonar", V.tributo]); }
@@ -9418,7 +9442,7 @@ function exportLcExcel() {
     const pe = [["Personal ocupado · " + (c.name || "") + " · " + anio, "", "", "", ""], [""], ["CUIL", "Apellido y nombre", "Categoría", "Incorporada " + anio, "Crédito"]].concat(V.cred.filas.map((f) => [f.p.cuil || "", f.p.nombre || "", (LC_CAT.find((x) => x[0] === (f.p.cat || "")) || LC_CAT[0])[1], f.p.inc ? "Sí" : "", f.imp]), [["TOTAL", V.cred.n + " personas", "", V.cred.inc || "", V.cred.total]]);
     XLSX.utils.book_append_sheet(wb, newSheet(pe, { colWidths: [18, 40, 40, 16, 18], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }], headerRows: [2], wrapCols: [], skipCols: [] }), "Personal");
   }
-  socGuardarXlsx(wb, `LicenciaComercial_${anio}_${socNombreArchivo(c)}.xlsx`);
+  socGuardarXlsx(wb, `LicenciaComercial_${anio}_${socNombreArchivo(c)}${lcLics(c.id).length > 1 ? "_" + (lcTxt(d, "licencia") || "lic") : ""}.xlsx`);
 }
 
 // ---- Eventos ----
@@ -9433,13 +9457,14 @@ function lcClick(a, btn) {
   else if (a === "lc-pres-toggle") { lcSetPres(cid, anio, !lcGet(cid, anio).pres); render(); }
   else if (a === "lc-add-open") renderLcAddModal();
   else if (a === "lc-add-ok") { const ids = maddElegidos(); if (ids.length) { ids.forEach((id) => { lcDb().clientes[id] = true; }); persistExtras(); document.getElementById("modal-root").innerHTML = ""; if (ids.length === 1) state.lcCli = ids[0]; else showToast(ids.length + " contribuyentes agregados"); render(); } }
-  else if (a === "lc-quitar") { const c = getClient(cid); if (c) appConfirm(`¿Quitar a ${c.name} de Licencia comercial? Los datos cargados se conservan por si lo volvés a agregar.`, { ok: "Quitar" }).then((ok) => { if (ok) { delete lcDb().clientes[c.id]; persistExtras(); render(); } }); }
+  else if (a === "lc-quitar") { const c = lcCliOf(cid), multi = c && lcLics(c.id).length > 1, nro = lcTxt(lcGet(cid, anio), "licencia"); if (c) appConfirm(multi ? `¿Quitar la licencia ${nro || "sin número"} de ${c.name}? Los datos cargados se conservan.` : `¿Quitar a ${c.name} de Licencia comercial? Los datos cargados se conservan por si lo volvés a agregar.`, { ok: "Quitar" }).then((ok) => { if (ok) { lcLicQuitar(cid); if (state.lcCli === cid) state.lcCli = null; render(); } }); }
+  else if (a === "lc-lic-add") { const c = lcCliOf(state.lcCli); if (c) { state.lcCli = lcLicAdd(c.id); showToast("Licencia agregada: cargá el número y los ingresos"); render(); } }
   else if (a === "lc-params-open") renderLcParamsModal();
   else if (a === "lc-params-reset") { delete lcDb().params[anio]; persistExtras(); renderLcParamsModal(); }
   else if (a === "lc-usar-iibb") { const s = lcIngIibb(state.lcCli, anio); if (s) { lcSet(state.lcCli, anio, "ingProv", fmtMoneyRaw(s.monto)); render(); } }
   else if (a === "lc-p-add") { lcData(state.lcCli, anio).pers.push({ id: socNewId(), cuil: "", nombre: "", cat: "", inc: false }); persistExtras(); render(); }
   else if (a === "lc-p-del") { const d = lcData(state.lcCli, anio); d.pers = d.pers.filter((x) => x.id !== btn.dataset.id); persistExtras(); render(); }
-  else if (a === "lc-pers-txt") { const t = lcPersTxt(state.lcCli, anio); if (!t) { showToast("Todavía no hay personal cargado"); return; } lcGuardarTxt(t, `PERSONAL_${socNombreArchivo(getClient(state.lcCli))}.txt`); }
+  else if (a === "lc-pers-txt") { const t = lcPersTxt(state.lcCli, anio); if (!t) { showToast("Todavía no hay personal cargado"); return; } lcGuardarTxt(t, `PERSONAL_${socNombreArchivo(lcCliOf(state.lcCli))}${lcLics(lcCliOf(state.lcCli).id).length > 1 ? "_" + (lcTxt(lcGet(state.lcCli, anio), "licencia") || "lic") : ""}.txt`); }
   else if (a === "lc-excel") exportLcExcel();
 }
 document.addEventListener("click", (e) => { const btn = e.target.closest("[data-action]"); if (!btn || btn.tagName === "INPUT" || btn.tagName === "SELECT") return; const a = btn.dataset.action; if (a.indexOf("lc-") === 0) lcClick(a, btn); });
