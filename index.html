@@ -257,6 +257,8 @@
   .chk .b{ width:17px; height:17px; border-radius:5px; border:1.5px solid var(--border); flex-shrink:0; margin-top:1px; display:flex; align-items:center; justify-content:center; font-size:11px; }
   .chk .b.on{ background:var(--favor); border-color:var(--favor); color:#fff; }
   .chk input[type=checkbox]{ margin:0; }
+  .soc-socios input[type=text]{ background:transparent; border-color:transparent; box-shadow:none; }
+  .soc-socios input[type=text]:hover, .soc-socios input[type=text]:focus{ border-color:var(--accent); background:var(--surface-2); }
   .madd-list{ max-height:300px; overflow-y:auto; border:1px solid var(--border); border-radius:10px; }
   .madd-row{ color:var(--ink); display:flex; gap:9px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }
   .madd-row:last-child{ border-bottom:none; }
@@ -8770,7 +8772,7 @@ function socSociosTabla(cid, anio, V) {
       <td class="num" data-ssv="${x.s.id}.cuotas">${socEnt(x.cuotas)}</td><td class="num" data-ssv="${x.s.id}.vpp">${fmtMoneyRaw(x.vpp)}</td><td data-ssv="${x.s.id}.bp" style="text-align:center;">${bp}</td>
       <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="soc-socio-del" data-id="${x.s.id}" title="Quitar socio">✕</button></td></tr>`;
   }).join("");
-  return `<table class="gan-t" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col style="width:27%"><col style="width:16%"><col style="width:13%"><col style="width:8%"><col style="width:16%"><col style="width:15%"><col style="width:5%"></colgroup><thead><tr><th style="text-align:left;">Socio</th><th style="text-align:left;">CUIT / CUIL</th><th>Participación</th><th>Cuotas</th><th title="Valor patrimonial proporcional">VPP</th><th>En su BP personal</th><th></th></tr></thead><tbody>${filas || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Todavía no cargaste socios.</td></tr>`}
+  return `<table class="gan-t soc-socios" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col><col style="width:150px"><col style="width:130px"><col style="width:80px"><col style="width:170px"><col style="width:150px"><col style="width:40px"></colgroup><thead><tr><th style="text-align:left;">Socio</th><th style="text-align:left;">CUIT / CUIL</th><th>Participación</th><th>Cuotas</th><th title="Valor patrimonial proporcional">VPP</th><th>En su BP personal</th><th></th></tr></thead><tbody>${filas || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Todavía no cargaste socios.</td></tr>`}
     <tr class="tot"><td style="text-align:left;">Totales</td><td></td><td class="num" data-sv="sumPct">${fmtMoneyRaw(V.sumPct)} %</td><td class="num" data-sv="sumCuotas">${socEnt(V.sumCuotas)}</td><td class="num" data-sv="sumVpp">${fmtMoneyRaw(V.sumVpp)}</td><td></td><td></td></tr></tbody></table>`;
 }
 function renderSocDetalle() {
