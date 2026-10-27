@@ -1991,6 +1991,7 @@ function renderSidebar() {
     <div class="side-section nav-side">${(() => { const ab = sideGanAbierto(); return `<button type="button" class="side-label side-toggle" data-action="gan-side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>Ganancias</span><span>${ab ? "▾" : "▸"}</span></button>${ab ? `<button class="nav-btn ${state.view === "gan" ? "active" : ""}" data-action="nav-view" data-view="gan">👥 Contribuyentes <span class="chip">${ganContribuyentes().length}</span></button>` : ""}`; })()}</div>
     <div class="side-section nav-side">${(() => { const ab = sideBpAbierto(); return `<button type="button" class="side-label side-toggle" data-action="bp-side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>Bienes Personales</span><span>${ab ? "▾" : "▸"}</span></button>${ab ? `<button class="nav-btn ${state.view === "bp" ? "active" : ""}" data-action="nav-view" data-view="bp">👥 Contribuyentes <span class="chip">${bpContribuyentes().length}</span></button>` : ""}`; })()}</div>
     <div class="side-section nav-side">${(() => { const ab = sideSocAbierto(); return `<button type="button" class="side-label side-toggle" data-action="soc-side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>Sociedades</span><span>${ab ? "▾" : "▸"}</span></button>${ab ? `<button class="nav-btn ${state.view === "soc" ? "active" : ""}" data-action="nav-view" data-view="soc">🏢 Acciones y part. societarias (BP) <span class="chip">${socContribuyentes().length}</span></button><button class="nav-btn ${state.view === "ri" ? "active" : ""}" data-action="nav-view" data-view="ri">📋 Régimen informativo de part. <span class="chip">${socContribuyentes().length}</span></button>` : ""}`; })()}</div>
+    <div class="side-section nav-side">${(() => { const ab = sideLcAbierto(); return `<button type="button" class="side-label side-toggle" data-action="lc-side-toggle" title="${ab ? "Contraer" : "Desplegar"}"><span>Licencia comercial</span><span>${ab ? "▾" : "▸"}</span></button>${ab ? `<button class="nav-btn ${state.view === "lc" ? "active" : ""}" data-action="nav-view" data-view="lc">🏪 DDJJ anual · Neuquén <span class="chip">${lcContribuyentes().length}</span></button>` : ""}`; })()}</div>
     <div class="side-section">
       <div class="side-label-row">
         <div class="side-label">Clientes<span>${state.clients.length}</span></div>
@@ -2035,6 +2036,7 @@ function renderMain() {
   if (state.view === "bp") { main.innerHTML = renderBpView(); bpPostRender(); return; }
   if (state.view === "soc") { main.innerHTML = state.socCli ? renderSocDetalle() : renderSocLista(); socPostRender(); return; }
   if (state.view === "ri") { main.innerHTML = renderRiView(); return; }
+  if (state.view === "lc") { main.innerHTML = state.lcCli ? renderLcDetalle() : renderLcLista(); lcPostRender(); return; }
   if (state.view === "alic") { main.innerHTML = renderAlicView(); return; }
   if (state.view === "cm05") { main.innerHTML = renderCm05View(); return; }
   if (state.view === "nqn") { main.innerHTML = renderNqnView(); return; }
@@ -4795,7 +4797,7 @@ document.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const a = btn.dataset.action;
-  if (a === "nav-view") { state.view = btn.dataset.view; if (state.view === "gan") { state.ganCli = null; state.sideGan = true; } if (state.view === "bp") { state.bpCli = null; state.sideBp = true; } if (state.view === "soc") state.socCli = null; if (state.view === "ri") state.riCli = null; if (["soc", "ri"].includes(state.view)) state.sideSoc = true; if (["monoVep", "recat"].includes(state.view)) state.sideMono = true; if (["cm05", "nqn", "alic"].includes(state.view)) state.sideIibb = true; render(); }
+  if (a === "nav-view") { state.view = btn.dataset.view; if (state.view === "gan") { state.ganCli = null; state.sideGan = true; } if (state.view === "bp") { state.bpCli = null; state.sideBp = true; } if (state.view === "soc") state.socCli = null; if (state.view === "ri") state.riCli = null; if (["soc", "ri"].includes(state.view)) state.sideSoc = true; if (state.view === "lc") { state.lcCli = null; state.sideLc = true; } if (["monoVep", "recat"].includes(state.view)) state.sideMono = true; if (["cm05", "nqn", "alic"].includes(state.view)) state.sideIibb = true; render(); }
   else if (a === "panel-abrir") {
     state.view = "client"; state.currentClientId = btn.dataset.client;
     state.currentPeriod = btn.dataset.period || state.panelPeriod;
@@ -9074,6 +9076,402 @@ document.addEventListener("focusout", (e) => {
   const f = fmtMoneyRaw(num(raw)); t.value = f;
   if (a === "soc-f") socSet(state.socCli, state.socAnio, t.dataset.gp, f);
   else { const s = socData(state.socCli, state.socAnio).socios.find((x) => x.id === t.dataset.id); if (s) { s[t.dataset.k] = f; persistExtras(); } }
+});
+
+// =====================================================================
+// Licencia comercial — Municipalidad de Neuquén: DDJJ anual de Industria, Comercio y Prestadores de Servicios.
+// Ordenanza Tarifaria 15065/2025 (ejercicio 2026), Título VII y Anexo IV: el tributo sale de la escala según los ingresos brutos
+// (IIBB) del año calendario anterior, menos el crédito por personal ocupado y las bonificaciones, con un mínimo.
+// Los datos viven en getExtras().lc: { clientes:{id:true}, datos:{"id|año":{...}}, params:{año:{...}} }
+// =====================================================================
+const LC_ANIOS = [2026];
+// Anexo IV · escalas del tributo anual: cada fila es [hasta (null = en adelante), tributo]; el primer tramo parte de cero.
+const LC_TABLAS = { 2026: {"A":[[150000000,450000],[155000000,775000],[160000000,800000],[165000000,825000],[170000000,850000],[175000000,875000],[180000000,900000],[185000000,925000],[190000000,950000],[195000000,975000],[200000000,1000000],[205000000,2050000],[210000000,2100000],[215000000,2150000],[220000000,2200000],[225000000,2250000],[230000000,2300000],[235000000,2350000],[240000000,2400000],[245000000,2450000],[250000000,2500000],[255000000,2550000],[260000000,2600000],[265000000,2650000],[270000000,2700000],[275000000,2750000],[280000000,2800000],[285000000,2850000],[290000000,2900000],[295000000,2950000],[300000000,3000000],[310000000,3100000],[320000000,3200000],[330000000,3300000],[340000000,3400000],[350000000,3500000],[360000000,3600000],[370000000,3700000],[380000000,3800000],[390000000,3900000],[400000000,4000000],[410000000,4100000],[420000000,4200000],[430000000,4300000],[440000000,4400000],[450000000,4500000],[460000000,4600000],[470000000,4700000],[480000000,4800000],[490000000,4900000],[500000000,5000000],[510000000,6375000],[520000000,6500000],[530000000,6625000],[540000000,6750000],[550000000,6875000],[560000000,7000000],[570000000,7125000],[580000000,7250000],[590000000,7375000],[600000000,7500000],[620000000,7750000],[640000000,8000000],[660000000,8250000],[680000000,8500000],[700000000,8750000],[720000000,9360000],[740000000,9620000],[760000000,9880000],[780000000,10140000],[800000000,10400000],[825000000,10725000],[850000000,11050000],[875000000,11375000],[900000000,11700000],[925000000,12025000],[950000000,12350000],[975000000,12675000],[1000000000,13000000],[1050000000,14700000],[1100000000,15400000],[1150000000,16100000],[1200000000,16800000],[1250000000,17500000],[1300000000,18200000],[1350000000,18900000],[1400000000,19600000],[1450000000,20300000],[1500000000,21000000],[1550000000,22475000],[1600000000,23200000],[1650000000,23925000],[1700000000,24650000],[1775000000,25737500],[1850000000,26825000],[1925000000,27912500],[2000000000,29000000],[2100000000,31500000],[2200000000,33000000],[2300000000,34500000],[2400000000,36000000],[2550000000,38250000],[2700000000,40500000],[2850000000,42750000],[3000000000,45000000],[3200000000,48000000],[3400000000,51000000],[3600000000,54000000],[3800000000,57000000],[4000000000,60000000],[4200000000,65100000],[4400000000,68200000],[4700000000,72850000],[5000000000,77500000],[5500000000,88000000],[6000000000,96000000],[6500000000,104000000],[7000000000,112000000],[7500000000,120000000],[8000000000,128000000],[8500000000,136000000],[9000000000,144000000],[9500000000,152000000],[10000000000,160000000],[11000000000,181500000],[12000000000,198000000],[13000000000,214500000],[14000000000,231000000],[15500000000,255750000],[17000000000,280500000],[18500000000,305250000],[20000000000,330000000],[22500000000,382500000],[25000000000,425000000],[27500000000,467500000],[30000000000,525000000],[35000000000,612500000],[40000000000,700000000],[45000000000,810000000],[50000000000,900000000],[75000000000,1350000000],[100000000000,1800000000],[150000000000,2700000000],[200000000000,3600000000],[null,4200000000]],"B":[[200000000,2500000],[500000000,6500000],[750000000,9750000],[1000000000,13000000],[1500000000,20250000],[2000000000,27000000],[3000000000,51000000],[4000000000,68000000],[5000000000,87500000],[6000000000,105000000],[8000000000,140000000],[10000000000,175000000],[12500000000,231250000],[15000000000,277500000],[17500000000,341250000],[20000000000,390000000],[25000000000,512500000],[30000000000,615000000],[40000000000,860000000],[50000000000,1075000000],[60000000000,1350000000],[80000000000,1800000000],[100000000000,2350000000],[125000000000,2937500000],[150000000000,3675000000],[175000000000,4287500000],[200000000000,5000000000],[null,5700000000]],"C":[[750000000,12600000],[1000000000,17000000],[1250000000,22500000],[1500000000,28500000],[2000000000,40000000],[3000000000,63000000],[4500000000,99000000],[6500000000,143000000],[8000000000,184000000],[9500000000,237500000],[11500000000,287500000],[13500000000,351000000],[15500000000,403000000],[18000000000,486000000],[19000000000,513000000],[20000000000,560000000],[25000000000,700000000],[30000000000,870000000],[35000000000,1015000000],[40000000000,1160000000],[45000000000,1305000000],[50000000000,1450000000],[75000000000,2175000000],[100000000000,2900000000],[200000000000,5800000000],[300000000000,8700000000],[null,9500000000]]} };
+const LC_MONO = { 2026: { A: 120000, B: 144000, C: 168000, D: 192000, E: 216000, F: 240000, G: 264000, H: 288000, I: 312000, J: 336000, K: 360000 } };
+const LC_MIN = {
+  banco: [["Bancos", 151200000], ["Sucursales del BPN", 22800000], ["Agencias y/o extensiones del BPN (no sucursales)", 1080000], ["Compañías de seguro", 9360000], ["Servicios de productores y asesores de seguro", 582000], ["Compañías financieras", 39600000], ["Sociedades de ahorro y préstamos", 7800000], ["Servicios de crédito", 6240000], ["Casas de cambio", 5580000], ["Servicios financieros de la Administración Pública", 3000000], ["Otras actividades financieras", 6360000], ["Otros servicios de cooperativas", 360000], ["Servicios de intermediación financiera", 732000]],
+  otras: [["Venta de combustibles", 1500000], ["Venta de vehículos usados", 1140000], ["Servicios inmobiliarios", 720000], ["Servicios gastronómicos", 1260000], ["Servicios de salones de baile", 2820000], ["Servicios de alquiler de inmuebles para eventos", 1125000], ["Servicios de transporte privado por plataformas (PTIT)", 720000]],
+};
+const LC_EJIDO_MIN = 510000000;
+const LC_REG = [["gral", "Régimen general", "Anexo IV · apartado A"], ["otras", "Otras actividades con tributo mínimo", "art. 127 inc. e"], ["banco", "Bancos y actividades financieras", "art. 127 inc. d"], ["pozos", "Servicios de pozos petroleros", "Anexo IV · apartado B"], ["crudo", "Extracción de petróleo y gas", "Anexo IV · apartado C"], ["mono", "Monotributista (régimen simplificado)", "art. 124 y 127 inc. a"]];
+const LC_CAT = [["", "Personal común"], ["desoc", "Inscripto en el registro de desocupados (×3)"], ["muj", "Mujer sostén de familia (×4)"], ["trans", "Persona transgénero (×4)"], ["disc", "Persona con discapacidad (×4)"]];
+const LC_PARAMS_DEFAULT = {
+  // Art. 128 (crédito por empleado), arts. 132 a 136 (bonificaciones) y art. 137 (tope del 50 %).
+  2026: { credito: 6000, bGral: 10, bNeuq: 20, bComb: 20, bParque: 5, bFlota: 5, tope: 50, umbral: 70, prov: false },
+};
+function sideLcAbierto() {
+  if (state.sideLc === undefined) { try { state.sideLc = localStorage.getItem("papeles_side_lc") === "1"; } catch (e) { state.sideLc = false; } }
+  return !!state.sideLc;
+}
+function lcDb() {
+  const e = getExtras();
+  if (!e.lc || typeof e.lc !== "object") e.lc = {};
+  if (!e.lc.clientes || typeof e.lc.clientes !== "object") e.lc.clientes = {};
+  if (!e.lc.datos || typeof e.lc.datos !== "object") e.lc.datos = {};
+  if (!e.lc.params || typeof e.lc.params !== "object") e.lc.params = {};
+  return e.lc;
+}
+function lcGet(cid, anio) { return lcDb().datos[cid + "|" + anio] || {}; }
+function lcData(cid, anio) {
+  const d = lcDb().datos, k = cid + "|" + anio;
+  if (!d[k] || typeof d[k] !== "object") d[k] = {};
+  if (!Array.isArray(d[k].pers)) d[k].pers = [];
+  if (!d[k].ctl || typeof d[k].ctl !== "object") d[k].ctl = {};
+  return d[k];
+}
+function lcSet(cid, anio, path, valor) { setDeep(lcData(cid, anio), path, valor); persistExtras(); }
+function lcContribuyentes() { const g = lcDb(); return state.clients.filter((c) => g.clientes[c.id]).slice().sort((a, b) => a.name.localeCompare(b.name, "es")); }
+function lcParams(anio) {
+  const base = LC_PARAMS_DEFAULT[anio] || LC_PARAMS_DEFAULT[LC_ANIOS[LC_ANIOS.length - 1]], ov = lcDb().params[anio] || {}, out = { prov: !!base.prov };
+  Object.keys(base).forEach((k) => { if (k !== "prov") out[k] = ov[k] !== undefined && String(ov[k]).trim() !== "" ? num(ov[k]) : base[k]; });
+  return out;
+}
+function lcTxt(d, k) { return String(d[k] == null ? "" : d[k]).trim(); }
+function lcIngIibb(cid, anio) { const c = getClient(cid); if (!c) return null; try { return ingresosJur(c, anio - 1, "Neuquén"); } catch (e) { return null; } }
+function lcTramo(tabla, base) {
+  let i = tabla.findIndex((f) => f[0] === null || base <= f[0]); if (i < 0) i = tabla.length - 1;
+  return { idx: i, desde: i ? tabla[i - 1][0] : 0, hasta: tabla[i][0], tributo: tabla[i][1] };
+}
+function lcCredito(d, P) {
+  const pers = Array.isArray(d.pers) ? d.pers : [], mult = { "": 1, desoc: 3, muj: 4, trans: 4, disc: 4 };
+  const filas = pers.map((p) => ({ p, imp: P.credito * (mult[p.cat || ""] || 1) + (p.inc ? P.credito * 0.5 : 0) }));
+  return { n: pers.length, inc: pers.filter((p) => p.inc).length, total: round2(filas.reduce((t, f) => t + f.imp, 0)), filas };
+}
+// ---- Cálculo de la DDJJ anual ----
+function lcCalc(cid, anio) {
+  const d = lcGet(cid, anio), P = lcParams(anio), T = LC_TABLAS[anio] || LC_TABLAS[LC_ANIOS[LC_ANIOS.length - 1]], reg = d.reg || "gral", c = getClient(cid) || {};
+  const sug = lcIngIibb(cid, anio), provManual = lcTxt(d, "ingProv") !== "", prov = provManual ? num(d.ingProv) : (sug ? sug.monto : 0);
+  const art122 = !!d.art122, gProv = num(d.gProv), gCap = num(d.gCap);
+  const cap = art122 ? (gProv > 0 ? round2(prov * gCap / gProv) : 0) : (lcTxt(d, "ingCap") !== "" ? num(d.ingCap) : prov);
+  const pctEst = lcTxt(d, "pctEst") !== "" ? num(d.pctEst) : 100, meses = lcTxt(d, "meses") !== "" ? Math.min(12, Math.max(1, Math.round(num(d.meses)))) : 12;
+  const baseEst = round2(cap * pctEst / 100), base = Math.round(meses < 12 ? baseEst / meses * 12 : baseEst);
+  const cred = lcCredito(d, P), persPct = lcTxt(d, "persNqn") !== "" ? num(d.persNqn) : 100;
+  const R = { reg, d, P, sug, provManual, prov, art122, cap, pctEst, meses, baseEst, base, cred, persPct, cat: "", noPresenta: reg === "mono" };
+  if (reg === "mono") {
+    R.cat = d.monoCat || (c.mono && c.mono.categoria) || "";
+    R.bruto = (LC_MONO[anio] || LC_MONO[LC_ANIOS[LC_ANIOS.length - 1]])[R.cat] || 0;
+    Object.assign(R, { tramo: null, piso: R.bruto, pisoEsc: R.bruto, pisoAct: 0, credito: 0, bonif: [], bonifPct: 0, bonifImp: 0, desc: 0, tope: 0, descAp: 0, neto: R.bruto, tributo: R.bruto, pisoAplica: false, topeAplica: false, hay: R.bruto > 0 });
+    return R;
+  }
+  const tabla = reg === "pozos" ? T.B : reg === "crudo" ? T.C : T.A, tr = lcTramo(tabla, base), bruto = tr.tributo, pisoEsc = tabla[0][1];
+  let pisoAct = 0;
+  if (reg === "otras" || reg === "banco") { const it = LC_MIN[reg].find((x) => x[0] === d.actMin); pisoAct = it ? it[1] : 0; }
+  if (reg === "crudo" && d.ejido) pisoAct = Math.max(pisoAct, LC_EJIDO_MIN);
+  const piso = Math.max(pisoEsc, pisoAct), admite = reg !== "banco" && !d.inc131;
+  const bonif = [
+    { k: "gral", l: "General · 70 % o más del personal en la ciudad", p: P.bGral, ok: R.cred.n > 0 && persPct >= P.umbral, cond: true },
+    { k: "neuq", l: "Comercio neuquino · 2 años o más de domicilio en la ciudad", p: P.bNeuq, ok: !!d.neuq },
+    { k: "comb", l: "Combustibles y concesionarios de automotores", p: P.bComb, ok: !!d.comb },
+    { k: "parque", l: "Radicada en el Parque Industrial", p: P.bParque, ok: !!d.parque },
+    { k: "flota", l: "Flota de más de 40 vehículos radicados en la ciudad", p: P.bFlota, ok: !!d.flota },
+  ];
+  const bonifPct = admite ? bonif.reduce((t, b) => t + (b.ok ? b.p : 0), 0) : 0, bonifImp = round2(bruto * bonifPct / 100);
+  const credito = R.cred.total, desc = round2(credito + bonifImp), tope = round2(bruto * P.tope / 100), descAp = Math.min(desc, tope), neto = round2(bruto - descAp), tributo = Math.max(neto, piso);
+  return Object.assign(R, { tramo: tr, bruto, piso, pisoEsc, pisoAct, credito, bonif, admite, bonifPct, bonifImp, desc, tope, descAp, neto, tributo, pisoAplica: piso > neto, topeAplica: desc > tope, hay: base > 0 });
+}
+function lcAvisos(cid, anio, V) {
+  const d = lcGet(cid, anio), out = [];
+  if (V.reg === "mono") { if (!V.cat) out.push("Elegí la categoría del Monotributo."); out.push("Los monotributistas no presentan la DDJJ anual: tributan el importe fijo de su categoría (art. 124)."); return out; }
+  if (!(V.base > 0)) out.push("Cargá los ingresos brutos de " + (anio - 1) + " (IIBB) o usá los de la app.");
+  if (!lcTxt(d, "licencia")) out.push("Falta el número de licencia comercial.");
+  if ((V.reg === "otras" || V.reg === "banco") && !V.pisoAct) out.push("Elegí la actividad: define el tributo mínimo anual.");
+  if (V.sug && V.provManual && Math.abs(V.sug.monto - V.prov) > 1) out.push("Los ingresos cargados difieren de los de IIBB en la app (" + fmtMoney(V.sug.monto) + ").");
+  if (V.art122 && !(num(d.gProv) > 0)) out.push("Cargá los gastos imputables a la provincia: son el divisor del coeficiente (art. 122).");
+  if (!(V.pctEst > 0 && V.pctEst <= 100)) out.push("El porcentaje de ingresos del establecimiento debe estar entre 0 y 100.");
+  const sinCuil = (d.pers || []).filter((p) => socDigits(p.cuil).length !== 11);
+  if (sinCuil.length) out.push(`Falta el CUIL de ${sinCuil.map((p) => p.nombre || "una persona").join(", ")}.`);
+  const dup = (d.pers || []).filter((p, i) => socDigits(p.cuil).length === 11 && d.pers.findIndex((q) => socDigits(q.cuil) === socDigits(p.cuil)) !== i);
+  if (dup.length) out.push(`CUIL repetido en el personal: ${dup.map((p) => p.nombre || p.cuil).join(", ")}.`);
+  if (d.inc131) out.push("Con DDJJ anteriores sin presentar o fuera de término no corresponden las bonificaciones (art. 131). El crédito por personal sí se aplica.");
+  return out;
+}
+function lcPresInfo(cid, anio) {
+  const r = lcGet(cid, anio), na = (r.reg || "gral") === "mono", dias = r.vence ? diasHasta(r.vence) : null;
+  return { pres: !!r.pres, na, vence: r.vence || "", dias, fPres: r.pres && r.presFecha ? fmtFechaCorta(r.presFecha) : "" };
+}
+function lcSetPres(cid, anio, on) { lcSet(cid, anio, "pres", !!on); lcSet(cid, anio, "presFecha", on ? hoyISO() : ""); }
+function lcRegTxt(V) { const r = LC_REG.find((x) => x[0] === V.reg); return V.reg === "mono" ? "Monotributo" + (V.cat ? " · cat. " + V.cat : "") : r ? r[1] : ""; }
+function lcTramoTxt(V) {
+  if (!V.tramo) return "—";
+  const t = V.tramo; return t.desde ? `más de $ ${socEnt(t.desde)}${t.hasta !== null ? " hasta $ " + socEnt(t.hasta) : " en adelante"}` : `hasta $ ${socEnt(t.hasta)}`;
+}
+
+// ---- Personal: archivo "CUIL, Apellido y nombre[, I]" (I = incorporado en el año) ----
+function lcParseTxt(txt) {
+  return String(txt || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
+    const parts = l.split(","), cuil = socDigits(parts.shift()); let inc = false;
+    if (parts.length > 1 && parts[parts.length - 1].trim().toUpperCase() === "I") { inc = true; parts.pop(); }
+    return { id: socNewId(), cuil, nombre: parts.join(",").trim(), cat: "", inc };
+  }).filter((p) => p.cuil || p.nombre);
+}
+function lcPersTxt(cid, anio) { return (lcGet(cid, anio).pers || []).map((p) => socDigits(p.cuil) + ", " + (p.nombre || "").toUpperCase() + (p.inc ? ", I" : "")).join("\r\n"); }
+
+// ---- Lista de contribuyentes ----
+function renderLcLista() {
+  const anio = state.lcAnio, filtro = state.lcFiltro || "todos";
+  const todas = lcContribuyentes().map((c) => ({ c, v: lcCalc(c.id, anio), d: lcGet(c.id, anio), i: lcPresInfo(c.id, anio) }));
+  const obl = todas.filter((f) => !f.i.na), env = obl.filter((f) => f.i.pres).length, pend = obl.filter((f) => !f.i.pres), pct = obl.length ? Math.round(env / obl.length * 100) : 0;
+  const filas = todas.filter((f) => filtro === "pend" ? !f.i.na && !f.i.pres : filtro === "env" ? f.i.pres : true);
+  const seg = (k, l) => `<button class="${filtro === k ? "on" : ""}" data-action="lc-filtro" data-filtro="${k}">${l}</button>`;
+  const trs = filas.map((f) => {
+    const { c, v, d, i } = f, u = i.dias != null ? urgenciaDe(i.dias) : "";
+    const pres = i.na ? `<span class="hint-sm">No presenta DDJJ</span>` : `<button type="button" class="est ${i.pres ? "est-ok" : i.dias != null && i.dias < 0 ? "est-venc" : "est-falta"}" title="${i.pres ? "DDJJ presentada. Click para desmarcar." : "DDJJ sin presentar. Click para marcarla como presentada."}" data-action="lc-pres-toggle" data-client="${c.id}">${i.pres ? "✓ Presentada" : i.dias != null && i.dias < 0 ? "⛔ Sin presentar" : "○ Sin presentar"}</button>${i.pres && i.fPres ? `<div class="hint-sm">el ${i.fPres}</div>` : ""}`;
+    const vence = i.na ? `<span class="hint-sm">—</span>` : `<input type="date" data-action="lc-vence" data-client="${c.id}" value="${i.vence}" title="Vencimiento de la DDJJ" style="padding:3px 6px;font-size:12px;">${i.vence && !i.pres ? `<div class="hint-sm u-${u}">${URG_ICON[u]} ${diasTexto(i.dias)}</div>` : ""}`;
+    return `<tr>
+      <td style="text-align:left;"><button type="button" class="linklike" data-action="lc-open" data-client="${c.id}"><b>${escapeHtml(c.name)}</b></button><div class="hint-sm">${escapeHtml(c.cuit || "CUIT sin cargar")}${d.licencia ? " · Lic. " + escapeHtml(d.licencia) : ""}</div></td>
+      <td style="text-align:center;">${v.reg === "mono" ? "—" : v.base ? fmtMoney(v.base) : "—"}<div class="hint-sm">${v.reg === "mono" ? "" : v.base ? lcTramoTxt(v) : ""}</div></td>
+      <td style="text-align:center;">${escapeHtml(lcRegTxt(v))}</td>
+      <td style="text-align:center;">${v.hay ? `<div style="font-weight:700;">${fmtMoney(v.tributo)}</div>${v.pisoAplica ? `<div class="hint-sm">tributo mínimo</div>` : ""}` : `<span class="hint-sm">Sin datos</span>`}</td>
+      <td style="text-align:center;">${vence}</td>
+      <td style="text-align:center;">${pres}</td>
+      <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="lc-quitar" data-client="${c.id}" title="Quitar de Licencia comercial">✕</button></td></tr>`;
+  }).join("") || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:28px;">${todas.length ? "No hay contribuyentes en este filtro." : "Todavía no agregaste contribuyentes. Tocá + Agregar contribuyente y elegí entre tus clientes."}</td></tr>`;
+  return `
+    <div class="topbar"><div class="client-title"><h1>Licencia comercial · Neuquén</h1><div class="meta"><span>DDJJ anual de Industria, Comercio y Prestadores de Servicios</span><span>·</span><span>ejercicio ${anio} · ingresos ${anio - 1}</span></div></div>
+      <div class="topbar-actions">
+        <select data-action="lc-anio" title="Ejercicio fiscal">${LC_ANIOS.map((a) => `<option value="${a}" ${a === anio ? "selected" : ""}>Ejercicio ${a}</option>`).join("")}</select>
+        <button class="btn" data-action="lc-params-open" title="Crédito por personal y bonificaciones">⚙ Parámetros ${anio}</button>
+        <button class="btn btn-accent" data-action="lc-add-open">+ Agregar contribuyente</button></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="kpi-row">
+        <div class="kpi"><span class="k-label">DDJJ presentadas</span><span class="k-value">${env} / ${obl.length}</span><div class="bar" style="margin-top:2px;"><i style="width:${pct}%;background:var(--favor);"></i></div><span class="k-sub">${pct}% presentado</span></div>
+        ${kpiProxVenc(pend)}
+      </div>
+      <div class="card"><div class="card-head"><h3>DDJJ por contribuyente</h3><div class="seg">${seg("todos", "Todos")}${seg("pend", "Pendientes")}${seg("env", "Presentadas")}</div></div>
+        <div class="card-body"><div class="table-scroll"><table class="panel-table" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col style="width:240px"><col><col><col><col><col><col style="width:50px"></colgroup><tr><th style="text-align:left;">Contribuyente</th><th style="text-align:center;">Base · ingresos ${anio - 1}</th><th style="text-align:center;">Régimen</th><th style="text-align:center;">Tributo anual</th><th style="text-align:center;">Vence</th><th style="text-align:center;">DDJJ presentada</th><th></th></tr>${trs}</table></div>
+        <p class="foot-note">Escalas de la Ordenanza Tarifaria 15065 (Anexo IV). La base son los ingresos brutos declarados en IIBB en el año calendario anterior. El organismo fiscal puede actualizar los importes durante el año (art. 331): revisalos en ⚙ Parámetros. El vencimiento de la DDJJ lo cargás a mano.</p></div></div>
+    </div>`;
+}
+
+// ---- Detalle ----
+function lcInp(path, ph) { const d = lcGet(state.lcCli, state.lcAnio); return `<input type="text" inputmode="decimal" data-kind="money" data-action="lc-f" data-gp="${path}" value="${escapeHtml(rawOrBlank(d[path], "money"))}" placeholder="${ph || "0,00"}">`; }
+function lcTxtInp(path, ph, w) { const d = lcGet(state.lcCli, state.lcAnio); return `<input type="text" data-action="lc-f" data-gp="${path}" value="${escapeHtml(d[path] == null ? "" : String(d[path]))}" placeholder="${ph || ""}" style="width:${w || "100%"};box-sizing:border-box;">`; }
+function lcChk(path, on) { return `<input type="checkbox" data-action="lc-chk" data-gp="${path}" ${on ? "checked" : ""}>`; }
+function lcIngHint(V, anio) {
+  if (V.sug && !V.provManual) return `Tomado del IIBB de la app. Si lo escribís acá, manda lo tuyo.`;
+  if (V.sug) return `IIBB en la app: ${fmtMoney(V.sug.monto)} ${Math.abs(V.sug.monto - V.prov) > 1 ? `<button class="btn btn-sm" data-action="lc-usar-iibb">Usar</button>` : "· coincide"}`;
+  return `Sin IIBB Neuquén ${anio - 1} en la app: cargalo a mano (total de la DDJJ anual).`;
+}
+function lcCalcInner(V, anio) {
+  const fila = (l, v, cls, h) => `<tr class="${cls || ""}"><td>${l}${h ? `<div class="hint-sm">${h}</div>` : ""}</td><td class="num">${v}</td></tr>`;
+  if (V.reg === "mono") return `<table class="gan-t"><tbody>${fila("Categoría del Monotributo", V.cat ? "<b>" + V.cat + "</b>" : "—")}${fila("Tributo anual de la categoría", fmtMoneyRaw(V.bruto), "", "no presenta DDJJ anual (art. 124)")}${fila("Tributo anual a abonar", bpCopyBtn(V.tributo), "tot")}</tbody></table>`;
+  const nota = V.pisoAplica ? `<div style="padding:8px 12px;font-size:12px;color:var(--muted);">Los descuentos no bajan el tributo del mínimo: ${V.pisoAct > V.pisoEsc ? "tributo mínimo de la actividad" : "primer rango de la escala"} (art. 137).</div>` : V.topeAplica ? `<div style="padding:8px 12px;font-size:12px;color:var(--muted);">Los descuentos llegan al tope del ${socEnt(V.P.tope)} % del tributo (art. 137).</div>` : "";
+  const esc = V.reg === "pozos" ? "apartado B" : V.reg === "crudo" ? "apartado C" : "apartado A";
+  return `<table class="gan-t"><tbody>
+    ${fila("Base imponible", fmtMoneyRaw(V.base), "", V.meses < 12 ? "anualizada: " + V.meses + " meses de actividad (art. 120)" : "ingresos del establecimiento")}
+    ${fila("Tramo de la escala · " + esc, lcTramoTxt(V), "auto")}
+    ${fila("Tributo según escala", fmtMoneyRaw(V.bruto), "sub")}
+    ${fila("(−) Crédito por personal ocupado", fmtMoneyRaw(V.credito), "", V.cred.n + " " + (V.cred.n === 1 ? "persona" : "personas") + (V.cred.inc ? " · " + V.cred.inc + " incorporada" + (V.cred.inc === 1 ? "" : "s") : ""))}
+    ${fila("(−) Bonificaciones" + (V.bonifPct ? " · " + socEnt(V.bonifPct) + " %" : ""), fmtMoneyRaw(V.bonifImp), "", V.reg === "banco" ? "los bancos solo computan el crédito por personal" : V.d.inc131 ? "no corresponden (art. 131)" : "")}
+    ${fila("Descuentos aplicados", fmtMoneyRaw(V.descAp), "", "tope " + socEnt(V.P.tope) + " % del tributo")}
+    ${fila("Tributo luego de descuentos", fmtMoneyRaw(V.neto))}
+    ${fila("Tributo mínimo", fmtMoneyRaw(V.piso), "auto", V.pisoAct > V.pisoEsc ? "el de la actividad" : "primer rango de la escala")}
+    ${fila("Tributo anual a abonar", bpCopyBtn(V.tributo), "tot")}
+  </tbody></table>${nota}`;
+}
+function lcPersTabla(cid, anio, V) {
+  const inp = "width:100%;box-sizing:border-box;min-width:0;";
+  const filas = V.cred.filas.map((f) => `<tr><td><input type="text" data-action="lc-p" data-id="${f.p.id}" data-k="cuil" value="${escapeHtml(f.p.cuil || "")}" placeholder="CUIL" style="${inp}text-align:left;"></td>
+    <td style="text-align:left;"><input type="text" data-action="lc-p" data-id="${f.p.id}" data-k="nombre" value="${escapeHtml(f.p.nombre || "")}" placeholder="Apellido y nombre" style="${inp}text-align:left;"></td>
+    <td><select data-action="lc-p-cat" data-id="${f.p.id}" style="width:100%;">${LC_CAT.map((x) => `<option value="${x[0]}" ${(f.p.cat || "") === x[0] ? "selected" : ""}>${x[1]}</option>`).join("")}</select></td>
+    <td style="text-align:center;"><input type="checkbox" data-action="lc-p-inc" data-id="${f.p.id}" ${f.p.inc ? "checked" : ""} title="Incorporada durante ${anio}: suma el 50 % del crédito (art. 129)"></td>
+    <td class="num" data-lrow="${f.p.id}">${fmtMoneyRaw(f.imp)}</td>
+    <td style="text-align:right;"><button class="btn btn-sm btn-ghost" data-action="lc-p-del" data-id="${f.p.id}" title="Quitar">✕</button></td></tr>`).join("");
+  return `<table class="gan-t soc-socios" style="table-layout:fixed;width:100%;min-width:0;"><colgroup><col style="width:150px"><col><col style="width:290px"><col style="width:120px"><col style="width:130px"><col style="width:40px"></colgroup><thead><tr><th style="text-align:left;">CUIL</th><th style="text-align:left;">Apellido y nombre</th><th style="text-align:left;">Categoría</th><th title="Incorporada durante el año fiscal (la marca “I” del archivo)">Incorporada ${anio}</th><th>Crédito</th><th></th></tr></thead><tbody>${filas || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px;">Todavía no cargaste personal. Sin personal no hay crédito ni bonificación general.</td></tr>`}
+    <tr class="tot"><td style="text-align:left;">Total</td><td style="text-align:left;" data-lv="persN">${V.cred.n} ${V.cred.n === 1 ? "persona" : "personas"}</td><td></td><td class="num" data-lv="persInc">${V.cred.inc || ""}</td><td class="num" data-lv="persCred">${fmtMoneyRaw(V.cred.total)}</td><td></td></tr></tbody></table>`;
+}
+function lcControles(cid, anio, V) {
+  const d = lcGet(cid, anio), ctl = d.ctl || {};
+  return [
+    { k: "base", l: "Ingresos brutos conciliados con la DDJJ anual de IIBB (Sifere)", ok: !!ctl.base },
+    { k: "pers", l: "Archivo de personal cargado", ok: V.cred.n > 0, auto: true },
+    { k: "rod", l: "Rodados: informados o confirmado “No declara”", ok: !!ctl.rod },
+    { k: "pub", l: "Publicidad y propaganda: declarada o confirmado que no declara", ok: !!ctl.pub },
+    { k: "esp", l: "Uso de espacios públicos y privados municipales: revisado", ok: !!ctl.esp },
+  ];
+}
+function renderLcDetalle() {
+  const c = getClient(state.lcCli);
+  if (!c) { state.lcCli = null; return renderLcLista(); }
+  const anio = state.lcAnio, d = lcGet(c.id, anio), V = lcCalc(c.id, anio), P = V.P, av = lcAvisos(c.id, anio, V), i = lcPresInfo(c.id, anio), mono = V.reg === "mono";
+  const avCard = av.length ? `<div class="card bp-avisos"><div class="card-head"><h3>⚠ Controles</h3></div><div class="card-body"><ul style="margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px;" data-lav>${av.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></div></div>` : `<div data-lav></div>`;
+  const regSel = `<select data-action="lc-reg" style="width:100%;">${LC_REG.map((x) => `<option value="${x[0]}" ${V.reg === x[0] ? "selected" : ""}>${x[1]}</option>`).join("")}</select>`;
+  let extraReg = "";
+  if (V.reg === "otras" || V.reg === "banco") extraReg = `<tr><td>Actividad<div class="hint-sm">define el tributo mínimo anual</div></td><td class="num"><select data-action="lc-actmin" style="width:100%;"><option value="">— elegir —</option>${LC_MIN[V.reg].map((x) => `<option value="${escapeHtml(x[0])}" ${d.actMin === x[0] ? "selected" : ""}>${x[0]} · mín. $ ${socEnt(x[1])}</option>`).join("")}</select></td></tr>`;
+  else if (V.reg === "crudo") extraReg = `<tr><td>Extracción dentro del ejido municipal<div class="hint-sm">el tributo mínimo sube a $ ${socEnt(LC_EJIDO_MIN)}</div></td><td class="num">${lcChk("ejido", d.ejido)}</td></tr>`;
+  else if (mono) extraReg = `<tr><td>Categoría del Monotributo<div class="hint-sm">${c.mono && c.mono.categoria ? "en la app: " + c.mono.categoria : "tomá la categoría vigente"}</div></td><td class="num"><select data-action="lc-monocat"><option value="">— elegir —</option>${MONO_CATS.map((k) => `<option value="${k}" ${V.cat === k ? "selected" : ""}>${k}</option>`).join("")}</select></td></tr>`;
+  const c1 = `<div class="card"><div class="card-head"><h3><span class="gan-n">1</span> Papel de trabajo · base imponible</h3></div><div class="card-body" style="padding:0;"><table class="gan-t" style="table-layout:fixed;width:100%;"><colgroup><col style="width:46%"><col></colgroup><tbody>
+    <tr><td>Licencia comercial N°</td><td class="num">${lcTxtInp("licencia", "N°")}</td></tr>
+    <tr><td>Actividad<div class="hint-sm">código y descripción municipal</div></td><td class="num">${lcTxtInp("actividad", "ej. 2127 ELAB. DE VIANDAS")}</td></tr>
+    <tr><td>Régimen<div class="hint-sm">${(LC_REG.find((x) => x[0] === V.reg) || [])[2] || ""}</div></td><td class="num">${regSel}</td></tr>
+    ${extraReg}
+    ${mono ? "" : `<tr><td>Ingresos brutos ${anio - 1} computables a la provincia<div class="hint-sm" data-lv="ingHint">${lcIngHint(V, anio)}</div></td><td class="num">${lcInp("ingProv", V.sug ? fmtMoneyRaw(V.sug.monto) : "0,00")}</td></tr>
+    <tr><td>Sin ingresos asignables a Neuquén Capital<div class="hint-sm">art. 122: coeficiente de gastos</div></td><td class="num">${lcChk("art122", d.art122)}</td></tr>
+    ${V.art122 ? `<tr><td>Gastos devengados asignables a Neuquén Capital</td><td class="num">${lcInp("gCap")}</td></tr><tr><td>Gastos imputables a la provincia</td><td class="num">${lcInp("gProv")}</td></tr>` : `<tr><td>Ingresos asignables a Neuquén Capital<div class="hint-sm">en blanco = los de la provincia</div></td><td class="num">${lcInp("ingCap", fmtMoneyRaw(V.prov))}</td></tr>`}
+    <tr><td>% de ingresos de esta licencia<div class="hint-sm">varias licencias en la ciudad; en blanco = 100</div></td><td class="num"><input type="text" inputmode="decimal" data-action="lc-f" data-gp="pctEst" value="${escapeHtml(d.pctEst == null ? "" : String(d.pctEst))}" placeholder="100"></td></tr>
+    <tr><td>Meses de actividad en ${anio - 1}<div class="hint-sm">si inició en ${anio - 1} se anualiza (art. 120); en blanco = 12</div></td><td class="num"><input type="text" inputmode="numeric" data-action="lc-f" data-gp="meses" value="${escapeHtml(d.meses == null ? "" : String(d.meses))}" placeholder="12"></td></tr>
+    <tr class="auto"><td>Ingresos del establecimiento · base</td><td class="num" data-lv="base">${fmtMoneyRaw(V.base)}</td></tr>`}
+    </tbody></table></div></div>`;
+  const c2 = `<div class="card"><div class="card-head"><h3><span class="gan-n">2</span> Determinación del tributo anual</h3></div><div class="card-body" style="padding:0;" data-lcalc>${lcCalcInner(V, anio)}</div></div>`;
+  const bf = V.bonif || [];
+  const c3 = mono ? "" : `<div class="card"><div class="card-head"><h3><span class="gan-n">3</span> Bonificaciones · arts. 132 a 136</h3></div><div class="card-body" style="padding:0;"><table class="gan-t" style="table-layout:fixed;width:100%;"><colgroup><col style="width:62%"><col></colgroup><tbody>
+    <tr><td>% del personal que trabaja en la ciudad de Neuquén<div class="hint-sm">${P.bGral} % si es ${socEnt(P.umbral)} % o más y hay personal cargado; en blanco = 100 %</div></td><td class="num"><input type="text" inputmode="decimal" data-action="lc-f" data-gp="persNqn" value="${escapeHtml(d.persNqn == null ? "" : String(d.persNqn))}" placeholder="100"></td></tr>
+    <tr><td>Comercio neuquino · ${P.bNeuq} %<div class="hint-sm">domicilio legal, fiscal y asiento principal en la ciudad hace 2 años o más</div></td><td class="num">${lcChk("neuq", d.neuq)}</td></tr>
+    <tr><td>Combustibles o concesionaria · ${P.bComb} %</td><td class="num">${lcChk("comb", d.comb)}</td></tr>
+    <tr><td>Radicada en el Parque Industrial · ${P.bParque} %</td><td class="num">${lcChk("parque", d.parque)}</td></tr>
+    <tr><td>Flota de más de 40 vehículos · ${P.bFlota} %<div class="hint-sm">radicados en la ciudad, con el beneficio del Título XV</div></td><td class="num">${lcChk("flota", d.flota)}</td></tr>
+    <tr><td>Tiene DDJJ anteriores sin presentar o fuera de término<div class="hint-sm">art. 131: pierde las bonificaciones, no el crédito por personal</div></td><td class="num">${lcChk("inc131", d.inc131)}</td></tr>
+    <tr class="auto"><td>Bonificaciones que corresponden</td><td class="num" data-lv="bonifSum">${V.admite ? socEnt(V.bonifPct) + " %" : "ninguna"}</td></tr>
+    </tbody></table></div></div>`;
+  const k = lcControles(c.id, anio, V), listos = k.filter((x) => x.ok).length;
+  const chk = k.map((x) => `<div class="chk">${x.auto ? `<span class="b ${x.ok ? "on" : ""}">${x.ok ? "✓" : ""}</span>` : ""}<div>${x.auto ? escapeHtml(x.l) : `<label style="cursor:pointer;display:flex;gap:6px;align-items:center;"><input type="checkbox" data-action="lc-ctl" data-k="${x.k}" ${x.ok ? "checked" : ""}> ${escapeHtml(x.l)}</label>`}${!x.ok && x.auto ? ` <span class="pill pagar">falta</span>` : ""}</div></div>`).join("");
+  const c4 = mono ? "" : `<div class="card"><div class="card-head"><h3><span class="gan-n">4</span> Control antes de presentar</h3><span class="hint">${listos} de ${k.length} listos</span></div><div class="card-body">${chk}
+    <div class="hint-sm" style="margin-top:8px;">Código de validación del acuse<div style="margin-top:4px;">${lcTxtInp("acuse", "N° de validación", "180px")}</div></div></div></div>`;
+  const c5 = mono ? "" : `<div class="card"><div class="card-head"><h3><span class="gan-n">5</span> Personal ocupado · archivo para la DDJJ</h3><div style="display:flex;gap:8px;flex-wrap:wrap;"><label class="btn btn-sm" style="cursor:pointer;" title="Cargar el archivo de personal: una persona por línea, CUIL, Apellido y nombre y una “I” si se incorporó en el año"><input type="file" accept=".txt,text/plain" data-action="lc-pers-import" style="display:none;">⬆ Importar TXT</label><button class="btn btn-sm" data-action="lc-pers-txt" title="Descarga el archivo en el mismo formato que pide el sistema municipal">⬇ Exportar TXT</button></div></div><div class="card-body" style="padding:0;"><div class="table-scroll" data-lpers>${lcPersTabla(c.id, anio, V)}</div>
+    <div style="padding:10px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><button class="btn btn-sm" data-action="lc-p-add">+ Agregar persona</button><span class="hint-sm">Crédito por persona: $ ${socEnt(P.credito)} (art. 128). Inscripto en desocupados ×3; mujer sostén de familia, persona trans o con discapacidad ×4; las incorporadas en ${anio} suman además el 50 % (art. 129).</span></div></div></div>`;
+  return `
+    <div class="topbar"><div class="client-title"><button class="btn btn-sm btn-ghost" data-action="lc-back" style="margin-bottom:4px;">← Licencia comercial</button><h1>${escapeHtml(c.name)}</h1><div class="meta"><span>Licencia comercial · DDJJ ${anio}</span>${c.cuit ? `<span>·</span><span>${escapeHtml(c.cuit)}</span>` : ""}${d.licencia ? `<span>·</span><span>Lic. ${escapeHtml(d.licencia)}</span>` : ""}</div></div>
+      <div class="topbar-actions">
+        <select data-action="lc-anio" title="Ejercicio fiscal">${LC_ANIOS.map((a) => `<option value="${a}" ${a === anio ? "selected" : ""}>Ejercicio ${a}</option>`).join("")}</select>
+        <label class="btn" style="cursor:pointer;" title="Cargar de una vez los datos desde un archivo .json"><input type="file" accept=".json,application/json" data-action="lc-import" style="display:none;">⬆ Importar</label>
+        <button class="btn" data-action="lc-params-open" title="Crédito por personal y bonificaciones">⚙ Parámetros</button>
+        ${mono ? "" : `<label class="btn" title="Vencimiento de la DDJJ">Vence <input type="date" data-action="lc-vence" data-client="${c.id}" value="${escapeHtml(i.vence)}" style="padding:2px 6px;font-size:12px;"></label>
+        <label class="btn" style="cursor:pointer;"><input type="checkbox" data-action="lc-pres" data-client="${c.id}" ${i.pres ? "checked" : ""}> DDJJ presentada</label>`}
+        <button class="btn btn-accent" data-action="lc-excel">⬇ Exportar Excel</button></div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      ${avCard}
+      <div class="gan-grid">${c1}${c2}</div>
+      ${mono ? "" : `<div class="gan-grid">${c3}${c4}</div>`}
+      ${c5}
+    </div>`;
+}
+function lcRefrescar() {
+  const cid = state.lcCli; if (!cid || state.view !== "lc") return;
+  const anio = state.lcAnio, V = lcCalc(cid, anio), set = (k, t) => document.querySelectorAll(`[data-lv="${k}"]`).forEach((el) => { el.textContent = t; });
+  const box = document.querySelector("[data-lcalc]"); if (box) box.innerHTML = lcCalcInner(V, anio);
+  set("base", fmtMoneyRaw(V.base)); set("persN", V.cred.n + (V.cred.n === 1 ? " persona" : " personas")); set("persInc", V.cred.inc || ""); set("persCred", fmtMoneyRaw(V.cred.total)); set("bonifSum", V.admite ? socEnt(V.bonifPct) + " %" : "ninguna");
+  const h = document.querySelector('[data-lv="ingHint"]'); if (h && !h.contains(document.activeElement)) h.innerHTML = lcIngHint(V, anio);
+  V.cred.filas.forEach((f) => { const el = document.querySelector(`[data-lrow="${f.p.id}"]`); if (el) el.textContent = fmtMoneyRaw(f.imp); });
+  const av = lcAvisos(cid, anio, V), ul = document.querySelector("[data-lav]");
+  if (ul && ul.tagName === "UL") { ul.innerHTML = av.map((x) => `<li>${escapeHtml(x)}</li>`).join(""); ul.closest(".card").style.display = av.length ? "" : "none"; }
+}
+function lcPostRender() { if (state.view === "lc" && state.lcCli) lcRefrescar(); }
+
+// ---- Modales ----
+function renderLcAddModal() {
+  const g = lcDb(), libres = state.clients.filter((c) => !g.clientes[c.id]).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
+  renderMultiAddModal("Agregar contribuyentes", libres, "lc-add-ok", "Todos tus clientes ya están en Licencia comercial.");
+}
+function renderLcParamsModal() {
+  const anio = state.lcAnio, P = lcParams(anio), base = LC_PARAMS_DEFAULT[anio] || LC_PARAMS_DEFAULT[LC_ANIOS[LC_ANIOS.length - 1]], ov = lcDb().params[anio] || {};
+  const fila = (k, l, suf) => `<tr><td>${l}</td><td class="num"><input type="text" inputmode="decimal" data-action="lc-param" data-campo="${k}" value="${escapeHtml(ov[k] !== undefined ? String(ov[k]) : "")}" placeholder="${socEnt(base[k])}"> ${suf || "%"}</td></tr>`;
+  document.getElementById("modal-root").innerHTML = `<div class="modal-backdrop"><div class="modal" style="max-width:560px;">
+    <div class="modal-head"><h3>Parámetros del ejercicio ${anio}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+    <div class="modal-body"><p class="hint-sm">Dejá en blanco para usar el valor de la ordenanza (gris). Las escalas del Anexo IV y los mínimos por actividad están cargados tal cual la Ordenanza 15065; si el organismo fiscal actualiza los importes durante el año (art. 331), avisame para cargar la escala nueva.</p>
+      <table class="gan-t"><tbody>${fila("credito", "Crédito por empleado (art. 128)", "$")}${fila("bGral", "Bonificación general")}${fila("umbral", "Personal en la ciudad para la bonificación general")}${fila("bNeuq", "Comercio neuquino")}${fila("bComb", "Combustibles y concesionarios")}${fila("bParque", "Parque Industrial")}${fila("bFlota", "Flota de vehículos")}${fila("tope", "Tope de descuentos sobre el tributo")}</tbody></table></div>
+    <div class="modal-foot"><button class="btn" data-action="lc-params-reset">Volver a los valores de la ordenanza</button><button class="btn btn-accent" data-action="close-modal">Listo</button></div></div></div>`;
+  if (typeof wireModalBackdropClose === "function") wireModalBackdropClose();
+}
+
+// ---- Importar / exportar ----
+async function lcImportar(obj) {
+  const c = getClient(state.lcCli), anio = obj && obj.anio ? Number(obj.anio) : state.lcAnio;
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) { showToast("El archivo no es válido"); return; }
+  if (obj.cuit && c && c.cuit && socDigits(obj.cuit) !== socDigits(c.cuit) && !(await appConfirm(`El archivo es del CUIT ${obj.cuit} y este contribuyente tiene ${c.cuit}. ¿Importar igual?`, { ok: "Importar igual" }))) return;
+  const d = lcData(state.lcCli, anio);
+  if ((d.ingProv || d.licencia || d.pers.length) && !(await appConfirm(`Ya hay datos cargados en ${anio}. ¿Reemplazar los datos por los del archivo?`, { title: "Importar", ok: "Reemplazar" }))) return;
+  ["licencia", "actividad", "acuse", "persNqn", "pctEst", "meses", "actMin", "monoCat"].forEach((k) => { if (obj[k] !== undefined) d[k] = String(obj[k]); });
+  ["ingProv", "ingCap", "gCap", "gProv"].forEach((k) => { if (obj[k] !== undefined) d[k] = String(obj[k]).trim() === "" ? "" : fmtMoneyRaw(num(obj[k])); });
+  if (obj.reg && LC_REG.some((x) => x[0] === obj.reg)) d.reg = obj.reg;
+  ["art122", "ejido", "neuq", "comb", "parque", "flota", "inc131"].forEach((k) => { if (typeof obj[k] === "boolean") d[k] = obj[k]; });
+  if (obj.presentada) { d.pres = true; d.presFecha = String(obj.presentada); }
+  if (obj.vence) d.vence = String(obj.vence);
+  if (Array.isArray(obj.personal)) d.pers = obj.personal.map((p) => ({ id: socNewId(), cuil: socDigits(p.cuil), nombre: p.nombre || "", cat: p.cat || "", inc: !!p.inc }));
+  persistExtras(); state.lcAnio = anio; render();
+  showToast("Datos importados en " + anio);
+}
+function lcGuardarTxt(txt, filename) {
+  const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+  if (state.downloads) state.downloads.save({ filename, data: blob }).then(() => showToast("Archivo descargado")).catch((err) => { if (!(err && err.code === "declined")) showToast("No se pudo descargar el archivo"); });
+  else { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); }
+}
+function exportLcExcel() {
+  const cid = state.lcCli, anio = state.lcAnio, c = getClient(cid); if (!c) return;
+  const V = lcCalc(cid, anio), d = lcGet(cid, anio), wb = XLSX.utils.book_new(), hl = new Map();
+  const rows = [["LICENCIA COMERCIAL · NEUQUÉN · DDJJ " + anio + " · " + (c.name || "").toUpperCase(), ""], [""], ["Licencia comercial N°", d.licencia || ""], ["Actividad", d.actividad || ""], ["Régimen", lcRegTxt(V)]];
+  if (V.reg === "mono") { rows.push(["Tributo anual de la categoría", V.bruto]); hl.set(rows.length, { fg: "3D2273", bg: "F5F1FC" }); rows.push(["Tributo anual a abonar", V.tributo]); }
+  else {
+    rows.push(["Ingresos brutos " + (anio - 1) + " computables a la provincia", V.prov], ["Ingresos asignables a Neuquén Capital", V.cap], ["% de ingresos de esta licencia", V.pctEst + " %"], ["Meses de actividad", V.meses], ["Base imponible", V.base], ["Tramo de la escala", lcTramoTxt(V)], [""],
+      ["Tributo según escala", V.bruto], ["(−) Crédito por personal ocupado", V.credito], ["(−) Bonificaciones" + (V.bonifPct ? " · " + V.bonifPct + " %" : ""), V.bonifImp], ["Descuentos aplicados (tope " + V.P.tope + " %)", V.descAp], ["Tributo luego de descuentos", V.neto], ["Tributo mínimo", V.piso]);
+    hl.set(rows.length + 1, { fg: "3D2273", bg: "F5F1FC" }); rows.push(["Tributo anual a abonar", V.tributo]);
+  }
+  XLSX.utils.book_append_sheet(wb, newSheet(rows, { colWidths: [60, 28], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }], headerRows: [], highlightRows: hl, wrapCols: [0], skipCols: [] }), "Licencia comercial");
+  if (V.reg !== "mono") {
+    const pe = [["Personal ocupado · " + (c.name || "") + " · " + anio, "", "", "", ""], [""], ["CUIL", "Apellido y nombre", "Categoría", "Incorporada " + anio, "Crédito"]].concat(V.cred.filas.map((f) => [f.p.cuil || "", f.p.nombre || "", (LC_CAT.find((x) => x[0] === (f.p.cat || "")) || LC_CAT[0])[1], f.p.inc ? "Sí" : "", f.imp]), [["TOTAL", V.cred.n + " personas", "", V.cred.inc || "", V.cred.total]]);
+    XLSX.utils.book_append_sheet(wb, newSheet(pe, { colWidths: [18, 40, 40, 16, 18], merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }], headerRows: [2], wrapCols: [], skipCols: [] }), "Personal");
+  }
+  socGuardarXlsx(wb, `LicenciaComercial_${anio}_${socNombreArchivo(c)}.xlsx`);
+}
+
+// ---- Eventos ----
+state.lcAnio = state.lcAnio || LC_ANIOS[LC_ANIOS.length - 1];
+state.lcCli = state.lcCli || null;
+function lcClick(a, btn) {
+  const cid = btn.dataset.client, anio = state.lcAnio;
+  if (a === "lc-side-toggle") { state.sideLc = !sideLcAbierto(); try { localStorage.setItem("papeles_side_lc", state.sideLc ? "1" : "0"); } catch (e) {} render(); }
+  else if (a === "lc-open") { state.view = "lc"; state.lcCli = cid; render(); }
+  else if (a === "lc-back") { state.lcCli = null; render(); }
+  else if (a === "lc-filtro") { state.lcFiltro = btn.dataset.filtro; render(); }
+  else if (a === "lc-pres-toggle") { lcSetPres(cid, anio, !lcGet(cid, anio).pres); render(); }
+  else if (a === "lc-add-open") renderLcAddModal();
+  else if (a === "lc-add-ok") { const ids = maddElegidos(); if (ids.length) { ids.forEach((id) => { lcDb().clientes[id] = true; }); persistExtras(); document.getElementById("modal-root").innerHTML = ""; if (ids.length === 1) state.lcCli = ids[0]; else showToast(ids.length + " contribuyentes agregados"); render(); } }
+  else if (a === "lc-quitar") { const c = getClient(cid); if (c) appConfirm(`¿Quitar a ${c.name} de Licencia comercial? Los datos cargados se conservan por si lo volvés a agregar.`, { ok: "Quitar" }).then((ok) => { if (ok) { delete lcDb().clientes[c.id]; persistExtras(); render(); } }); }
+  else if (a === "lc-params-open") renderLcParamsModal();
+  else if (a === "lc-params-reset") { delete lcDb().params[anio]; persistExtras(); renderLcParamsModal(); }
+  else if (a === "lc-usar-iibb") { const s = lcIngIibb(state.lcCli, anio); if (s) { lcSet(state.lcCli, anio, "ingProv", fmtMoneyRaw(s.monto)); render(); } }
+  else if (a === "lc-p-add") { lcData(state.lcCli, anio).pers.push({ id: socNewId(), cuil: "", nombre: "", cat: "", inc: false }); persistExtras(); render(); }
+  else if (a === "lc-p-del") { const d = lcData(state.lcCli, anio); d.pers = d.pers.filter((x) => x.id !== btn.dataset.id); persistExtras(); render(); }
+  else if (a === "lc-pers-txt") { const t = lcPersTxt(state.lcCli, anio); if (!t) { showToast("Todavía no hay personal cargado"); return; } lcGuardarTxt(t, `PERSONAL_${socNombreArchivo(getClient(state.lcCli))}.txt`); }
+  else if (a === "lc-excel") exportLcExcel();
+}
+document.addEventListener("click", (e) => { const btn = e.target.closest("[data-action]"); if (!btn || btn.tagName === "INPUT" || btn.tagName === "SELECT") return; const a = btn.dataset.action; if (a.indexOf("lc-") === 0) lcClick(a, btn); });
+document.addEventListener("input", (e) => {
+  const t = e.target, a = t.dataset && t.dataset.action;
+  if (!a || a.indexOf("lc-") !== 0) return;
+  if (a === "lc-f") { lcSet(state.lcCli, state.lcAnio, t.dataset.gp, t.value); lcRefrescar(); }
+  else if (a === "lc-p") { const p = lcData(state.lcCli, state.lcAnio).pers.find((x) => x.id === t.dataset.id); if (p) { p[t.dataset.k] = t.value; persistExtras(); lcRefrescar(); } }
+  else if (a === "lc-param") { const p = lcDb().params; if (!p[state.lcAnio]) p[state.lcAnio] = {}; p[state.lcAnio][t.dataset.campo] = t.value; persistExtras(); }
+});
+document.addEventListener("change", (e) => {
+  const t = e.target, a = t.dataset && t.dataset.action;
+  if (!a || a.indexOf("lc-") !== 0) return;
+  const cid = state.lcCli, anio = state.lcAnio;
+  if (a === "lc-anio") { state.lcAnio = Number(t.value); render(); }
+  else if (a === "lc-chk") { lcSet(cid, anio, t.dataset.gp, t.checked); render(); }
+  else if (a === "lc-ctl") { lcSet(cid, anio, "ctl." + t.dataset.k, t.checked); render(); }
+  else if (a === "lc-reg") { lcSet(cid, anio, "reg", t.value); render(); }
+  else if (a === "lc-actmin") { lcSet(cid, anio, "actMin", t.value); render(); }
+  else if (a === "lc-monocat") { lcSet(cid, anio, "monoCat", t.value); render(); }
+  else if (a === "lc-p-cat") { const p = lcData(cid, anio).pers.find((x) => x.id === t.dataset.id); if (p) { p.cat = t.value; persistExtras(); lcRefrescar(); } }
+  else if (a === "lc-p-inc") { const p = lcData(cid, anio).pers.find((x) => x.id === t.dataset.id); if (p) { p.inc = t.checked; persistExtras(); lcRefrescar(); } }
+  else if (a === "lc-pres") { lcSetPres(t.dataset.client, anio, t.checked); render(); }
+  else if (a === "lc-vence") { lcSet(t.dataset.client, anio, "vence", t.value); render(); }
+  else if (a === "lc-import") { const f = (t.files || [])[0]; t.value = ""; if (f) f.text().then((txt) => { try { lcImportar(JSON.parse(txt)); } catch (err) { showToast("No se pudo leer el archivo: " + err.message); } }); }
+  else if (a === "lc-pers-import") {
+    const f = (t.files || [])[0]; t.value = "";
+    if (f) f.text().then(async (txt) => {
+      const lista = lcParseTxt(txt); if (!lista.length) { showToast("El archivo no tiene personal"); return; }
+      const d = lcData(cid, anio);
+      if (d.pers.length && !(await appConfirm(`Ya hay ${d.pers.length} personas cargadas. ¿Reemplazarlas por las ${lista.length} del archivo?`, { title: "Importar personal", ok: "Reemplazar" }))) return;
+      d.pers = lista; persistExtras(); render(); showToast(lista.length + " personas importadas");
+    });
+  }
+});
+document.addEventListener("focusout", (e) => {
+  const t = e.target, a = t && t.dataset && t.dataset.action;
+  if (a !== "lc-f" || t.dataset.kind !== "money") return;
+  const raw = String(t.value || "").trim(); if (raw === "") return;
+  const f = fmtMoneyRaw(num(raw)); t.value = f; lcSet(state.lcCli, state.lcAnio, t.dataset.gp, f); lcRefrescar();
 });
 
 function renderMonoVepDetalle(clientId, period) {
