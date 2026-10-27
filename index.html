@@ -257,6 +257,10 @@
   .chk .b{ width:17px; height:17px; border-radius:5px; border:1.5px solid var(--border); flex-shrink:0; margin-top:1px; display:flex; align-items:center; justify-content:center; font-size:11px; }
   .chk .b.on{ background:var(--favor); border-color:var(--favor); color:#fff; }
   .chk input[type=checkbox]{ margin:0; }
+  .madd-list{ max-height:300px; overflow-y:auto; border:1px solid var(--border); border-radius:10px; }
+  .madd-row{ color:var(--ink); display:flex; gap:9px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }
+  .madd-row:last-child{ border-bottom:none; }
+  .madd-row:hover{ background:var(--surface-3); }
   tr.ri-sel > td{ background:var(--accent-soft); }
   .bp-prov{ background:var(--accent-soft); color:var(--accent-strong); border-radius:10px; padding:9px 14px; font-size:13px; }
   .bp-avisos li{ color:var(--ink); }
@@ -7878,11 +7882,7 @@ function ganF931ModalRefrescar() {
 
 function renderGanAddModal() {
   const g = ganDb(), libres = state.clients.filter((c) => !g.clientes[c.id]).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
-  document.getElementById("modal-root").innerHTML = `<div class="modal-backdrop"><div class="modal" style="max-width:480px;">
-    <div class="modal-head"><h3>Agregar contribuyente a Ganancias</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
-    <div class="modal-body">${libres.length ? `<div class="field"><label>Cliente</label><select id="gan-add-sel" style="max-width:none;">${libres.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}${c.cuit ? " · " + escapeHtml(c.cuit) : ""}</option>`).join("")}</select></div>` : `<p class="hint-sm">Todos tus clientes ya están en Ganancias. Si falta alguien, primero agregalo como cliente.</p>`}</div>
-    <div class="modal-foot"><button class="btn" data-action="close-modal">Cancelar</button>${libres.length ? `<button class="btn btn-accent" data-action="gan-add-ok">Agregar</button>` : ""}</div></div></div>`;
-  if (typeof wireModalBackdropClose === "function") wireModalBackdropClose();
+  renderMultiAddModal("Agregar contribuyentes a Ganancias", libres, "gan-add-ok", "Todos tus clientes ya están en Ganancias. Si falta alguien, primero agregalo como cliente.");
 }
 function renderGanParamsModal() {
   const anio = state.ganAnio, P = ganParams(anio), base = GAN_PARAMS_DEFAULT[anio] || GAN_PARAMS_DEFAULT[2026], ov = ganDb().params[anio] || {};
@@ -7956,7 +7956,7 @@ function ganClick(a, btn) {
   else if (a === "gan-pres-toggle") { const r = ganGet(btn.dataset.client, state.ganAnio); ganSetPres(btn.dataset.client, state.ganAnio, !r.pres); render(); }
   else if (a === "gan-tab") { state.ganTab = btn.dataset.tab; render(); }
   else if (a === "gan-add-open") renderGanAddModal();
-  else if (a === "gan-add-ok") { const s = document.getElementById("gan-add-sel"); if (s && s.value) { ganDb().clientes[s.value] = true; persistExtras(); document.getElementById("modal-root").innerHTML = ""; state.ganCli = s.value; state.ganTab = "ie"; render(); } }
+  else if (a === "gan-add-ok") { const ids = maddElegidos(); if (ids.length) { ids.forEach((id) => { ganDb().clientes[id] = true; }); persistExtras(); document.getElementById("modal-root").innerHTML = ""; if (ids.length === 1) { state.ganCli = ids[0]; state.ganTab = "ie"; } else showToast(ids.length + " contribuyentes agregados"); render(); } }
   else if (a === "gan-quitar") { const c = getClient(btn.dataset.client); if (c) appConfirm(`¿Quitar a ${c.name} de Ganancias? Los datos cargados se conservan por si lo volvés a agregar.`, { ok: "Quitar" }).then((ok) => { if (ok) { delete ganDb().clientes[c.id]; persistExtras(); render(); } }); }
   else if (a === "gan-params-open") renderGanParamsModal();
   else if (a === "gan-params-reset") { delete ganDb().params[state.ganAnio]; persistExtras(); renderGanParamsModal(); }
@@ -8430,11 +8430,7 @@ function bpPostRender() { if (state.view === "bp" && state.bpCli) bpRefrescar();
 // ---- Modales ----
 function renderBpAddModal() {
   const g = bpDb(), libres = state.clients.filter((c) => !g.clientes[c.id]).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
-  document.getElementById("modal-root").innerHTML = `<div class="modal-backdrop"><div class="modal" style="max-width:480px;">
-    <div class="modal-head"><h3>Agregar contribuyente a Bienes Personales</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
-    <div class="modal-body">${libres.length ? `<div class="field"><label>Cliente</label><select id="bp-add-sel" style="max-width:none;">${libres.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}${c.cuit ? " · " + escapeHtml(c.cuit) : ""}</option>`).join("")}</select></div>` : `<p class="hint-sm">Todos tus clientes ya están en Bienes Personales. Si falta alguien, primero agregalo como cliente.</p>`}</div>
-    <div class="modal-foot"><button class="btn" data-action="close-modal">Cancelar</button>${libres.length ? `<button class="btn btn-accent" data-action="bp-add-ok">Agregar</button>` : ""}</div></div></div>`;
-  if (typeof wireModalBackdropClose === "function") wireModalBackdropClose();
+  renderMultiAddModal("Agregar contribuyentes a Bienes Personales", libres, "bp-add-ok", "Todos tus clientes ya están en Bienes Personales. Si falta alguien, primero agregalo como cliente.");
 }
 function renderBpParamsModal() {
   const anio = state.bpAnio, P = bpParams(anio), base = BP_PARAMS_DEFAULT[anio] || BP_PARAMS_DEFAULT[2026], ov = bpDb().params[anio] || {};
@@ -8562,7 +8558,7 @@ function bpClick(a, btn) {
   else if (a === "bp-pres-toggle") { const r = bpGet(btn.dataset.client, state.bpAnio); bpSetPres(btn.dataset.client, state.bpAnio, !r.pres); render(); }
   else if (a === "bp-tab") { state.bpTab = btn.dataset.tab; render(); }
   else if (a === "bp-add-open") renderBpAddModal();
-  else if (a === "bp-add-ok") { const s = document.getElementById("bp-add-sel"); if (s && s.value) { bpDb().clientes[s.value] = true; persistExtras(); document.getElementById("modal-root").innerHTML = ""; state.bpCli = s.value; state.bpTab = "inm"; render(); } }
+  else if (a === "bp-add-ok") { const ids = maddElegidos(); if (ids.length) { ids.forEach((id) => { bpDb().clientes[id] = true; }); persistExtras(); document.getElementById("modal-root").innerHTML = ""; if (ids.length === 1) { state.bpCli = ids[0]; state.bpTab = "inm"; } else showToast(ids.length + " contribuyentes agregados"); render(); } }
   else if (a === "bp-quitar") { const c = getClient(btn.dataset.client); if (c) appConfirm(`¿Quitar a ${c.name} de Bienes Personales? Los datos cargados se conservan por si lo volvés a agregar.`, { ok: "Quitar" }).then((ok) => { if (ok) { delete bpDb().clientes[c.id]; persistExtras(); render(); } }); }
   else if (a === "bp-params-open") renderBpParamsModal();
   else if (a === "bp-params-reset") { delete bpDb().params[state.bpAnio]; persistExtras(); renderBpParamsModal(); }
@@ -8896,13 +8892,33 @@ function renderRiAutModal() {
 }
 
 // ---- Modales ----
+// Modal "Agregar …" con varias a la vez: lista con casilleros, buscador y "marcar las que se ven".
+function renderMultiAddModal(titulo, libres, okAction, yaEstanTxt) {
+  const lista = libres.map((c) => `<label class="madd-row" data-q="${escapeHtml((c.name + " " + (c.cuit || "")).toLowerCase())}"><input type="checkbox" data-action="madd-chk" value="${c.id}"> <span><b>${escapeHtml(c.name)}</b>${c.cuit ? `<span class="hint-sm"> · ${escapeHtml(c.cuit)}</span>` : ""}</span></label>`).join("");
+  document.getElementById("modal-root").innerHTML = `<div class="modal-backdrop"><div class="modal" style="max-width:520px;">
+    <div class="modal-head"><h3>${titulo}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+    <div class="modal-body">${libres.length ? `<input type="text" data-action="madd-q" placeholder="🔍 Buscar por nombre o CUIT…" style="width:100%;">
+      <div style="display:flex;gap:8px;align-items:center;"><button class="btn btn-sm" data-action="madd-todas">Marcar las que se ven</button><button class="btn btn-sm btn-ghost" data-action="madd-ninguna">Ninguna</button><span class="hint-sm" id="madd-n">0 seleccionados</span></div>
+      <div class="madd-list">${lista}</div>` : `<p class="hint-sm">${yaEstanTxt}</p>`}</div>
+    <div class="modal-foot"><button class="btn" data-action="close-modal">Cancelar</button>${libres.length ? `<button class="btn btn-accent" data-action="${okAction}" id="madd-ok" disabled>Agregar</button>` : ""}</div></div></div>`;
+  if (typeof wireModalBackdropClose === "function") wireModalBackdropClose();
+}
+function maddElegidos() { return [...document.querySelectorAll(".madd-list input:checked")].map((x) => x.value); }
+function maddActualizar() {
+  const n = maddElegidos().length, b = document.getElementById("madd-ok"), t = document.getElementById("madd-n");
+  if (t) t.textContent = n + (n === 1 ? " seleccionado" : " seleccionados");
+  if (b) { b.disabled = n === 0; b.textContent = n > 1 ? "Agregar (" + n + ")" : "Agregar"; }
+}
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]"); if (!btn || btn.tagName === "INPUT") return; const a = btn.dataset.action;
+  if (a === "madd-todas") { document.querySelectorAll(".madd-row").forEach((r) => { if (r.style.display !== "none") r.querySelector("input").checked = true; }); maddActualizar(); }
+  else if (a === "madd-ninguna") { document.querySelectorAll(".madd-list input").forEach((i) => { i.checked = false; }); maddActualizar(); }
+});
+document.addEventListener("input", (e) => { const t = e.target; if (t.dataset && t.dataset.action === "madd-q") { const q = t.value.trim().toLowerCase(); document.querySelectorAll(".madd-row").forEach((r) => { r.style.display = !q || r.dataset.q.indexOf(q) !== -1 ? "" : "none"; }); } });
+document.addEventListener("change", (e) => { if (e.target.dataset && e.target.dataset.action === "madd-chk") maddActualizar(); });
 function renderSocAddModal() {
   const g = socDb(), libres = state.clients.filter((c) => !g.clientes[c.id]).slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
-  document.getElementById("modal-root").innerHTML = `<div class="modal-backdrop"><div class="modal" style="max-width:480px;">
-    <div class="modal-head"><h3>Agregar sociedad</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
-    <div class="modal-body">${libres.length ? `<div class="field"><label>Cliente</label><select id="soc-add-sel" style="max-width:none;">${libres.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}${c.cuit ? " · " + escapeHtml(c.cuit) : ""}</option>`).join("")}</select></div>` : `<p class="hint-sm">Todos tus clientes ya están en Sociedades. Agregá primero la sociedad como cliente desde el panel izquierdo.</p>`}</div>
-    <div class="modal-foot"><button class="btn" data-action="close-modal">Cancelar</button>${libres.length ? `<button class="btn btn-accent" data-action="soc-add-ok">Agregar</button>` : ""}</div></div></div>`;
-  if (typeof wireModalBackdropClose === "function") wireModalBackdropClose();
+  renderMultiAddModal("Agregar sociedades", libres, "soc-add-ok", "Todos tus clientes ya están en Sociedades. Agregá primero la sociedad como cliente desde el panel izquierdo.");
 }
 function renderSocParamsModal() {
   const anio = state.socAnio, P = socParams(anio), base = SOC_PARAMS_DEFAULT[anio] || SOC_PARAMS_DEFAULT[SOC_ANIOS[SOC_ANIOS.length - 1]], ov = socDb().params[anio] || {};
@@ -8971,7 +8987,7 @@ function socClick(a, btn) {
   else if (a === "soc-filtro") { state.socFiltro = btn.dataset.filtro; render(); }
   else if (a === "soc-pres-toggle") { socSetPres(cid, anio, !socGet(cid, anio).pres); render(); }
   else if (a === "soc-add-open") renderSocAddModal();
-  else if (a === "soc-add-ok") { const s = document.getElementById("soc-add-sel"); if (s && s.value) { socDb().clientes[s.value] = true; persistExtras(); document.getElementById("modal-root").innerHTML = ""; if (state.view === "ri") state.riSel = s.value; else state.socCli = s.value; render(); } }
+  else if (a === "soc-add-ok") { const ids = maddElegidos(); if (ids.length) { ids.forEach((id) => { socDb().clientes[id] = true; }); persistExtras(); document.getElementById("modal-root").innerHTML = ""; if (state.view === "ri") state.riSel = ids[0]; else if (ids.length === 1) state.socCli = ids[0]; if (ids.length > 1) showToast(ids.length + " sociedades agregadas"); render(); } }
   else if (a === "soc-quitar") { const c = getClient(cid); if (c) appConfirm(`¿Quitar a ${c.name} de Sociedades? Los datos cargados se conservan por si la volvés a agregar.`, { ok: "Quitar" }).then((ok) => { if (ok) { delete socDb().clientes[c.id]; persistExtras(); render(); } }); }
   else if (a === "soc-params-open") renderSocParamsModal();
   else if (a === "soc-params-reset") { delete socDb().params[anio]; persistExtras(); renderSocParamsModal(); }
