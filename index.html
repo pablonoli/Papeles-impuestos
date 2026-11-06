@@ -7117,8 +7117,9 @@ function cm05Anio(period) { return String(periodYear(period) - 1); }
 function cm05Reg(client, anio) { return (client.iibbCM.cm05 && client.iibbCM.cm05[anio]) || {}; }
 function cm05PresentacionHtml(client, period) {
   const anio = cm05Anio(period), r = cm05Reg(client, anio), pres = !!r.presentado;
-  // Ya presentado y con todo completo (o no aplica por cierre): no hace falta mostrar la barra en cada mes.
-  if (pres && (r.ultimo || cm05EsCierre(client, anio))) return "";
+  // Ya presentado: no se muestra la barra en cada mes. Lo que falte (último período, coeficientes, ajuste)
+  // se ve y se edita en la pantalla "CM05 · DDJJ anual" y en el aviso de ajuste del período que corresponda.
+  if (pres) return "";
   const desde = r.ultimo ? addMonths(r.ultimo, 1) : "";
   const nota = !r.ultimo ? "Indicá el último período declarado con los coeficientes anteriores para calcular el ajuste. Dejalo vacío si lo presentaste antes de declarar enero (sin ajuste)."
     : periodMonth(desde) === 1 ? `Coeficientes nuevos desde ${periodLabel(desde)}. Sin ajuste.`
