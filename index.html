@@ -6024,7 +6024,7 @@ function importArcaComprobantes(clientId, period, file) {
     const acc = {}; // code -> { debito:{ri105,cf105,ri21,cf21}, restCredito:{ncEmit105RI,...}, exento, exentoNC }
     const emptyAcc = () => ({ debito: { ri105: 0, cf105: 0, ri21: 0, cf21: 0 }, restCredito: { ncEmit105RI: 0, ncEmit105CF: 0, ncEmit21RI: 0, ncEmit21CF: 0 }, exento: 0, exentoNC: 0 });
 
-    let comprobantesOk = 0, comprobantesFueraDePeriodo = 0;
+    let comprobantesOk = 0, comprobantesFueraDePeriodo = 0, comprobantesEnPeriodo = 0;
     let montoSinPV = 0, pvSinConfigurar = new Set();
     let montoSinAlicuota = 0;
     let montoSinLetra = 0;
@@ -6049,6 +6049,7 @@ function importArcaComprobantes(clientId, period, file) {
       const exentoMonto = Math.abs(col.exento != null ? num(row[col.exento]) : 0);
 
       if (fecha.y !== targetY || fecha.m !== targetM) { comprobantesFueraDePeriodo++; continue; }
+      comprobantesEnPeriodo++;
 
       const letraMatch = tipo.match(/([A-Z])\s*$/);
       const letra = letraMatch ? letraMatch[1] : null;
@@ -6060,7 +6061,8 @@ function importArcaComprobantes(clientId, period, file) {
       // A qué actividad corresponde este punto de venta — si tiene más de
       // una actividad asociada, se distingue por la alícuota real del
       // comprobante (IVA / Neto Gravado).
-      const candidatos = puntosVenta.filter((x) => String(x.puntoVenta).trim() === pv);
+      const pvN = (v) => String(v == null ? "" : v).trim().replace(/^0+(?=\d)/, "");
+      const candidatos = puntosVenta.filter((x) => pvN(x.puntoVenta) === pvN(pv));
       let code = null;
       let rate105 = null; // true=10,5% / false=21% / null=no se pudo determinar
       if (candidatos.length === 1) {
@@ -6096,7 +6098,13 @@ function importArcaComprobantes(clientId, period, file) {
     }
 
     if (!comprobantesOk) {
-      alert(`No encontré comprobantes de ${periodLabel(period)} en este archivo (¿es el período correcto?).`);
+      if (comprobantesEnPeriodo > 0 && pvSinConfigurar.size) {
+        alert(`Encontré ${comprobantesEnPeriodo} comprobantes de ${periodLabel(period)}, pero ninguno se pudo asignar a una actividad: los puntos de venta del archivo (${[...pvSinConfigurar].sort((a, b) => Number(a) - Number(b)).join(", ")}) no están configurados en este cliente.\n\nCargalos en Configuración → IVA → Puntos de venta (número, actividad y alícuota) y volvé a importar.`);
+      } else if (comprobantesEnPeriodo > 0) {
+        alert(`Encontré ${comprobantesEnPeriodo} comprobantes de ${periodLabel(period)}, pero ninguno se pudo clasificar (revisá el tipo de comprobante y la alícuota: tiene que ser Factura/NC A, B o C al 10,5 % o 21 %).`);
+      } else {
+        alert(`No encontré comprobantes de ${periodLabel(period)} en este archivo (¿es el período correcto?). El archivo trae ${comprobantesFueraDePeriodo} comprobantes de otros períodos.`);
+      }
       return;
     }
 
@@ -7109,6 +7117,8 @@ function cm05Anio(period) { return String(periodYear(period) - 1); }
 function cm05Reg(client, anio) { return (client.iibbCM.cm05 && client.iibbCM.cm05[anio]) || {}; }
 function cm05PresentacionHtml(client, period) {
   const anio = cm05Anio(period), r = cm05Reg(client, anio), pres = !!r.presentado;
+  // Ya presentado y con todo completo (o no aplica por cierre): no hace falta mostrar la barra en cada mes.
+  if (pres && (r.ultimo || cm05EsCierre(client, anio))) return "";
   const desde = r.ultimo ? addMonths(r.ultimo, 1) : "";
   const nota = !r.ultimo ? "Indicá el último período declarado con los coeficientes anteriores para calcular el ajuste. Dejalo vacío si lo presentaste antes de declarar enero (sin ajuste)."
     : periodMonth(desde) === 1 ? `Coeficientes nuevos desde ${periodLabel(desde)}. Sin ajuste.`
