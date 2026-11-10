@@ -2187,10 +2187,237 @@ function renderResumenTab(client) {
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
       <h2 class="period-heading" style="margin:0;">${periodLabel(period)}</h2>
-      <button class="btn" data-action="open-pdf-preview">📄 Ver / exportar PDF del resumen</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-accent" data-action="open-mail-txt" title="Texto del mail para mandar el borrador o la DDJJ definitiva al cliente">✉ Texto para el mail</button>
+        <button class="btn" data-action="open-pdf-preview">📄 Ver / exportar PDF del resumen</button>
+      </div>
     </div>
     <div class="kpi-row" style="margin-bottom:20px;">${kpis}</div>
     <div style="display:flex;flex-direction:column;gap:16px;">${sections}</div>`;
+}
+
+// ---------------------------------------------------------------------
+// Texto para el mail: borrador / DDJJ definitiva (IVA e IIBB)
+// ---------------------------------------------------------------------
+// Reglas:
+//  - Definitiva: "se adjunta DDJJ, acuse de presentación y VEP" solo si hay
+//    importe a pagar (con la fecha de vencimiento del pago). Con saldo a favor
+//    o $ 0 no hay VEP ni fecha de vencimiento.
+//  - Borrador: siempre lleva "Fecha de vencimiento de presentación" y cierra
+//    con "Aguardo confirmación para presentar.".
+//  - Las definitivas van primero y los borradores al final (el cierre queda
+//    al pie del mail). El 2º bloque en adelante arranca con "Asimismo,".
+let mailTxtState = null;
+function mailPeriodTxt(p) { return `${String(periodMonth(p)).padStart(2, "0")}/${periodYear(p)}`; }
+function mailFechaTxt(iso) { if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return ""; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; }
+function mailMoneyTxt(n) { return "$" + fmtMoneyRaw(Math.abs(Number(n) || 0)); }
+function mailImpuestosDe(client, period) {
+  const a = [];
+  if (client.iibbLocal.enabled) a.push("iibbLocal");
+  if (client.iibbCM.enabled && !(client.iibbCM.hasta && period > client.iibbCM.hasta)) a.push("iibbCM");
+  if (client.iva.enabled) a.push("iva");
+  return a;
+}
+// Importe del impuesto en el período: { tipo: "pagar"|"favor", monto, nota }
+function mailCalc(client, key, period) {
+  try {
+    if (key === "iva") {
+      const r = calcIvaFor(client, period);
+      if (r.saldoAPagar > 0) return { tipo: "pagar", monto: r.saldoAPagar, nota: "" };
+      const tec = r.saldoTecnicoFavorContribuyente || 0, lib = r.saldoLibreDisponibilidad || 0, fav = tec + lib;
+      if (fav > 0) return { tipo: "favor", monto: fav, nota: tec > 0 && lib > 0 ? `Saldo técnico ${fmtMoney(tec)} + libre disponibilidad ${fmtMoney(lib)}` : (tec > 0 ? "Saldo técnico a favor" : "Saldo de libre disponibilidad") };
+      return { tipo: "pagar", monto: 0, nota: "" };
+    }
+    if (key === "iibbLocal") {
+      const r = calcIibbLocalFor(client, period);
+      if (r.saldoAPagar > 0) return { tipo: "pagar", monto: r.saldoAPagar, nota: "" };
+      if (r.saldoAFavor > 0) return { tipo: "favor", monto: r.saldoAFavor, nota: "" };
+      return { tipo: "pagar", monto: 0, nota: "" };
+    }
+    const r = calcIibbCMFor(client, period);
+    if (r.totales.aPagar > 0) return { tipo: "pagar", monto: r.totales.aPagar, nota: "" };
+    if (r.totales.aFavor > 0) return { tipo: "favor", monto: r.totales.aFavor, nota: "" };
+    return { tipo: "pagar", monto: 0, nota: "" };
+  } catch (e) { return { tipo: "pagar", monto: 0, nota: "" }; }
+}
+function mailItemSet(client, it, period) {
+  it.period = period;
+  const c = mailCalc(client, it.key, period);
+  it.tipo = c.tipo; it.monto = c.monto; it.montoTxt = fmtMoneyRaw(c.monto); it.nota = c.nota;
+  it.venc = vencimientoDe(client, it.key, period) || "";
+}
+function mailTxtBuild(client, st) {
+  const inc = st.items.filter((i) => i.modo !== "no");
+  const dobleIibb = st.items.filter((i) => i.modo !== "no" && i.key !== "iva").length > 1;
+  const imp = (i) => i.key === "iva" ? "IVA" : (dobleIibb ? (i.key === "iibbLocal" ? "IIBB Local" : "IIBB Convenio Multilateral") : "IIBB");
+  const ord = [].concat(inc.filter((i) => i.modo === "definitiva"), inc.filter((i) => i.modo === "borrador"));
+  const perDistintos = new Set(ord.map((i) => i.period)).size > 1;
+  // Bloques: cada uno es { parrafo, lineas: [{ label, valor }] }
+  const bloques = ord.map((i, n) => {
+    const monto = num(i.montoTxt), pagar = i.tipo === "pagar", conPago = pagar && monto > 0;
+    const per = mailPeriodTxt(i.period), lineas = [];
+    let intro;
+    const primero = n === 0, asi = primero ? "" : "Asimismo, ";
+    const cap = (t) => primero ? t : t.charAt(0).toLowerCase() + t.slice(1);
+    if (i.modo === "definitiva") {
+      intro = conPago ? cap(`Se adjunta DDJJ, acuse de presentación y VEP de ${imp(i)} correspondiente al periodo ${per}:`) : cap(`Se adjunta DDJJ y acuse de presentación de ${imp(i)} correspondiente al periodo ${per}:`);
+      lineas.push({ label: pagar ? "Importe a pagar" : "Saldo a favor", valor: mailMoneyTxt(monto) });
+      if (conPago) lineas.push({ label: "Fecha de vencimiento", valor: mailFechaTxt(i.venc) || "[completar fecha]" });
+    } else {
+      const det = i.key === "iva" ? "con sus respectivos libros de compras y ventas" : "con su respectivo IVA ventas";
+      intro = cap(`Adjunto borrador de DDJJ de ${imp(i)} ${det}${perDistintos ? ` (periodo ${per})` : ""}:`);
+      lineas.push({ label: pagar ? "Importe a pagar" : "Saldo a favor", valor: mailMoneyTxt(monto) });
+      lineas.push({ label: "Fecha de vencimiento de presentación", valor: mailFechaTxt(i.venc) || "[completar fecha]" });
+    }
+    return { intro: (primero ? "Buenos días. " : asi) + intro, lineas, modo: i.modo, i };
+  });
+  const hayBorrador = ord.some((i) => i.modo === "borrador");
+  // Asunto
+  const pers = Array.from(new Set(ord.map((i) => mailPeriodTxt(i.period))));
+  let asunto = "";
+  if (ord.length) {
+    const defs = ord.filter((i) => i.modo === "definitiva"), bors = ord.filter((i) => i.modo === "borrador");
+    const nm = (i) => imp(i).replace("IIBB Convenio Multilateral", "IIBB CM") + (pers.length > 1 ? " " + mailPeriodTxt(i.period) : "");
+    let t;
+    if (!defs.length) t = "DDJJ BORRADOR " + bors.map(nm).join(" / ");
+    else if (!bors.length) t = "DDJJ " + defs.map(nm).join(" / ");
+    else t = "DDJJ " + defs.map(nm).join(" / ") + " / BORRADOR " + bors.map(nm).join(" / ");
+    asunto = `${client.name} – ${t}` + (pers.length === 1 ? ` – PERIODO ${pers[0]}` : "");
+  }
+  // HTML (con formato, para pegar en Outlook / Gmail / Word) y texto plano
+  const F = 'font-family:Calibri,Carlito,Arial,sans-serif;font-size:11pt;color:#000;';
+  const hl = (t) => `<span style="background-color:#ffff00;font-weight:bold;">${escapeHtml(t)}</span>`;
+  let html = "", plain = "";
+  bloques.forEach((b, n) => {
+    html += `<p style="margin:0 0 12px;${F}">${escapeHtml(b.intro)}</p>`;
+    plain += (n ? "\n" : "") + b.intro + "\n\n";
+    b.lineas.forEach((l, k) => {
+      const ult = k === b.lineas.length - 1;
+      html += `<p style="margin:0 0 ${ult ? 18 : 4}px;${F}"><b><u>${escapeHtml(l.label)}</u>:</b> ${hl(l.valor)}</p>`;
+      plain += `${l.label}: ${l.valor}\n`;
+    });
+    plain += "\n";
+  });
+  if (hayBorrador) {
+    html += `<p style="margin:0;${F}"><b style="background-color:#ffff00;">Aguardo confirmación para presentar.</b></p>`;
+    plain += "Aguardo confirmación para presentar.\n";
+  }
+  return { html, plain: plain.replace(/\n{3,}/g, "\n\n").trim(), asunto, vacio: !bloques.length, faltaFecha: bloques.some((b) => b.lineas.some((l) => l.valor === "[completar fecha]")) };
+}
+function openMailTxtModal(client) {
+  if (!client) return;
+  const period = state.currentPeriod;
+  const keys = mailImpuestosDe(client, period);
+  if (!keys.length) { showToast("Este cliente no tiene IVA ni IIBB activados."); return; }
+  const items = keys.map((k) => {
+    const it = { key: k, modo: presentadoDe(client, k, period) ? "definitiva" : "borrador" };
+    mailItemSet(client, it, period);
+    return it;
+  });
+  mailTxtState = { clientId: client.id, items };
+  renderMailTxtModal();
+}
+function mailPeriodOptions(sel) {
+  const hasta = addMonths(todayPeriod(), 1);
+  let o = "", p = hasta;
+  for (let n = 0; n < 24; n++) { if (p < MIN_PERIOD) break; o += `<option value="${p}" ${p === sel ? "selected" : ""}>${mailPeriodTxt(p)}</option>`; p = addMonths(p, -1); }
+  if (!o.includes(`value="${sel}"`)) o = `<option value="${sel}" selected>${mailPeriodTxt(sel)}</option>` + o;
+  return o;
+}
+function renderMailTxtModal() {
+  const st = mailTxtState, client = st && getClient(st.clientId);
+  if (!client) return;
+  const nombre = { iva: "IVA", iibbLocal: "IIBB Local", iibbCM: "IIBB Convenio Multilateral" };
+  const rows = st.items.map((i, n) => {
+    const on = i.modo !== "no", def = i.modo === "definitiva";
+    const sinPago = !(i.tipo === "pagar" && num(i.montoTxt) > 0);
+    const ventxt = def && sinPago ? "—" : mailFechaTxt(i.venc);
+    const nota = i.modo === "no" ? "" : def ? "Definitiva con saldo a favor o $ 0: <b>no lleva fecha de vencimiento</b> ni VEP." : "Borrador: <b>siempre</b> lleva el vencimiento de <b>presentación</b> (sale del calendario según CUIT) y cierra con “Aguardo confirmación”.";
+    const faltaV = on && !(def && sinPago) && !i.venc;
+    return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:var(--surface-2)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:${on ? 10 : 0}px;flex-wrap:wrap">
+        <b style="font-size:14px">${nombre[i.key]}</b>
+        <div class="seg">${[["no", "No incluir"], ["borrador", "Borrador"], ["definitiva", "Definitiva"]].map(([m, l]) => `<button type="button" class="${i.modo === m ? "on" : ""}" data-mt="modo" data-n="${n}" data-v="${m}">${l}</button>`).join("")}</div>
+      </div>
+      ${on ? `<div style="display:grid;grid-template-columns:104px minmax(0,1fr) minmax(0,1fr);gap:10px;font-size:12px">
+        <div class="field"><span style="color:var(--muted)">Período</span><select data-mt="period" data-n="${n}" style="width:100%">${mailPeriodOptions(i.period)}</select></div>
+        <div class="field"><select data-mt="tipo" data-n="${n}" style="width:100%;border:none;background:transparent;color:var(--muted);font-size:12px;padding:0"><option value="pagar" ${i.tipo === "pagar" ? "selected" : ""}>Importe a pagar</option><option value="favor" ${i.tipo === "favor" ? "selected" : ""}>Saldo a favor</option></select><input type="text" data-mt="monto" data-n="${n}" value="${escapeHtml(i.montoTxt)}" style="width:100%;max-width:none;box-sizing:border-box;font-family:'IBM Plex Mono',monospace"></div>
+        <div class="field"><span style="color:var(--muted)">${def ? "Vencimiento" : "Vto. presentación"}</span><input type="text" data-mt="venc" data-n="${n}" value="${escapeHtml(ventxt)}" placeholder="dd/mm/aaaa" ${def && sinPago ? "disabled" : ""} style="width:100%;max-width:none;box-sizing:border-box;font-family:'IBM Plex Mono',monospace;${def && sinPago ? "opacity:.5" : ""}"></div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">${nota}${i.nota ? `<br>Saldo a favor armado con: ${escapeHtml(i.nota)}.` : ""}${faltaV ? `<br><span style="color:var(--pagar);font-weight:600">⚠ No hay fecha en el calendario para este impuesto/CUIT: cargala a mano (dd/mm/aaaa).</span>` : ""}</div>` : ""}
+    </div>`;
+  }).join("");
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal" style="max-width:1080px;max-height:none;overflow:visible;">
+        <div class="modal-head"><h3>✉ Texto para el mail · ${escapeHtml(client.name)}</h3><button class="btn btn-ghost" data-action="close-modal">✕</button></div>
+        <div style="display:grid;grid-template-columns:420px minmax(0,1fr);gap:0">
+          <div style="padding:16px 20px;border-right:1px solid var(--border)">
+            ${rows}
+            <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Los importes se toman solos de la DDJJ cargada en la app; podés corregirlos a mano. Las definitivas van primero y los borradores al final.</div>
+          </div>
+          <div style="padding:16px 22px;background:var(--surface)">
+            <div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Asunto</div>
+            <div id="mt-asunto" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:14px;background:var(--surface-2)"></div>
+            <div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Mensaje</div>
+            <div id="mt-prev" style="border:1px solid var(--border);border-radius:8px;padding:16px 18px;font-size:15px;line-height:1.5;color:#000;background:#fff;min-height:80px"></div>
+            <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+              <button type="button" class="btn btn-accent" data-mt="copiar-fmt">📋 Copiar mensaje con formato</button>
+              <button type="button" class="btn" data-mt="copiar-asunto">Copiar asunto</button>
+              <button type="button" class="btn" data-mt="copiar-txt">Copiar solo texto</button>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:8px">“Con formato” conserva negrita, subrayado y resaltado amarillo para pegar directo en Outlook / Gmail / Word.</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  mailTxtPreview();
+  root.querySelectorAll("[data-mt]").forEach((el) => {
+    const k = el.dataset.mt, n = Number(el.dataset.n);
+    if (k === "modo") el.addEventListener("click", () => { st.items[n].modo = el.dataset.v; renderMailTxtModal(); });
+    else if (k === "period") el.addEventListener("change", () => { mailItemSet(client, st.items[n], el.value); renderMailTxtModal(); });
+    else if (k === "tipo") el.addEventListener("change", () => { st.items[n].tipo = el.value; renderMailTxtModal(); });
+    else if (k === "monto") {
+      el.addEventListener("input", () => { st.items[n].montoTxt = el.value; mailTxtPreview(); });
+      el.addEventListener("blur", () => { st.items[n].montoTxt = fmtMoneyRaw(num(el.value)); renderMailTxtModal(); });
+    } else if (k === "venc") {
+      el.addEventListener("input", () => { const m = el.value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); st.items[n].venc = m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : ""; mailTxtPreview(); });
+    } else if (k === "copiar-fmt") el.addEventListener("click", () => mailTxtCopiar("fmt"));
+    else if (k === "copiar-asunto") el.addEventListener("click", () => mailTxtCopiar("asunto"));
+    else if (k === "copiar-txt") el.addEventListener("click", () => mailTxtCopiar("txt"));
+  });
+}
+function mailTxtPreview() {
+  const st = mailTxtState, client = st && getClient(st.clientId);
+  if (!client) return;
+  const r = mailTxtBuild(client, st);
+  const a = document.getElementById("mt-asunto"), p = document.getElementById("mt-prev");
+  if (a) a.textContent = r.asunto || "—";
+  if (p) p.innerHTML = r.vacio ? `<span style="color:#8a8a8a;font-size:13px;">Elegí Borrador o Definitiva en al menos un impuesto.</span>` : r.html;
+}
+function mailTxtCopiar(modo) {
+  const st = mailTxtState, client = st && getClient(st.clientId);
+  if (!client) return;
+  const r = mailTxtBuild(client, st);
+  if (r.vacio) { showToast("Elegí Borrador o Definitiva en al menos un impuesto."); return; }
+  if (r.faltaFecha && modo !== "asunto") showToast("Ojo: falta cargar una fecha de vencimiento ([completar fecha]).");
+  const ok = (m) => { if (!(r.faltaFecha && modo !== "asunto")) showToast(m); };
+  const viejo = () => {
+    // Fallback: seleccionar la vista previa y copiar (conserva el formato)
+    try {
+      if (modo === "fmt") { const el = document.getElementById("mt-prev"), sel = window.getSelection(), rg = document.createRange(); rg.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(rg); document.execCommand("copy"); sel.removeAllRanges(); }
+      else { const ta = document.createElement("textarea"); ta.value = modo === "asunto" ? r.asunto : r.plain; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+      ok(modo === "fmt" ? "Mensaje copiado con formato" : modo === "asunto" ? "Asunto copiado" : "Texto copiado");
+    } catch (_) { showToast("No se pudo copiar: seleccioná el texto y copialo a mano."); }
+  };
+  try {
+    if (modo === "fmt" && window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+      navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([r.html], { type: "text/html" }), "text/plain": new Blob([r.plain], { type: "text/plain" }) })]).then(() => ok("Mensaje copiado con formato")).catch(viejo);
+    } else if (modo !== "fmt" && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(modo === "asunto" ? r.asunto : r.plain).then(() => ok(modo === "asunto" ? "Asunto copiado" : "Texto copiado")).catch(viejo);
+    } else viejo();
+  } catch (_) { viejo(); }
 }
 
 // ---------------------------------------------------------------------
@@ -5226,6 +5453,7 @@ document.addEventListener("click", (e) => {
   else if (action === "export-excel-iva") { exportClientToExcel(currentClient(), "iva"); }
   else if (action === "export-excel-iibb") { exportClientToExcel(currentClient(), "iibb"); }
   else if (action === "open-pdf-preview") { openPdfPreviewModal(currentClient()); }
+  else if (action === "open-mail-txt") { openMailTxtModal(currentClient()); }
   else if (action === "pdf-scope") { state.pdfScope = btn.dataset.scope; openPdfPreviewModal(currentClient(), btn.dataset.scope); }
   else if (action === "pdf-print") { window.print(); }
   else if (action === "add-activity") { mutateClient(currentClient().id, (c) => c.iibbCM.activities.push({ code: "", desc: "" })); render(); }
