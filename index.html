@@ -2276,13 +2276,11 @@ function mailTxtBuild(client, st) {
   const pers = Array.from(new Set(ord.map((i) => mailPeriodTxt(i.period))));
   let asunto = "";
   if (ord.length) {
-    const defs = ord.filter((i) => i.modo === "definitiva"), bors = ord.filter((i) => i.modo === "borrador");
-    const nm = (i) => imp(i).replace("IIBB Convenio Multilateral", "IIBB CM") + (pers.length > 1 ? " " + mailPeriodTxt(i.period) : "");
-    let t;
-    if (!defs.length) t = "DDJJ BORRADOR " + bors.map(nm).join(" / ");
-    else if (!bors.length) t = "DDJJ " + defs.map(nm).join(" / ");
-    else t = "DDJJ " + defs.map(nm).join(" / ") + " / BORRADOR " + bors.map(nm).join(" / ");
-    asunto = `${client.name} – ${t}` + (pers.length === 1 ? ` – PERIODO ${pers[0]}` : "");
+    // Formato: "CLIENTE - DDJJ IIBB + BORRADOR IVA PERIODO 11/2026" (todo en mayúsculas,
+    // sin puntos en el nombre; si los períodos difieren, cada ítem lleva el suyo y sin "PERIODO").
+    const nm = (i) => (i.modo === "borrador" ? "BORRADOR " : "DDJJ ") + imp(i).replace("IIBB Convenio Multilateral", "IIBB CM") + (pers.length > 1 ? " " + mailPeriodTxt(i.period) : "");
+    asunto = `${String(client.name || "").replace(/\./g, "").replace(/\s+/g, " ").trim()} - ${ord.map(nm).join(" + ")}` + (pers.length === 1 ? ` PERIODO ${pers[0]}` : "");
+    asunto = asunto.toUpperCase();
   }
   // HTML (con formato, para pegar en Outlook / Gmail / Word) y texto plano
   const F = 'font-family:Calibri,Carlito,Arial,sans-serif;font-size:11pt;color:#000;';
