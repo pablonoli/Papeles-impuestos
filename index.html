@@ -6263,7 +6263,7 @@ function importArcaComprobantes(clientId, period, file) {
 
     let comprobantesOk = 0, comprobantesFueraDePeriodo = 0, comprobantesEnPeriodo = 0;
     let montoSinPV = 0, pvSinConfigurar = new Set();
-    let montoSinAlicuota = 0;
+    let montoSinAlicuota = 0, comprobantesMixtos = 0;
     let montoSinLetra = 0;
 
     for (let r = headerIdx + 1; r < rows.length; r++) {
@@ -6301,13 +6301,19 @@ function importArcaComprobantes(clientId, period, file) {
       const pvN = (v) => String(v == null ? "" : v).trim().replace(/^0+(?=\d)/, "");
       const candidatos = puntosVenta.filter((x) => pvN(x.puntoVenta) === pvN(pv));
       let code = null;
-      let rate105 = null; // true=10,5% / false=21% / null=no se pudo determinar
       if (candidatos.length === 1) {
         code = candidatos[0].code;
       } else if (candidatos.length > 1) {
         const rateReal = netoGravado > 0 ? ivaMonto / netoGravado : 0;
         const match = candidatos.find((x) => Math.abs(rateReal - num(x.alicuota) / 100) < 0.02);
-        code = match ? match.code : null;
+        if (match) code = match.code;
+        else {
+          // Comprobante con 21 % y 10,5 % juntos (alícuota real intermedia): si
+          // todas las filas de este punto de venta son de la misma actividad,
+          // no hay duda de a cuál va (después se reparte según el IVA).
+          const codes = [...new Set(candidatos.map((x) => x.code))];
+          if (codes.length === 1) code = codes[0];
+        }
       }
       if (!code) {
         montoSinPV += netoGravado + exentoMonto;
@@ -6315,18 +6321,27 @@ function importArcaComprobantes(clientId, period, file) {
         continue;
       }
 
+      // Reparto del neto entre 10,5 % y 21 %: un comprobante puede traer las
+      // dos alícuotas juntas (ej. Factura B con IVA entre 10,5 % y 21 % del
+      // neto) y entonces se resuelve neto = a + b, IVA = a·10,5 % + b·21 %.
+      let parte105 = 0, parte21 = 0;
       if (netoGravado > 0) {
-        const rateReal = ivaMonto / netoGravado;
-        if (Math.abs(rateReal - 0.21) < 0.03) rate105 = false;
-        else if (Math.abs(rateReal - 0.105) < 0.02) rate105 = true;
-        else { montoSinAlicuota += netoGravado; continue; }
+        const dv = dividirAlicuotas(netoGravado, ivaMonto);
+        if (dv.sin > 0 || dv.a27 > 0 || dv.a0 > 0) { montoSinAlicuota += netoGravado; continue; }
+        parte105 = dv.a105; parte21 = dv.a21;
+        if (dv.mixto) comprobantesMixtos++;
       }
 
       if (!acc[code]) acc[code] = emptyAcc();
       if (netoGravado > 0) {
-        const key = (esRI ? "ri" : "cf") + (rate105 ? "105" : "21");
-        if (esNC) acc[code].restCredito[("ncEmit" + (rate105 ? "105" : "21") + (esRI ? "RI" : "CF"))] += netoGravado;
-        else acc[code].debito[key] += netoGravado;
+        const sfx = esRI ? "RI" : "CF", pre = esRI ? "ri" : "cf";
+        if (esNC) {
+          acc[code].restCredito["ncEmit105" + sfx] += parte105;
+          acc[code].restCredito["ncEmit21" + sfx] += parte21;
+        } else {
+          acc[code].debito[pre + "105"] += parte105;
+          acc[code].debito[pre + "21"] += parte21;
+        }
       }
       if (exentoMonto) {
         if (esNC) acc[code].exentoNC += exentoMonto; else acc[code].exento += exentoMonto;
@@ -6354,6 +6369,7 @@ function importArcaComprobantes(clientId, period, file) {
     codesImportados.forEach((code) => syncVentasNetasFromIvaActividad(clientId, period, `iva.porActividad.${code}.debito.ri21`));
 
     let msg = `Importados ${comprobantesOk} comprobantes de ${periodLabel(period)} en ${codesImportados.length} actividad(es).`;
+    if (comprobantesMixtos > 0) msg += `\n\n${comprobantesMixtos} comprobante(s) traían 21 % y 10,5 % juntos: repartí el neto entre las dos alícuotas según el IVA que figura.`;
     if (montoSinPV > 0) msg += `\n\nOjo: ${fmtMoney(montoSinPV)} corresponden a punto(s) de venta sin configurar (${[...pvSinConfigurar].join(", ")}) — andá a Configuración → IVA → Puntos de venta y asignalos.`;
     if (montoSinAlicuota > 0) msg += `\n\n${fmtMoney(montoSinAlicuota)} tienen una alícuota que no pude identificar como 10,5% ni 21% — revisalos a mano.`;
     if (montoSinLetra > 0) msg += `\n\n${fmtMoney(montoSinLetra)} corresponden a comprobantes cuyo tipo no reconocí (ni Factura A, B o C) — revisalos a mano.`;
