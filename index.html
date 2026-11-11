@@ -4476,7 +4476,15 @@ function dividirAlicuotas(neto, iva) {
   const tol = Math.max(1.5, neto * 0.0006);
   if (iva < 0.5) { z.a0 = neto; return z; }
   const rates = [[0.105, "a105"], [0.21, "a21"], [0.27, "a27"]];
-  for (const [t, k] of rates) if (Math.abs(iva - neto * t) <= tol) { z[k] = neto; return z; }
+  // Si el IVA entra en la tolerancia de más de una alícuota (comprobantes muy
+  // chicos, donde $1,50 de tolerancia es más que el propio IVA), se elige la
+  // más cercana — no la primera de la lista.
+  let mejor = null;
+  for (const [t, k] of rates) {
+    const dif = Math.abs(iva - neto * t);
+    if (dif <= tol && (!mejor || dif < mejor.dif)) mejor = { k, dif };
+  }
+  if (mejor) { z[mejor.k] = neto; return z; }
   const mezcla = (t1, k1, t2, k2) => {
     const b = (iva - neto * t1) / (t2 - t1);
     if (b < -tol / t2 || b > neto + tol / t2) return false;
