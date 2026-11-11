@@ -2287,11 +2287,11 @@ function mailTxtBuild(client, st) {
   const hl = (t) => `<span style="background-color:#ffff00;font-weight:bold;">${escapeHtml(t)}</span>`;
   let html = "", plain = "";
   bloques.forEach((b, n) => {
-    html += `<p style="margin:0 0 12px;${F}">${escapeHtml(b.intro)}</p>`;
+    html += `<p style="margin:0 0 12pt;${F}">${escapeHtml(b.intro)}</p>`;
     plain += (n ? "\n" : "") + b.intro + "\n\n";
     b.lineas.forEach((l, k) => {
       const ult = k === b.lineas.length - 1;
-      html += `<p style="margin:0 0 ${ult ? 18 : 4}px;${F}"><b><u>${escapeHtml(l.label)}</u>:</b> ${hl(l.valor)}</p>`;
+      html += `<p style="margin:0 0 ${ult ? 22 : 10}pt;${F}"><b><u>${escapeHtml(l.label)}</u>:</b> ${hl(l.valor)}</p>`;
       plain += `${l.label}: ${l.valor}\n`;
     });
     plain += "\n";
