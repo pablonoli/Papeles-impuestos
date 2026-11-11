@@ -996,7 +996,7 @@ function emptyIvaDoc() {
 function emptyIibbLocalDoc(client) {
   const actividades = {};
   ((client && client.iibbLocal.activities) || []).forEach((a) => (actividades[a.code] = 0));
-  return { actividades, retenciones: 0, percepciones: 0, recaudacionesBancarias: 0 };
+  return { actividades, actividadesIva: {}, retenciones: 0, percepciones: 0, recaudacionesBancarias: 0 };
 }
 function emptyIibbCMDoc(client) {
   const actividades = {};
@@ -1624,8 +1624,12 @@ function computeIibbLocalPeriod(client, doc, carryIn) {
     const baseImponible = num(doc.actividades[a.code]);
     const alicuota = alicLocal(a, doc.period, client) / 100;
     const impuesto = round2(baseImponible * alicuota);
-    return { code: a.code, desc: a.desc, baseImponible, alicuota, impuesto };
+    // IVA Débito Fiscal (neto de N.C. emitidas) por actividad: dato informativo
+    // que piden las pantallas SIFERE locales ("Datos totales del período").
+    const ivaDebito = num((doc.actividadesIva || {})[a.code]);
+    return { code: a.code, desc: a.desc, baseImponible, alicuota, impuesto, ivaDebito };
   });
+  const ivaDebitoFiscal = round2(actividadDetalle.reduce((s, a) => s + a.ivaDebito, 0));
   const baseImponible = round2(actividadDetalle.reduce((s, a) => s + a.baseImponible, 0));
   const impuesto = round2(actividadDetalle.reduce((s, a) => s + a.impuesto, 0));
   const retenciones = num(doc.retenciones), percepciones = num(doc.percepciones), recban = num(doc.recaudacionesBancarias);
@@ -1633,7 +1637,7 @@ function computeIibbLocalPeriod(client, doc, carryIn) {
   const resultado = round2(impuesto - retenciones - percepciones - recban - saldoAnterior);
   const saldoAPagar = resultado > 0 ? resultado : 0;
   const saldoAFavor = resultado < 0 ? -resultado : 0;
-  const result = { doc, activities, actividadDetalle, baseImponible, impuesto, retenciones, percepciones, recaudacionesBancarias: recban, saldoAnterior, resultado, saldoAPagar, saldoAFavor };
+  const result = { doc, activities, actividadDetalle, baseImponible, ivaDebitoFiscal, impuesto, retenciones, percepciones, recaudacionesBancarias: recban, saldoAnterior, resultado, saldoAPagar, saldoAFavor };
   const carryOut = { saldoAnterior: saldoAFavor };
   return { result, carryOut };
 }
@@ -3029,12 +3033,14 @@ function renderIibbLocalTab(client) {
   const doc = getDoc(client.id, period);
   const d = (doc && doc.iibbLocal) || {};
   const actData = d.actividades || {};
+  const actIvaData = d.actividadesIva || {};
 
   const actInputRows = r.actividadDetalle.map((a) => `
     <tr>
       <td>${escapeHtml(a.desc || a.code)} <span style="color:var(--muted-soft)">(${escapeHtml(a.code)})</span></td>
       <td><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(actData[a.code], "money")}" data-path="iibbLocal.actividades.${a.code}" data-action="field" data-clientid="${client.id}" data-period="${period}"></td>
-    </tr>`).join("") || `<tr><td colspan="2" style="text-align:center;color:var(--muted)">Cargá las actividades de esta jurisdicción en Configuración.</td></tr>`;
+      <td><input type="text" inputmode="decimal" data-kind="money" value="${rawOrBlank(actIvaData[a.code], "money")}" data-path="iibbLocal.actividadesIva.${a.code}" data-action="field" data-clientid="${client.id}" data-period="${period}"></td>
+    </tr>`).join("") || `<tr><td colspan="3" style="text-align:center;color:var(--muted)">Cargá las actividades de esta jurisdicción en Configuración.</td></tr>`;
 
   const actRows = r.actividadDetalle.map((a) => `
     <tr>
@@ -3065,9 +3071,9 @@ function renderIibbLocalTab(client) {
         <div class="card-head"><h3>Actividades — Ventas netas (según libro IVA Ventas)</h3></div>
         <div class="card-body">
           <div class="table-scroll"><table>
-            <tr><th>Actividad</th><th>Ventas netas</th></tr>
+            <tr><th>Actividad</th><th>Ventas netas</th><th>IVA Débito Fiscal</th></tr>
             ${actInputRows}
-            <tr class="total-row"><td>TOTAL — todas las actividades</td><td class="num">${fmtMoney(r.baseImponible)}</td></tr>
+            <tr class="total-row"><td>TOTAL — todas las actividades</td><td class="num">${fmtMoney(r.baseImponible)}</td><td class="num">${fmtMoney(r.ivaDebitoFiscal)}</td></tr>
           </table></div>
         </div>
       </div>
@@ -3498,9 +3504,14 @@ function syncVentasNetasFromIvaActividad(clientId, period, path) {
   const debitoSum = ["ri105", "cf105", "ri21", "cf21"].reduce((s, k) => s + num(getDeep(pa, `debito.${k}`, 0)), 0);
   const ncSum = ["ncEmit105RI", "ncEmit105CF", "ncEmit21RI", "ncEmit21CF"].reduce((s, k) => s + num(getDeep(pa, `restCredito.${k}`, 0)), 0);
   const ventasNetas = round2(debitoSum - ncSum + num(pa.exento) - num(pa.exentoNC));
+  // IVA Débito Fiscal neto de N.C. emitidas (para SIFERE local): neto × alícuota.
+  const ivaDebito = round2(
+    IVA_DEBITO.reduce((s, b) => s + num(getDeep(pa, `debito.${b.key}`, 0)) * b.rate, 0)
+    - IVA_REST_CREDITO.reduce((s, b) => s + num(getDeep(pa, `restCredito.${b.key}`, 0)) * b.rate, 0));
   touchDoc(clientId, period, (d) => {
     if (client.iibbLocal.enabled && (client.iibbLocal.activities || []).some((a) => a.code === code)) {
       setDeep(d, `iibbLocal.actividades.${code}`, ventasNetas);
+      setDeep(d, `iibbLocal.actividadesIva.${code}`, ivaDebito);
     }
     if (client.iibbCM.enabled && (client.iibbCM.activities || []).some((a) => a.code === code)) {
       setDeep(d, `iibbCM.actividades.${code}`, ventasNetas);
