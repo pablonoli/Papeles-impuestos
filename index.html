@@ -2228,8 +2228,10 @@ function mailCalc(client, key, period) {
     if (key === "iva") {
       const r = calcIvaFor(client, period);
       if (r.saldoAPagar > 0) return { tipo: "pagar", monto: r.saldoAPagar, nota: "" };
-      const tec = r.saldoTecnicoFavorContribuyente || 0, lib = r.saldoLibreDisponibilidad || 0, fav = tec + lib;
-      if (fav > 0) return { tipo: "favor", monto: fav, nota: tec > 0 && lib > 0 ? `Saldo técnico ${fmtMoney(tec)} + libre disponibilidad ${fmtMoney(lib)}` : (tec > 0 ? "Saldo técnico a favor" : "Saldo de libre disponibilidad") };
+      // El "saldo a favor" que se informa es el de libre disponibilidad (igual que la tarjeta del
+      // Resumen y el PDF). El saldo técnico queda afuera para no confundir al cliente.
+      const lib = r.saldoLibreDisponibilidad || 0;
+      if (lib > 0) return { tipo: "favor", monto: lib, nota: "Saldo de libre disponibilidad" };
       return { tipo: "pagar", monto: 0, nota: "" };
     }
     if (key === "iibbLocal") {
