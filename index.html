@@ -2241,8 +2241,8 @@ function mailCalc(client, key, period) {
       return { tipo: "pagar", monto: 0, nota: "" };
     }
     const r = calcIibbCMFor(client, period);
+    // Convenio Multilateral: si da saldo a favor NO se informa; el mail dice "Importe a pagar: $0".
     if (r.totales.aPagar > 0) return { tipo: "pagar", monto: r.totales.aPagar, nota: "" };
-    if (r.totales.aFavor > 0) return { tipo: "favor", monto: r.totales.aFavor, nota: "" };
     return { tipo: "pagar", monto: 0, nota: "" };
   } catch (e) { return { tipo: "pagar", monto: 0, nota: "" }; }
 }
