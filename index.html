@@ -5550,6 +5550,11 @@ document.addEventListener("change", (e) => {
     const file = t.files && t.files[0];
     t.value = ""; // permite volver a elegir el mismo archivo si hace falta reimportar
     if (file) importArcaComprobantes(clientid, period, file);
+  } else if (t.dataset.action === "import-arca-file-sumar") {
+    const { clientid, period } = t.dataset;
+    const file = t.files && t.files[0];
+    t.value = "";
+    if (file) importArcaComprobantes(clientid, period, file, true);
   }
 });
 
@@ -6193,7 +6198,11 @@ function renderIvaActividadesModal(clientId, period) {
               📂 Importar comprobantes de ventas (ARCA, .xlsx)
               <input type="file" accept=".xlsx" style="display:none;" data-action="import-arca-file" data-clientid="${clientId}" data-period="${period}">
             </label>
-            <p class="hint-sm" style="margin:6px 0 0;">Excel "Comprobantes de Ventas" descargado del portal IVA de ARCA. Usa los puntos de venta configurados en Configuración → IVA para asignar cada comprobante a su actividad.</p>
+            <label class="btn btn-sm" style="display:inline-flex;cursor:pointer;margin-left:6px;" title="Suma los comprobantes de este Excel a lo ya importado, sin reemplazarlo">
+              ➕ Agregar facturas T / otro Excel
+              <input type="file" accept=".xlsx" style="display:none;" data-action="import-arca-file-sumar" data-clientid="${clientId}" data-period="${period}">
+            </label>
+            <p class="hint-sm" style="margin:6px 0 0;">Excel "Comprobantes de Ventas" descargado del portal IVA de ARCA. Usa los puntos de venta configurados en Configuración → IVA para asignar cada comprobante a su actividad. "Importar" reemplaza lo anterior; "Agregar" suma el Excel a lo ya importado (por ejemplo, uno aparte con Facturas T) — no lo uses dos veces con el mismo archivo.</p>
           </div>
           ${activityTabs}
           ${blocks}
@@ -6225,7 +6234,7 @@ function parseArcaFecha(raw) {
   if (!m) return null;
   return { y: Number(m[3]), m: Number(m[2]), d: Number(m[1]) };
 }
-function importArcaComprobantes(clientId, period, file) {
+function importArcaComprobantes(clientId, period, file, sumar) {
   const client = getClient(clientId);
   if (!client) return;
   const puntosVenta = client.iva.puntosVenta || [];
@@ -6373,14 +6382,26 @@ function importArcaComprobantes(clientId, period, file) {
     }
 
     const codesImportados = Object.keys(acc);
+    // sumar = true: el archivo se SUMA a lo ya importado (ej. Excel aparte con
+    // Facturas T) en lugar de reemplazar la apertura de la actividad.
+    const prevDoc = sumar ? getDoc(clientId, period) : null;
+    const sumaAcc = (code) => {
+      const prev = (prevDoc && prevDoc.iva && prevDoc.iva.porActividad && prevDoc.iva.porActividad[code]) || {};
+      const n = acc[code];
+      const out = { debito: {}, restCredito: {}, exento: round2(num(prev.exento) + n.exento), exentoNC: round2(num(prev.exentoNC) + n.exentoNC) };
+      Object.keys(n.debito).forEach((k) => { out.debito[k] = round2(num((prev.debito || {})[k]) + n.debito[k]); });
+      Object.keys(n.restCredito).forEach((k) => { out.restCredito[k] = round2(num((prev.restCredito || {})[k]) + n.restCredito[k]); });
+      // se conservan otros campos que la apertura pudiera tener
+      return Object.assign({}, prev, out);
+    };
     touchDoc(clientId, period, (doc) => {
       codesImportados.forEach((code) => {
-        setDeep(doc, `iva.porActividad.${code}`, acc[code]);
+        setDeep(doc, `iva.porActividad.${code}`, sumar ? sumaAcc(code) : acc[code]);
       });
     });
     codesImportados.forEach((code) => syncVentasNetasFromIvaActividad(clientId, period, `iva.porActividad.${code}.debito.ri21`));
 
-    let msg = `Importados ${comprobantesOk} comprobantes de ${periodLabel(period)} en ${codesImportados.length} actividad(es).`;
+    let msg = sumar ? `Sumados ${comprobantesOk} comprobantes de ${periodLabel(period)} a lo ya importado (${codesImportados.length} actividad(es)).` : `Importados ${comprobantesOk} comprobantes de ${periodLabel(period)} en ${codesImportados.length} actividad(es).`;
     if (comprobantesMixtos > 0) msg += `\n\n${comprobantesMixtos} comprobante(s) traían 21 % y 10,5 % juntos: repartí el neto entre las dos alícuotas según el IVA que figura.`;
     if (montoSinPV > 0) msg += `\n\nOjo: ${fmtMoney(montoSinPV)} corresponden a punto(s) de venta sin configurar (${[...pvSinConfigurar].join(", ")}) — andá a Configuración → IVA → Puntos de venta y asignalos.`;
     if (montoSinAlicuota > 0) msg += `\n\n${fmtMoney(montoSinAlicuota)} tienen una alícuota que no pude identificar como 10,5% ni 21% — revisalos a mano.`;
