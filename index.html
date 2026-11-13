@@ -6284,6 +6284,7 @@ function importArcaComprobantes(clientId, period, file, sumar) {
     let montoSinPV = 0, pvSinConfigurar = new Set();
     let montoSinAlicuota = 0, comprobantesMixtos = 0;
     let montoSinLetra = 0;
+    let ivaTur = 0, comprobantesT = 0; // Facturas T → crédito fiscal TurIVA
 
     for (let r = headerIdx + 1; r < rows.length; r++) {
       const row = rows[r];
@@ -6367,6 +6368,7 @@ function importArcaComprobantes(clientId, period, file, sumar) {
       if (exentoMonto) {
         if (esNC) acc[code].exentoNC += exentoMonto; else acc[code].exento += exentoMonto;
       }
+      if (letra === "T") { ivaTur += (esNC ? -1 : 1) * ivaMonto; comprobantesT++; }
       comprobantesOk++;
     }
 
@@ -6400,8 +6402,20 @@ function importArcaComprobantes(clientId, period, file, sumar) {
       });
     });
     codesImportados.forEach((code) => syncVentasNetasFromIvaActividad(clientId, period, `iva.porActividad.${code}.debito.ri21`));
+    // Facturas T (ventas a turistas): el IVA de esos comprobantes se devuelve vía TurIVA,
+    // así que se carga solo como crédito fiscal TurIVA (y se activa el régimen en el período).
+    let creditoTurTotal = 0;
+    if (comprobantesT > 0) {
+      const prevTur = sumar && prevDoc && prevDoc.iva && prevDoc.iva.turIva ? num(prevDoc.iva.turIva.credito) : 0;
+      creditoTurTotal = round2(prevTur + ivaTur);
+      touchDoc(clientId, period, (doc) => {
+        setDeep(doc, "iva.turIva.credito", creditoTurTotal);
+        setDeep(doc, "iva.turIvaEnabled", true);
+      });
+    }
 
     let msg = sumar ? `Sumados ${comprobantesOk} comprobantes de ${periodLabel(period)} a lo ya importado (${codesImportados.length} actividad(es)).` : `Importados ${comprobantesOk} comprobantes de ${periodLabel(period)} en ${codesImportados.length} actividad(es).`;
+    if (comprobantesT > 0) msg += `\n\nFacturas T: ${comprobantesT} comprobante(s). Cargué ${fmtMoney(creditoTurTotal)} como crédito fiscal TurIVA y activé TurIVA en este período.`;
     if (comprobantesMixtos > 0) msg += `\n\n${comprobantesMixtos} comprobante(s) traían 21 % y 10,5 % juntos: repartí el neto entre las dos alícuotas según el IVA que figura.`;
     if (montoSinPV > 0) msg += `\n\nOjo: ${fmtMoney(montoSinPV)} corresponden a punto(s) de venta sin configurar (${[...pvSinConfigurar].join(", ")}) — andá a Configuración → IVA → Puntos de venta y asignalos.`;
     if (montoSinAlicuota > 0) msg += `\n\n${fmtMoney(montoSinAlicuota)} tienen una alícuota que no pude identificar como 10,5% ni 21% — revisalos a mano.`;
