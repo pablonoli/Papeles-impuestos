@@ -6300,8 +6300,10 @@ function importArcaComprobantes(clientId, period, file) {
 
       const letraMatch = tipo.match(/([A-Z])\s*$/);
       const letra = letraMatch ? letraMatch[1] : null;
-      const esRI = letra === "A";
-      const esCF = letra === "B" || letra === "C";
+      // A y M → R.I. y Monotributistas. B, C y T (Factura T: ventas a turistas del
+      // exterior, IVA discriminado) → Consumidores Finales y Exentos.
+      const esRI = letra === "A" || letra === "M";
+      const esCF = letra === "B" || letra === "C" || letra === "T";
       if (!esRI && !esCF) { montoSinLetra += netoGravado + exentoMonto; continue; }
       const esNC = /Nota de Cr[eé]dito/i.test(tipo);
 
@@ -6363,7 +6365,7 @@ function importArcaComprobantes(clientId, period, file) {
       if (comprobantesEnPeriodo > 0 && pvSinConfigurar.size) {
         alert(`Encontré ${comprobantesEnPeriodo} comprobantes de ${periodLabel(period)}, pero ninguno se pudo asignar a una actividad: los puntos de venta del archivo (${[...pvSinConfigurar].sort((a, b) => Number(a) - Number(b)).join(", ")}) no están configurados en este cliente.\n\nCargalos en Configuración → IVA → Puntos de venta (número, actividad y alícuota) y volvé a importar.`);
       } else if (comprobantesEnPeriodo > 0) {
-        alert(`Encontré ${comprobantesEnPeriodo} comprobantes de ${periodLabel(period)}, pero ninguno se pudo clasificar (revisá el tipo de comprobante y la alícuota: tiene que ser Factura/NC A, B o C al 10,5 % o 21 %).`);
+        alert(`Encontré ${comprobantesEnPeriodo} comprobantes de ${periodLabel(period)}, pero ninguno se pudo clasificar (revisá el tipo de comprobante y la alícuota: tiene que ser Factura/NC A, B, C, M o T al 10,5 % o 21 %).`);
       } else {
         alert(`No encontré comprobantes de ${periodLabel(period)} en este archivo (¿es el período correcto?). El archivo trae ${comprobantesFueraDePeriodo} comprobantes de otros períodos.`);
       }
