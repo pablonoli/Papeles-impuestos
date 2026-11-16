@@ -4584,16 +4584,28 @@ function pdfAgruparFilas(items) {
     const last = rows[rows.length - 1];
     if (last && Math.abs(last.y - it.y) <= 2.2) last.it.push(it); else rows.push({ y: it.y, it: [it] });
   });
-  rows.forEach((r) => r.it.sort((a, b) => a.x - b.x));
+  rows.forEach((r) => { r.it.sort((a, b) => a.x - b.x); r.it = pdfUnirFragmentos(r.it); });
   return rows;
+}
+// Algunos libros (Crystal Reports → "Microsoft Print to PDF") parten el texto en pedazos:
+// "21,00" + "%" y "N" + "." + "Al". Se vuelven a juntar para que el lector vea "21,00%" y "N. Al".
+function pdfUnirFragmentos(toks) {
+  const out = [];
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i], n1 = toks[i + 1], n2 = toks[i + 2];
+    if (n1 && /^\d{1,2},\d{2}$/.test(t.s) && n1.s === "%") { out.push(Object.assign({}, t, { s: t.s + "%" })); i += 1; continue; }
+    if (n1 && n2 && t.s === "N" && n1.s === "." && /^Al\.?$/i.test(n2.s)) { out.push(Object.assign({}, t, { s: "N. Al" })); i += 2; continue; }
+    out.push(t);
+  }
+  return out;
 }
 const pdfTxt = (row) => row.it.map((t) => t.s).join(" ");
 const pdfFecha = (d, m, y) => `${d}/${m}/${y}`;
 
 // ----- Formato "Libro IVA Compras" ------------------------------------
 function pdfParseLibro(pages) {
-  const out = { formato: "libro", empresa: "", desde: null, hasta: null, raw: [], foot: { credito: { rates: {}, nal: null }, debito: { rates: {}, nal: null }, ni: null, reg: [] }, problemas: [] };
-  let cur = null, sec = null;
+  const out = { formato: "libro", empresa: "", desde: null, hasta: null, raw: [], foot: { credito: { rates: {}, nal: null }, debito: { rates: {}, nal: null }, ni: null, reg: [] }, certs: {}, problemas: [] };
+  let cur = null, sec = null, cert = false;
   const money = (t) => PDF_RE_ARG.test(t.s);
   const mval = (t) => pdfNumArg(t.s);
   const finish = () => { if (cur) { out.raw.push(cur); cur = null; } };
@@ -4612,7 +4624,8 @@ function pdfParseLibro(pages) {
     if (!ms.length) return false;
     if (cur.lines.length === 0 && cur.total == null && !cur.sinPct) {
       cur.sinPct = true;
-      cur.exe += ms.length === 1 ? ms[0] : ms[0];
+      cur.exe += ms[0];
+      cur.exeSuelto = ms.length === 1; // un solo importe: es el total; si sigue una fila "N. Al" no es exento
       cur.total = ms[ms.length - 1];
       return true;
     }
@@ -4622,7 +4635,9 @@ function pdfParseLibro(pages) {
     rows.forEach((row) => {
       const toks = row.it, txt = pdfTxt(row);
       let m;
-      if (/Hoja Nro:/i.test(txt) && !out.empresa) out.empresa = txt.replace(/\s*Hoja Nro:.*$/i, "").trim();
+      if (/Hoja Nro:/i.test(txt)) { if (!out.empresa) out.empresa = txt.replace(/\s*Hoja Nro:.*$/i, "").trim(); return; }
+      // Encabezado que se repite en cada hoja: no es parte del comprobante anterior
+      if (/^(Punto de registraci|Domicilio:|Libro IVA Compras|Fecha\s+Comprobante|No Grav\/Ex)/i.test(txt)) return;
       if ((m = txt.match(/Desde el:\s*(\d{2})\/(\d{2})\/(\d{4})/))) {
         out.desde = { d: +m[1], m: +m[2], y: +m[3] };
         const h = txt.match(/Hasta el:\s*(\d{2})\/(\d{2})\/(\d{4})/);
@@ -4644,14 +4659,23 @@ function pdfParseLibro(pages) {
         return;
       }
       if (sec === "reg") {
-        if (/^(\d{3,4}|IB[A-Z]{2})$/.test(toks[0].s)) { const ns = toks.filter(money).map(mval); if (ns.length) out.foot.reg.push({ code: toks[0].s, amt: ns[0] }); }
+        if (/^(\d{3,4}|[A-Z]{4})$/.test(toks[0].s)) { const ns = toks.filter(money).map(mval); if (ns.length) out.foot.reg.push({ code: toks[0].s, amt: ns[0] }); }
         return;
       }
       if (sec) return;
       if (/^TRANSPORTE\b/i.test(txt)) return;
+      // Certificados de retención (CG = Ganancias, CR = IVA, etc.): no son compras. Se leen aparte
+      // para el control contra los "Regímenes especiales" del pie, y no se pegan al comprobante anterior.
+      if (/^\d{2}\/\d{2}\/\d{2}\s+(CG|CR|CI|CB)\b/.test(txt)) { finish(); cert = true; return; }
+      if (cert && !/^\d{2}\/\d{2}\/\d{2}\s/.test(txt)) {
+        const k = toks.findIndex((t) => /^(\d{3,4}|[A-Z]{4})$/.test(t.s));
+        const mm = toks.slice(k + 1).filter(money);
+        if (k >= 0 && mm.length) { const code = toks[k].s; out.certs[code] = round2((out.certs[code] || 0) + mval(mm[0])); }
+        return;
+      }
       const f = txt.match(/^(\d{2})\/(\d{2})\/(\d{2})\s+([A-Z]{2,3})\s*([A-Z])?\s*(\d{4,5})-(\d{8})/);
       if (f) {
-        finish();
+        finish(); cert = false;
         cur = { fecha: pdfFecha(f[1], f[2], "20" + f[3]), tipo: f[4], letra: f[5] || "", pv: f[6], nro: f[7], cuit: "", nombre: "", lines: [], nog: 0, exe: 0, total: null, percs: [], sinPct: false };
         const ni = toks.findIndex((t) => /\d{4,5}-\d{8}/.test(t.s));
         const nm = [];
@@ -4674,8 +4698,12 @@ function pdfParseLibro(pages) {
       let hizo = false;
       for (let i = 0; i < toks.length; i++) {
         const t = toks[i], nx = toks[i + 1];
-        if (/^N\.?\s*Al\.?$/i.test(t.s) && nx && money(nx)) { cur.nog += mval(nx); i++; hizo = true; }
-        else if (/^(\d{3,4}|IB[A-Z]{2})$/.test(t.s) && nx && money(nx)) { cur.percs.push({ code: t.s, amt: mval(nx) }); i++; hizo = true; }
+        if (/^N\.?\s*Al\.?$/i.test(t.s) && nx && money(nx)) {
+          cur.nog += mval(nx); i++; hizo = true;
+          if (cur.exeSuelto) { cur.exe = 0; cur.exeSuelto = false; }
+        }
+        else if (/^(\d{3,4}|[A-Z]{4})$/.test(t.s) && nx && money(nx)) { cur.percs.push({ code: t.s, amt: mval(nx) }); i++; hizo = true; }
+        else if (/^(\d{3,4}|[A-Z]{4})$/.test(t.s) && nx && /^[A-Z0-9]{1,3}$/.test(nx.s) && toks[i + 2] && money(toks[i + 2])) { cur.percs.push({ code: t.s, amt: mval(toks[i + 2]) }); i += 2; hizo = true; }
       }
       if (hizo) return;
       if (toks.some(money)) { montos(toks, false); return; }
@@ -4784,7 +4812,8 @@ function pdfArmarComp(r, formato) {
   let percIva = 0, percOtras = 0;
   r.percs.forEach((p) => { if (esPercIva(p.code)) percIva += sg * p.amt; else percOtras += sg * p.amt; });
   percIva = round2(percIva); percOtras = round2(percOtras);
-  const nog = round2(A(r.nog)), exe = round2(A(r.exe));
+  // En las facturas el "no alcanzado" puede traer ajustes por redondeo negativos (-0,01): se conservan.
+  const nog = round2(esNC ? A(r.nog) : (r.nog || 0)), exe = round2(A(r.exe));
   const total = round2(A(r.total != null ? r.total : neto + iva + nog + exe + A(percIva + percOtras)));
   // Factura C / sin discriminar: si no hay nada más, todo el importe es no gravado.
   let nog2 = nog;
@@ -4798,7 +4827,7 @@ function pdfArmarComp(r, formato) {
 // ----- Control contra los totales impresos en el libro ----------------
 function pdfControl(parsed, comp) {
   const items = [];
-  const push = (label, libro, calc, tol) => { if (libro == null || isNaN(libro)) return; items.push({ label, libro: round2(libro), calc: round2(calc), ok: Math.abs(libro - calc) <= (tol == null ? 0.06 : tol) }); };
+  const push = (label, libro, calc, tol) => { if (libro == null || isNaN(libro)) return; items.push({ label, libro: round2(libro), calc: round2(calc), ok: round2(Math.abs(libro - calc)) <= (tol == null ? 0.06 : tol) }); };
   const pctTxt = (p) => String(p).replace(".", ",");
   if (parsed.formato === "libro") {
     const sumar = (esNC) => {
@@ -4815,7 +4844,7 @@ function pdfControl(parsed, comp) {
       });
     });
     // no alcanzado (N. Al) y NI/NR/Exento/Monotributo, por separado
-    const nalFC = comp.filter((c) => !c.esNC).reduce((s, c) => s + Math.abs(c.raw.nog || 0), 0);
+    const nalFC = comp.filter((c) => !c.esNC).reduce((s, c) => s + (c.raw.nog || 0), 0);
     const nalNC = comp.filter((c) => c.esNC).reduce((s, c) => s + Math.abs(c.raw.nog || 0), 0);
     const exeFC = comp.filter((c) => !c.esNC).reduce((s, c) => s + Math.abs(c.raw.exe || 0), 0);
     if (parsed.foot.credito.nal != null) push("Compras: no alcanzado", Math.abs(parsed.foot.credito.nal), nalFC);
@@ -4823,6 +4852,7 @@ function pdfControl(parsed, comp) {
     if (parsed.foot.ni != null) push("Compras NI / NR / exento / monotributo", Math.abs(parsed.foot.ni), exeFC);
     const regCalc = {};
     comp.forEach((c) => c.raw.percs.forEach((p) => { regCalc[p.code] = (regCalc[p.code] || 0) + p.amt; }));
+    Object.keys(parsed.certs || {}).forEach((code) => { regCalc[code] = (regCalc[code] || 0) + parsed.certs[code]; });
     const regFoot = {};
     parsed.foot.reg.forEach((r) => { regFoot[r.code] = (regFoot[r.code] || 0) + r.amt; });
     new Set([...Object.keys(regFoot), ...Object.keys(regCalc)]).forEach((code) => { if (regFoot[code] != null) push(`Régimen especial ${code}`, regFoot[code], regCalc[code] || 0); });
