@@ -2258,6 +2258,9 @@ function mailTxtBuild(client, st) {
   const imp = (i) => i.key === "iva" ? "IVA" : (dobleIibb ? (i.key === "iibbLocal" ? "IIBB Local" : "IIBB Convenio Multilateral") : "IIBB");
   const ord = [].concat(inc.filter((i) => i.modo === "definitiva"), inc.filter((i) => i.modo === "borrador"));
   const perDistintos = new Set(ord.map((i) => i.period)).size > 1;
+  // IIBB Local de Río Negro únicamente (sin Convenio Multilateral): la DDJJ definitiva se envía con
+  // "boleta de pago" (no hay acuse ni VEP) y solo si da a pagar.
+  const rnSolo = !!(client.iibbLocal && client.iibbLocal.enabled && normalizeSearch(String(client.iibbLocal.jurisdiccion || "")).indexOf("rio negro") === 0 && !st.items.some((i) => i.key === "iibbCM"));
   // Bloques: cada uno es { parrafo, lineas: [{ label, valor }] }
   const bloques = ord.map((i, n) => {
     const monto = num(i.montoTxt), pagar = i.tipo === "pagar", conPago = pagar && monto > 0;
@@ -2266,7 +2269,9 @@ function mailTxtBuild(client, st) {
     const primero = n === 0, asi = primero ? "" : "Asimismo, ";
     const cap = (t) => primero ? t : t.charAt(0).toLowerCase() + t.slice(1);
     if (i.modo === "definitiva") {
-      intro = conPago ? cap(`Se adjunta DDJJ, acuse de presentación y VEP de ${imp(i)} correspondiente al periodo ${per}:`) : cap(`Se adjunta DDJJ y acuse de presentación de ${imp(i)} correspondiente al periodo ${per}:`);
+      intro = (rnSolo && i.key === "iibbLocal")
+        ? (conPago ? cap(`Se adjunta DDJJ y boleta de pago de ${imp(i)} correspondiente al periodo ${per}:`) : cap(`Se adjunta DDJJ de ${imp(i)} correspondiente al periodo ${per}:`))
+        : conPago ? cap(`Se adjunta DDJJ, acuse de presentación y VEP de ${imp(i)} correspondiente al periodo ${per}:`) : cap(`Se adjunta DDJJ y acuse de presentación de ${imp(i)} correspondiente al periodo ${per}:`);
       lineas.push({ label: pagar ? "Importe a pagar" : "Saldo a favor", valor: mailMoneyTxt(monto) });
       if (conPago) lineas.push({ label: "Fecha de vencimiento", valor: mailFechaTxt(i.venc) || "[completar fecha]" });
     } else {
