@@ -2260,7 +2260,7 @@ function mailTxtBuild(client, st) {
   const perDistintos = new Set(ord.map((i) => i.period)).size > 1;
   // IIBB Local de Río Negro únicamente (sin Convenio Multilateral): la DDJJ definitiva se envía con
   // "boleta de pago" (no hay acuse ni VEP) y solo si da a pagar.
-  const rnSolo = !!(client.iibbLocal && client.iibbLocal.enabled && normalizeSearch(String(client.iibbLocal.jurisdiccion || "")).indexOf("rio negro") === 0 && !st.items.some((i) => i.key === "iibbCM"));
+  const rnSolo = !!(client.iibbLocal && client.iibbLocal.enabled && normalizeSearch(String(client.iibbLocal.jurisdiccion || "")).replace(/[^a-z]/g, "").indexOf("rionegro") === 0 && !st.items.some((i) => i.key === "iibbCM"));
   // Bloques: cada uno es { parrafo, lineas: [{ label, valor }] }
   const bloques = ord.map((i, n) => {
     const monto = num(i.montoTxt), pagar = i.tipo === "pagar", conPago = pagar && monto > 0;
