@@ -4553,8 +4553,13 @@ function importarComprasArca(clientId, period, file) {
       const g = (c) => (c == null ? 0 : Math.abs(num(row[c])) * tc);
       const neto = round2(g(col.neto)), iva = round2(g(col.iva)), exe = round2(g(col.exento)), total = round2(g(col.total));
       let nog = round2(g(col.nog));
-      // Factura C / comprobantes sin discriminar: todo el importe va como no gravado.
-      if (neto === 0 && iva === 0 && nog === 0 && exe === 0 && total > 0) nog = total;
+      // Factura C (monotributista) sin discriminar: en el F. 2083 va en "Operaciones que no generan
+      // Crédito Fiscal", no en "Exento o no gravado". El resto de lo no discriminado va como no gravado.
+      let ni = 0;
+      if (neto === 0 && iva === 0 && total > 0) {
+        if (/\bC\s*$/.test(tipo)) ni = round2(Math.max(0, total - nog - exe));
+        else if (nog === 0 && exe === 0) nog = total;
+      }
       const esNC = /Nota de Cr[eé]dito/i.test(tipo);
       const esND = /Nota de D[eé]bito/i.test(tipo);
       const sp = dividirAlicuotas(neto, iva);
@@ -4562,7 +4567,7 @@ function importarComprasArca(clientId, period, file) {
         fecha: `${String(f.d).padStart(2, "0")}/${String(f.m).padStart(2, "0")}/${f.y}`, tipo, esNC, esND,
         pv: String(row[col.pv] || "").trim(), nro: String(row[col.num] || "").trim(),
         cuit: String(row[col.cuit] || "").trim(), nombre: String(row[col.nombre] || "").trim() || "(sin nombre)",
-        neto, iva, nog, exe, total, otros: total > 0 ? round2(total - neto - iva - nog - exe) : 0, sp,
+        neto, iva, nog, exe: round2(exe + ni), ni, total, otros: total > 0 ? round2(total - neto - iva - nog - exe - ni) : 0, sp,
       });
     }
     if (!comp.length) { alert(`No encontré comprobantes de ${periodLabel(period)} en este archivo (¿es el período correcto?).`); return; }
@@ -4827,7 +4832,7 @@ function pdfArmarComp(r, formato) {
   if (neto === 0 && iva === 0 && nog === 0 && exe === 0 && total > 0) nog2 = total;
   return {
     fecha: r.fecha, tipo, esNC, esND, pv: r.pv, nro: r.nro, cuit: r.cuit, nombre: r.nombre || "(sin nombre)",
-    neto, iva, nog: nog2, exe, total, otros: round2(percIva + percOtras), percIva, percOtras, sp, lines, raw: r,
+    neto, iva, nog: nog2, exe, ni: round2(A(r.exe)), total, otros: round2(percIva + percOtras), percIva, percOtras, sp, lines, raw: r,
   };
 }
 
@@ -4959,7 +4964,7 @@ async function importarComprasPdf(clientId, period, file) {
 // Totales por casillero del papel de trabajo, según el concepto elegido por proveedor.
 function comprasImpTotales() {
   const s = state.comprasImp;
-  const t = { credito: { prest105: 0, bienes21: 0, bienesUso: 0, locaciones: 0, bienesExterior: 0, prest27: 0 }, restDebito: { ncRecLocaciones: 0, ncRecLocal21: 0, ncRecBienesUso: 0, ncRecServicios: 0 }, exentoC: 0, exentoNC: 0, otros: 0, sin: 0, percIva: 0, percOtras: 0, cant: s.comp.length, cantNC: 0 };
+  const t = { credito: { prest105: 0, bienes21: 0, bienesUso: 0, locaciones: 0, bienesExterior: 0, prest27: 0 }, restDebito: { ncRecLocaciones: 0, ncRecLocal21: 0, ncRecBienesUso: 0, ncRecServicios: 0 }, exentoC: 0, exentoNC: 0, sinCredito: 0, otros: 0, sin: 0, percIva: 0, percOtras: 0, cant: s.comp.length, cantNC: 0 };
   s.comp.forEach((c) => {
     const conc = s.conceptos[c.cuit] || "bienes21";
     const sp = c.sp;
@@ -4969,13 +4974,15 @@ function comprasImpTotales() {
       t.restDebito.ncRecLocaciones += sp.a105;
       if (conc === "bienesUso") t.restDebito.ncRecBienesUso += sp.a21; else t.restDebito.ncRecLocal21 += sp.a21;
       t.restDebito.ncRecServicios += sp.a27;
-      t.exentoNC += c.nog + c.exe + sp.a0;
+      t.exentoNC += c.nog + (c.exe - (c.ni || 0)) + sp.a0;
+      t.sinCredito -= (c.ni || 0);
       t.otros -= c.otros;
     } else {
       t.credito.prest105 += sp.a105;
       t.credito[conc] = (t.credito[conc] || 0) + sp.a21;
       t.credito.prest27 += sp.a27;
-      t.exentoC += c.nog + c.exe + sp.a0;
+      t.exentoC += c.nog + (c.exe - (c.ni || 0)) + sp.a0;
+      t.sinCredito += (c.ni || 0);
       t.otros += c.otros;
     }
     t.sin += sp.sin;
@@ -4983,7 +4990,7 @@ function comprasImpTotales() {
     t.percIva += sgp * (c.percIva || 0); t.percOtras += sgp * (c.percOtras || 0);
   });
   ["credito", "restDebito"].forEach((g) => Object.keys(t[g]).forEach((k) => (t[g][k] = round2(t[g][k]))));
-  t.exentoC = round2(t.exentoC); t.exentoNC = round2(t.exentoNC); t.otros = round2(t.otros); t.sin = round2(t.sin); t.percIva = round2(t.percIva); t.percOtras = round2(t.percOtras);
+  t.exentoC = round2(t.exentoC); t.exentoNC = round2(t.exentoNC); t.sinCredito = round2(t.sinCredito); t.otros = round2(t.otros); t.sin = round2(t.sin); t.percIva = round2(t.percIva); t.percOtras = round2(t.percOtras);
   return t;
 }
 function renderComprasImportModal() {
@@ -5009,7 +5016,8 @@ function renderComprasImportModal() {
     Object.keys(labelCr).filter((k) => t.credito[k]).map((k) => `<tr><td style="text-align:left;">${labelCr[k]}</td><td class="num">${fmtMoney(t.credito[k])}</td></tr>`),
     Object.keys(labelNC).filter((k) => t.restDebito[k]).map((k) => `<tr><td style="text-align:left;">${labelNC[k]}</td><td class="num">${fmtMoney(t.restDebito[k])}</td></tr>`),
     t.exentoC ? [`<tr><td style="text-align:left;">Compras exentas / no gravadas</td><td class="num">${fmtMoney(t.exentoC)}</td></tr>`] : [],
-    t.exentoNC ? [`<tr><td style="text-align:left;">N.C. de compra exentas / no gravadas</td><td class="num">${fmtMoney(t.exentoNC)}</td></tr>`] : []
+    t.exentoNC ? [`<tr><td style="text-align:left;">N.C. de compra exentas / no gravadas</td><td class="num">${fmtMoney(t.exentoNC)}</td></tr>`] : [],
+    t.sinCredito ? [`<tr><td style="text-align:left;">Operaciones que no generan Crédito Fiscal<div class="hint-sm">Factura C, monotributo, NI / NR</div></td><td class="num">${fmtMoney(t.sinCredito)}</td></tr>`] : []
   ).join("");
   const mixtos = s.comp.filter((c) => c.sp.mixto).length;
   const avisos = [];
@@ -5049,7 +5057,7 @@ function renderComprasImportModal() {
           <div style="font-weight:700;font-size:13px;">Se va a cargar en el papel de trabajo (Neto libro)</div>
           <div class="table-scroll"><table style="min-width:0;">${totRows || `<tr><td>Nada para cargar</td></tr>`}</table></div>
           ${avisos.length ? `<div class="warn-banner"><div class="wb-text">${avisos.join("<br>")}</div></div>` : ""}
-          <p class="hint-sm" style="margin:0;">Reemplaza el neto de compras (y las exentas de compra) que ya hubiera cargado en este período. No toca la columna "S/ Portal ARCA".</p>
+          <p class="hint-sm" style="margin:0;">Reemplaza el neto de compras (y las exentas de compra, y las operaciones que no generan crédito fiscal) que ya hubiera cargado en este período. No toca la columna "S/ Portal ARCA".</p>
         </div>
         <div class="modal-foot"><button class="btn" data-action="compras-cancelar">Cancelar</button><button class="btn btn-accent" data-action="compras-aplicar">Cargar en el período</button></div>
       </div>
@@ -5065,6 +5073,7 @@ function aplicarComprasImport() {
     Object.keys(t.restDebito).forEach((k) => setDeep(doc, `iva.restDebito.${k}.neto`, t.restDebito[k]));
     setDeep(doc, "iva.exento.compras", t.exentoC);
     setDeep(doc, "iva.exento.ncCompras", t.exentoNC);
+    if (t.sinCredito) setDeep(doc, "iva.exento.operacionesNoCredito", t.sinCredito);
   });
   mutateClient(s.clientId, (c) => {
     const prev = Object.assign({}, c.iva.compraConceptos || {});
