@@ -4656,6 +4656,7 @@ function pdfParseLibro(pages) {
           out.foot[sec].rates[pct] = { neto: ns[0] || 0, iva: ns[1] || 0 };
         } else if (/^Compras NI/i.test(txt)) { const ns = toks.filter(money).map(mval); if (ns.length) out.foot.ni = ns[0]; }
         else if (/^No alcanzado/i.test(txt)) { const ns = toks.filter(money).map(mval); if (ns.length) out.foot[sec].nal = ns[0]; }
+        else if (/^Exento\b/i.test(txt)) { const ns = toks.filter(money).map(mval); if (ns.length) out.foot[sec].exen = ns[0]; }
         return;
       }
       if (sec === "reg") {
@@ -4702,6 +4703,7 @@ function pdfParseLibro(pages) {
           cur.nog += mval(nx); i++; hizo = true;
           if (cur.exeSuelto) { cur.exe = 0; cur.exeSuelto = false; }
         }
+        else if (/^Exen(to)?\.?$/i.test(t.s) && nx && money(nx)) { cur.exen = (cur.exen || 0) + mval(nx); i++; hizo = true; }
         else if (/^(\d{3,4}|[A-Z]{4})$/.test(t.s) && nx && money(nx)) { cur.percs.push({ code: t.s, amt: mval(nx) }); i++; hizo = true; }
         else if (/^(\d{3,4}|[A-Z]{4})$/.test(t.s) && nx && /^[A-Z0-9]{1,3}$/.test(nx.s) && toks[i + 2] && money(toks[i + 2])) { cur.percs.push({ code: t.s, amt: mval(toks[i + 2]) }); i += 2; hizo = true; }
       }
@@ -4813,7 +4815,7 @@ function pdfArmarComp(r, formato) {
   r.percs.forEach((p) => { if (esPercIva(p.code)) percIva += sg * p.amt; else percOtras += sg * p.amt; });
   percIva = round2(percIva); percOtras = round2(percOtras);
   // En las facturas el "no alcanzado" puede traer ajustes por redondeo negativos (-0,01): se conservan.
-  const nog = round2(esNC ? A(r.nog) : (r.nog || 0)), exe = round2(A(r.exe));
+  const nog = round2(esNC ? A(r.nog) : (r.nog || 0)), exe = round2(A(r.exe) + A(r.exen));
   const total = round2(A(r.total != null ? r.total : neto + iva + nog + exe + A(percIva + percOtras)));
   // Factura C / sin discriminar: si no hay nada más, todo el importe es no gravado.
   let nog2 = nog;
@@ -4847,6 +4849,10 @@ function pdfControl(parsed, comp) {
     const nalFC = comp.filter((c) => !c.esNC).reduce((s, c) => s + (c.raw.nog || 0), 0);
     const nalNC = comp.filter((c) => c.esNC).reduce((s, c) => s + Math.abs(c.raw.nog || 0), 0);
     const exeFC = comp.filter((c) => !c.esNC).reduce((s, c) => s + Math.abs(c.raw.exe || 0), 0);
+    const exenFC = comp.filter((c) => !c.esNC).reduce((s, c) => s + Math.abs(c.raw.exen || 0), 0);
+    const exenNC = comp.filter((c) => c.esNC).reduce((s, c) => s + Math.abs(c.raw.exen || 0), 0);
+    if (parsed.foot.credito.exen != null) push("Compras: exento", Math.abs(parsed.foot.credito.exen), exenFC);
+    if (parsed.foot.debito.exen != null) push("N.C. recibidas: exento", Math.abs(parsed.foot.debito.exen), exenNC);
     if (parsed.foot.credito.nal != null) push("Compras: no alcanzado", Math.abs(parsed.foot.credito.nal), nalFC);
     if (parsed.foot.debito.nal != null) push("N.C. recibidas: no alcanzado", Math.abs(parsed.foot.debito.nal), nalNC);
     if (parsed.foot.ni != null) push("Compras NI / NR / exento / monotributo", Math.abs(parsed.foot.ni), exeFC);
