@@ -2001,7 +2001,7 @@ function renderSidebar() {
         <div class="side-label">Clientes<span>${state.clients.length}</span></div>
         <button class="icon-btn-sm" data-action="open-add-client" title="Agregar cliente">+</button>
       </div>
-      <input type="text" class="client-search" placeholder="🔍 Buscar cliente…" value="${escapeHtml(search)}" data-action="search-clients">
+      <input type="text" class="client-search" name="buscar-cliente-q" aria-label="Buscar cliente" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" placeholder="🔍 Buscar cliente…" value="${escapeHtml(search)}" data-action="search-clients">
       <div class="client-list">${items || emptyMsg}</div>
     </div>
     <div class="side-section" style="margin-top:auto;">
@@ -5440,6 +5440,9 @@ document.addEventListener("mousemove", (e) => {
 document.addEventListener("input", (e) => {
   const t = e.target;
   if (t.dataset.action === "search-clients") {
+    // Si un administrador de contraseñas / autocompletado del navegador pega algo en el buscador
+    // (llega como evento "input" genérico, sin inputType), se descarta: solo vale lo que se escribe o pega.
+    if (!(typeof InputEvent !== "undefined" && e instanceof InputEvent) || !e.inputType) { t.value = state.clientSearch || ""; return; }
     state.clientSearch = t.value;
     renderSidebarPreservingFocus();
   } else if (t.dataset.action === "field") {
